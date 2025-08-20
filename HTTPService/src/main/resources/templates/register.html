@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Регистрация</title>
+    <link rel="stylesheet" th:href="@{/css/style2.css}">
+</head>
+<body>
+
+<div class="post-feed">
+    <h2 style="text-align: center;">Регистрация</h2>
+
+    <form id="register-form" class="add-comment">
+        <label>
+            Имя пользователя:
+            <input type="text" name="username" placeholder="Логин" required>
+        </label>
+
+        <label>
+            Аватар:
+            <input type="file" name="userimage" accept="image/*">
+        </label>
+
+        <input type="hidden" name="_csrf" th:value="${_csrf.token}" />
+
+        <label>
+            Пароль:
+            <input type="password" name="password" placeholder="Пароль" required>
+        </label>
+
+        <button type="submit">Зарегистрироваться</button>
+    </form>
+
+
+    <div id="register-response" style="opacity: 0; transition: opacity 1s ease; margin-top: 20px; text-align: center;"></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fp.min.js" th:attr="nonce=${nonce}"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/axios.js" th:attr="nonce=${nonce}"></script>
+
+<script type="module" src="/register.js" th:attr="nonce=${nonce}"></script>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Завершение входа...</title>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa; }
+        .loader { border: 5px solid #e9ecef; border-top: 5px solid #0d6efd; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="loader"></div>
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/callback.js" th:attr="nonce=${nonce}"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/axios.js" th:attr="nonce=${nonce}"></script>
+
+</body>
+</html>

@@ -1,0 +1,13 @@
+# main-service.yml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: main-service
+spec:
+  selector:
+    app: main
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: ${.Values.ports.main_port}

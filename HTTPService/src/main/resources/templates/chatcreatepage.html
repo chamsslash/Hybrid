@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Динамическая форма ChatData</title>
+    <link rel="stylesheet" th:href="@{/css/style2.css}">
+</head>
+<body>
+
+<div class="post-feed">
+    <h2 style="text-align: center;">Отправка ChatData</h2>
+
+    <form id="chatForm" class="add-comment" enctype="multipart/form-data">
+
+        <input type="hidden" name="_csrf" th:value="${_csrf.token}" />
+        <input type="text" name="title" placeholder="Название чата" required>
+
+        <!-- Поле для выбора файла -->
+        <label for="imageUpload">Загрузить изображение:</label>
+        <input type="file" name="file" id="imageUpload" accept="image/*" />
+
+        <div id="userFields">
+            <!-- Сюда будут добавляться блоки пользователей -->
+        </div>
+
+        <button type="button" onclick="addUserField()">+ Добавить пользователя</button>
+        <br><br>
+        <button type="submit">Отправить</button>
+    </form>
+
+    <p id="result" style="margin-top: 10px; font-weight: bold;"></p>
+</div>
+<script src="../static/chatcreate.js" th:attr="nonce=${nonce}"></script>
+</body>
+</html>

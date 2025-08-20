@@ -1,0 +1,73 @@
+server:
+  port: {AUTH_PORT}
+  reactive:
+    session:
+      cookie:
+        http-only: true
+        secure: true
+spring:
+  data:
+    redis:
+      url: redis://localhost:6379/0
+  kafka:
+    bootstrap-servers: ${BOOTSTRAP_ADDRESS}.default.svc.cluster.local:${ingress_port}
+
+
+  security:
+    oauth2:
+      client:
+        provider:
+          google:
+
+            # access_type=offline: говорит Google, что нам нужен refresh_token
+            # prompt=consent: заставляет Google снова показать экран согласия, что инициирует выдачу нового refresh_token
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent
+        registration:
+          google:
+          provider: google
+          client-id: ${GOOGLE_CLIENT_ID}
+          client-secret: ${GOOGLE_CLIENT_SECRET}
+          scope:
+          - profile
+          redirect-uri: "http://localhost:2010/login/oauth2/code/google"
+#        registration:
+#          google:
+#            provider: google
+#            client-id: "830256789402-s5791c611vpevg3pusm8cjjhh9kkcn9r.apps.googleusercontent.com"
+#            client-secret: "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"
+#            scope:
+#              - profile
+#            redirect-uri: "http://localhost:2010/login/oauth2/code/google"
+
+
+  autoconfigure:
+    enabled: true
+
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://${DB_SERVICE}:${DB_PORT}/${DB_NAME}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+      show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+grpc:
+  server:
+    port: 9092
+  client:
+    ImageTransferService:
+      address: "dns:///${grpc_service_name}.default.svc.cluster.local:${ingress_port}"
+      negotiation-type: plaintext
+      enable-keep-alive: true
+      keep-alive-time: 30s
+      keep-alive-timeout: 10s
+      default-load-balancing-policy: round_robin
+      security:
+        authority-override: handle.internal

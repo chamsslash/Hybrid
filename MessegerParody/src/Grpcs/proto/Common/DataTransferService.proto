@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package com.example.grpc;
+
+option java_package = "com.example.grpc";
+option java_outer_classname = "DataTransferService";
+
+message User {
+  string id = 1;
+  string username = 2;
+
+}
+
+message Message {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 chat_id = 3;
+  string text = 4;
+  string timestamp = 6;
+  string chat_name =  7;
+  string user_name= 8;
+  string image_url = 9 ;
+}
+
+message AuthResponse {
+  string status = 1;
+  string message = 2;
+  string auth_token = 3;
+}
+message ChatResponse {
+  string status = 1;
+  string message = 2;
+  int64  id = 3;
+  string newestmessagepreview=  4;
+  string newestmessagetimestamp=5;
+  string image_url =6;
+
+}
+
+message UserDataRequest {
+  int64 id =1;
+  string username = 2;
+  string password = 3;
+  string jwt = 4;
+}
+
+message ListOfMessages {
+  repeated Message message_list = 1;
+}
+message Notification{
+  string  content = 1;
+  string type = 2;
+  repeated int64 user_id = 3;
+  int64 chat_id= 4;
+  int64 author_id =5;
+}
+message UserListResponse {
+  repeated UserDataRequest users = 1;
+}
+message ChatData {
+  string title =1;
+  int64 chat_id = 2;
+  repeated User user = 3;
+  User author_id = 4;
+  string image_url = 5;
+}
+message ListOfChats{
+  repeated ChatData chatdata_list=1;
+}
+//service ChatService {
+  //rpc getnewest(ChatData) returns (Message);
+ // rpc transferchat(ChatData) returns (ChatResponse);
+ // rpc getallchatsbyid(ChatData) returns (ListOfChats); // We send only 1 user in repeated user, but get all chats
+ // rpc getimageurl(ChatData) returns(DriveUrl) ;///Chat data only with id(CHAT)
+//}
+
+message DriveUrl{
+  string url = 1;
+  string  chat_id =2;
+  string  type = 3;
+}
+service NotifyService{
+  rpc transfernotification(Notification) returns(ChatData);
+}
+service MessageTransferService {
+  rpc getnewest(ChatData) returns (Message);
+  rpc transferMessage(Message) returns (Message);
+  rpc transferAllMessages(ChatData) returns (ListOfMessages);
+  rpc transferimageUrltoDB(DriveUrl) returns (DriveUrl);
+}
+
+service AuthTransferService {
+  rpc register(UserDataRequest) returns (AuthResponse);
+  rpc login(UserDataRequest) returns (AuthResponse);
+  rpc Jwt_check(UserDataRequest) returns (AuthResponse);
+}

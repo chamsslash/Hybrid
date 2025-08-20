@@ -1,0 +1,13 @@
+# handle-service.yml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: handle-service
+spec:
+  selector:
+    app: handle
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: ${.Values.ports.main_port}

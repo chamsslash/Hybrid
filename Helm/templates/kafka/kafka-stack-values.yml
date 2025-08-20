@@ -1,0 +1,21 @@
+service:
+  type: ClusterIP
+  ports:
+    client: 9094       # 👈 вот этот порт слушают клиенты (обычно 9092)
+    interbroker: 9093  # 👈 для связи брокеров
+metrics:
+  kafka:
+    enabled: true
+
+#  брокерные метрики
+  jmx:
+    enabled: true
+
+# автоматическая интеграция с Prometheus Operator
+serviceMonitor:
+  enabled: true
+  namespace: default
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: kube-prometheus-stack  # имя релиза Prometheus стека

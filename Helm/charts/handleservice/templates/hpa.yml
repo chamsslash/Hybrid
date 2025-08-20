@@ -1,0 +1,36 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-service-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-service
+  minReplicas: 2
+  maxReplicas: 16
+  metrics:
+    - type: Resource            # CPU
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: External            # HTTP/gRPC RPS (через adapter)
+      external:
+        metric:
+          name: http_rps
+          selector:
+            matchLabels: { service: my-service }
+        target:
+          type: AverageValue
+          averageValue: "50"
+    - type: External            # Kafka lag (через adapter)
+      external:
+        metric:
+          name: kafka_group_lag
+          selector:
+            matchLabels: { consumergroup: my-group, topic: orders }
+        target:
+          type: AverageValue
+          averageValue: "5000"

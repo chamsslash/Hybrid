@@ -1,0 +1,141 @@
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+
+package com.example.grpc;
+
+// Сообщения для пользователей, чатов и изображений
+
+message User {
+  int64 id = 1;
+  string username = 2;
+  string role= 3;
+}
+
+message AuthResponse {
+  string status = 1;
+  string message = 2;
+  string role  =3;
+  string  sub = 4;
+}
+
+message ChatData {
+  string title = 1;
+  int64 chat_id = 2;
+  repeated User user = 3;
+  User author_id = 4;
+}
+
+
+message UserDataRequest {
+  int64 id =1;
+  string username = 2 ;
+  string  password =3;
+
+
+}
+
+message UserListResponse {
+  repeated UserDataRequest users = 1;
+}
+
+message RepeatedUsernames {
+  repeated string names = 1;
+}
+
+message idToken {
+  string id = 1;
+}
+
+message AccessResponse {
+  string access = 1; // json with expires and access
+  string name = 2;
+  string id = 3;
+}
+
+message ImageId {
+  string id = 1;
+}
+message DriveUrl {
+  string url = 1;
+  string chat_id = 2;
+
+}
+
+message ImageDTO {
+  string Base64Image = 1;
+  string ImageName = 2;
+  string Extension = 3;
+  string MimeType = 4;
+  string ChatId = 5; //can be replaced as user_id
+}
+
+message Message {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 chat_id = 3;
+  string text = 4;
+  string timestamp = 6;
+  string chat_name = 7;
+  string user_name = 8;
+}
+
+message ChatResponse {
+  string status = 1;
+  string message = 2;
+}
+
+message ListOfMessages {
+  repeated Message message_list = 1;
+}
+
+message Notification {
+  string content = 1;
+  string type = 2;
+  repeated int64 user_id = 3;
+  int64 chat_id = 4;
+  int64 author_id = 5;
+}
+
+message ListOfChats {
+  repeated ChatData chatdata_list = 1;
+}
+
+message Sub_Role{
+  string sub = 1;
+
+  string role =4;
+}
+
+service AuthTransferService {
+  rpc getUserBySub(Sub_Role) returns (User);
+  rpc get_all_users_by_chatid(ChatData) returns (ChatData); // Receives chatdata only with chat_id and gets chat data with chat_id and all users of the chat
+  rpc get_username_by_id(User) returns (User); // Receives only user (with id) but gets with username
+  rpc get_user_by_username(RepeatedUsernames) returns (UserListResponse);
+  rpc register(UserDataRequest) returns (AuthResponse);
+  rpc login(UserDataRequest) returns (AuthResponse);
+  rpc getUserImageurl(UserDataRequest) returns(DriveUrl);
+  rpc CheckAuthorization(idToken) returns (AccessResponse);
+  rpc CheckOneTimeCodeAndGetSub_Role(idToken) returns (Sub_Role);
+}
+
+service ImageTransferService {
+  rpc getImageFromDrive(ImageId) returns (DriveUrl);
+  rpc saveImageToDrive(ImageDTO) returns (DriveUrl);
+}
+service ChatService {
+  rpc getnewest(ChatData) returns (Message);
+  rpc transferchat(ChatData) returns (ChatResponse);
+  rpc getallchatsbyid(ChatData) returns (ListOfChats); // We send only 1 user in repeated user, but get all chats
+}
+
+service NotifyService {
+  rpc transfernotification(Notification) returns (google.protobuf.Empty);
+}
+
+service MessageTransferService {
+  rpc transferMessage(Message) returns (Message);
+  rpc transferAllMessages(ChatData) returns (ListOfMessages);
+  rpc transferimageUrltoDB(DriveUrl) returns (google.protobuf.Empty);
+}
+
+

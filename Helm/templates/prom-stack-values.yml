@@ -1,0 +1,122 @@
+prometheusAdapter:
+  enabled: true
+  rules:
+    default: false
+    custom:
+      - seriesQuery: 'http_server_requests_seconds_count{service!=""}'
+        resources:
+          overrides:
+            pod:       { resource: "pod" }
+        name:
+          matches: '^http_server_requests_seconds_count'
+          as: 'http_rps'
+        metricsQuery: 'sum(rate(http_server_requests_seconds_count[2m])) by (service)'
+#фильтр по именам метрик в Prometheus.
+      - seriesQuery: 'grpc_server_requests_seconds_count{service!=""}'
+        resources:
+          overrides:
+            pod:       { resource: "pod" }
+        name:
+          matches: '^grpc_server_requests_seconds_count'
+          as: 'grpc_rps'
+        metricsQuery: 'sum(rate(grpc_server_requests_seconds_count[2m])) by (service)'
+
+      - seriesQuery: 'kafka_consumergroup_group_lag{consumergroup!="",topic!=""}'
+        resources:
+          overrides:
+            pod:       { resource: "pod" }
+        name:
+          as: 'kafka_group_lag'
+        metricsQuery: >
+          sum by (consumergroup, topic) (
+            max by (consumergroup, topic, partition) (kafka_consumergroup_group_lag)
+          ) or on() vector(0)
+
+#apiVersion: v1
+#kind: ConfigMap
+#metadata:
+#  name: prom-adapter-rules
+#  namespace: monitoring
+#data:
+#  config.yaml: |
+#    rules:
+#      # Не используем правила по умолчанию, только наши кастомные
+#      default: false
+#
+#      # Список кастомных правил для HPA (Horizontal Pod Autoscaler)
+#      custom:
+#        # --- HTTP RPS ---
+#        # Метрика на основе Spring Actuator (micrometer): http_server_requests_seconds_count
+#        - seriesQuery: 'http_server_requests_seconds_count{service!=""}'
+#          resources:
+#            overrides:
+#              namespace: { resource: "namespace" }
+#              pod:       { resource: "pod" }
+#          name:
+#            matches: '^http_server_requests_seconds_count'
+#            as: 'http_rps'
+#          # Считаем RPS как rate за 2 минуты и агрегируем по сервису
+#          metricsQuery: 'sum(rate(http_server_requests_seconds_count[2m])) by (service)'
+#
+#        # --- gRPC RPS ---
+#        # Метрика на основе micrometer: grpc_server_requests_seconds_count
+#        - seriesQuery: 'grpc_server_requests_seconds_count{service!=""}'
+#          resources:
+#            overrides:
+#              namespace: { resource: "namespace" }
+#              pod:       { resource: "pod" }
+#          name:
+#            matches: '^grpc_server_requests_seconds_count'
+#            as: 'grpc_rps'
+#          metricsQuery: 'sum(rate(grpc_server_requests_seconds_count[2m])) by (service)'
+#
+#        # --- Kafka Lag ---
+#        # Метрика из kafka-lag-exporter или JMX: kafka_consumergroup_group_lag
+#        - seriesQuery: 'kafka_consumergroup_group_lag{consumergroup!="",topic!=""}'
+#          resources:
+#            overrides:
+#              namespace: { resource: "namespace" }
+#              pod:       { resource: "pod" }
+#          name:
+#            as: 'kafka_group_lag'
+#          # Сначала берем максимальный лаг по партициям, затем суммируем по группе и топику.
+#          # `or on() vector(0)` возвращает 0, если метрика временно недоступна, предотвращая ошибки в HPA.
+#          metricsQuery: >
+#            sum by (consumergroup, topic) (
+#              max by (consumergroup, topic, partition) (kafka_consumergroup_group_lag)
+#            ) or on() vector(0)
+#---
+#apiVersion: apps/v1
+#kind: Deployment
+#metadata:
+#  name: prom-adapter
+#  namespace: monitoring
+#  labels: { app: prom-adapter }
+#spec:
+#  replicas: 1
+#  selector:
+#    matchLabels: { app: prom-adapter }
+#  template:
+#    metadata:
+#      labels: { app: prom-adapter }
+#    spec:
+#      containers:
+#        - name: adapter
+#          image: registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.11.0
+#          args:
+#            - --prometheus-url=http://kube-prometheus-stack-prometheus.monitoring.svc:9090  # Убедитесь, что это правильный адрес вашего Prometheus
+#            - --metrics-relist-interval=1m
+#            - --log-level=info
+#            - --config=/etc/adapter/config.yaml
+#          ports:
+#            - name: https
+#              containerPort: 6443
+#          volumeMounts:
+#            - name: cfg
+#              mountPath: /etc/adapter
+#              readOnly: true
+#      volumes:
+#        - name: cfg
+#          configMap:
+#            name: prom-adapter-rules
+#            items: [{ key: config.yaml, path: config.yaml }]

@@ -1,0 +1,1998 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="ecc7f868-1f97-4e17-b9f4-e2b3fcaadcc1" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/reactive-grpc/reactor/reactor-grpc/src/main/java/com/salesforce/reactorgrpc/ReactorGrpcGenerator.java" beforeDir="false" afterPath="$PROJECT_DIR$/reactive-grpc/reactor/reactor-grpc/src/main/java/com/salesforce/reactorgrpc/ReactorGrpcGenerator.java" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="HTML File" />
+        <option value="JavaScript File" />
+        <option value="Class" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/reactive-grpc" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;chamsslash&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/salesforce/reactive-grpc.git&quot;,
+    &quot;accountId&quot;: &quot;6346a472-8a8a-42ff-9dbb-8f8cc2e9166f&quot;
+  }
+}</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="jar://$USER_HOME$/.m2/repository/io/projectreactor/reactor-core/3.5.9/reactor-core-3.5.9.jar!/reactor/core/scheduler/Schedulers.class" root0="SKIP_INSPECTION" />
+  </component>
+  <component name="JsbtTreeLayoutManager">
+    <layout place="tools.popupGrunt">
+      <scroll-view-position x="0" y="0" />
+    </layout>
+  </component>
+  <component name="KubernetesApiPersistence">{}</component>
+  <component name="KubernetesApiProvider">{
+  &quot;isMigrated&quot;: true
+}</component>
+  <component name="MavenRunner">
+    <option name="jreName" value="ms-21" />
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="2uMS3QfSpfIKDAzxOZmqd4fdwYy" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Application.Main.executor&quot;: &quot;Run&quot;,
+    &quot;DefaultHtmlFileTemplate&quot;: &quot;HTML File&quot;,
+    &quot;JUnit.HttpIntegrationTests.executor&quot;: &quot;Debug&quot;,
+    &quot;JUnit.HttpIntegrationTests.testJwtFilterSetsAuthenticationContext.executor&quot;: &quot;Coverage&quot;,
+    &quot;JavaScript Debug.register.html.executor&quot;: &quot;Run&quot;,
+    &quot;Maven.DatabaseMs [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.DatabaseMs [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.DatabaseMs [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.DatabaseMs [package].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.DatabaseMs [site].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.DatabaseMs [test].executor&quot;: &quot;Run&quot;,
+    &quot;RequestMappingsPanelOrder0&quot;: &quot;0&quot;,
+    &quot;RequestMappingsPanelOrder1&quot;: &quot;1&quot;,
+    &quot;RequestMappingsPanelWidth0&quot;: &quot;75&quot;,
+    &quot;RequestMappingsPanelWidth1&quot;: &quot;75&quot;,
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;Spring Boot.Main.executor&quot;: &quot;Run&quot;,
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;bazel.project.detector.is.bazel.project&quot;: &quot;true&quot;,
+    &quot;extract.method.default.visibility&quot;: &quot;private&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;ignore.preview.features.used&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_directory_selection&quot;: &quot;C:/Users/dima/IdeaProjects/HTTPService/src/main/java/com/example/springexample&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/dima/IdeaProjects/HTTPService/pom.xml&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;project.structure.last.edited&quot;: &quot;Project&quot;,
+    &quot;project.structure.proportion&quot;: &quot;0.15&quot;,
+    &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;reference.settingsdialog.IDE.editor.colors.Debugger&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="ReactorSettings">
+    <option name="notificationShown" value="true" />
+  </component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\resources" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\prometheus" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\resources\static" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\resources\static\css" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\resources\templates" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\resources\static" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\resources" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\Grpcs\proto\Reactor" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\Grpcs\proto\Common" />
+      <recent name="C:\Users\dima\IdeaProjects\HTTPService\src\main\proto" />
+    </key>
+    <key name="ExtractSuperBase.RECENT_KEYS">
+      <recent name="com.example.springexample.WebSocketHandlers" />
+    </key>
+    <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
+      <recent name="" />
+    </key>
+    <key name="CopyClassDialog.RECENTS_KEY">
+      <recent name="com.example.springexample.Utils" />
+      <recent name="com.example.springexample" />
+      <recent name="com.example.springexample.WebSocketHandlers" />
+    </key>
+  </component>
+  <component name="RunDashboard">
+    <option name="openRunningConfigInTab" value="true" />
+  </component>
+  <component name="RunManager" selected="Spring Boot.Main">
+    <configuration name="HttpIntegrationTests" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="HTTPService" />
+      <option name="PACKAGE_NAME" value="" />
+      <option name="MAIN_CLASS_NAME" value="HttpIntegrationTests" />
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="HttpIntegrationTests.testJwtFilterSetsAuthenticationContext" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="HTTPService" />
+      <option name="PACKAGE_NAME" value="" />
+      <option name="MAIN_CLASS_NAME" value="HttpIntegrationTests" />
+      <option name="METHOD_NAME" value="testJwtFilterSetsAuthenticationContext" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="JetRunConfigurationType">
+      <module name="main" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="KotlinStandaloneScriptRunConfigurationType">
+      <module name="main" />
+      <option name="filePath" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Main" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot" nameIsGenerated="true">
+      <module name="DatabaseMs" />
+      <option name="SPRING_BOOT_MAIN_CLASS" value="com.example.springexample.Main" />
+      <option name="VM_PARAMETERS" value="-Dio.grpc.netty.useLinuxNative=false" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="docker-deploy" factoryName="dockerfile" temporary="true">
+      <deployment type="dockerfile" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="JUnit.HttpIntegrationTests.testJwtFilterSetsAuthenticationContext" />
+        <item itemvalue="JUnit.HttpIntegrationTests" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-9823dce3aa75-fdfe4dae3a2d-intellij.indexing.shared.core-IU-243.21565.193" />
+        <option value="bundled-js-predefined-d6986cc7102b-e768b9ed790e-JavaScript-IU-243.21565.193" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="ecc7f868-1f97-4e17-b9f4-e2b3fcaadcc1" name="Changes" comment="" />
+      <created>1742056756124</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1742056756124</updated>
+      <workItem from="1742056757328" duration="6621000" />
+      <workItem from="1742120610035" duration="7657000" />
+      <workItem from="1742223720703" duration="4975000" />
+      <workItem from="1742408679085" duration="594000" />
+      <workItem from="1742477361716" duration="910000" />
+      <workItem from="1742824243257" duration="20132000" />
+      <workItem from="1742927505367" duration="6809000" />
+      <workItem from="1743070872527" duration="9756000" />
+      <workItem from="1743087928886" duration="1433000" />
+      <workItem from="1743100511424" duration="3925000" />
+      <workItem from="1743156633274" duration="2275000" />
+      <workItem from="1743247041341" duration="589000" />
+      <workItem from="1743517866253" duration="1813000" />
+      <workItem from="1743706069569" duration="624000" />
+      <workItem from="1743842759048" duration="14769000" />
+      <workItem from="1743861716444" duration="322000" />
+      <workItem from="1743862254790" duration="13967000" />
+      <workItem from="1743937136272" duration="2774000" />
+      <workItem from="1743942402219" duration="38000" />
+      <workItem from="1743943414358" duration="690000" />
+      <workItem from="1743949916738" duration="1686000" />
+      <workItem from="1743974147529" duration="4478000" />
+      <workItem from="1744010873493" duration="1137000" />
+      <workItem from="1744012277502" duration="199000" />
+      <workItem from="1744012514041" duration="12065000" />
+      <workItem from="1744026268343" duration="3298000" />
+      <workItem from="1744031597009" duration="438000" />
+      <workItem from="1744187803211" duration="1290000" />
+      <workItem from="1744192528999" duration="469000" />
+      <workItem from="1744193231328" duration="2456000" />
+      <workItem from="1744291827012" duration="4040000" />
+      <workItem from="1744402039780" duration="7301000" />
+      <workItem from="1744459661863" duration="21089000" />
+      <workItem from="1744634029577" duration="776000" />
+      <workItem from="1744634819793" duration="8334000" />
+      <workItem from="1744648991084" duration="16450000" />
+      <workItem from="1744721283854" duration="6105000" />
+      <workItem from="1744835825863" duration="954000" />
+      <workItem from="1744885093381" duration="5997000" />
+      <workItem from="1744923784846" duration="68000" />
+      <workItem from="1744924279915" duration="2338000" />
+      <workItem from="1744977963910" duration="2303000" />
+      <workItem from="1744998577102" duration="17090000" />
+      <workItem from="1745079888316" duration="5447000" />
+      <workItem from="1745099959270" duration="5237000" />
+      <workItem from="1745144451284" duration="25293000" />
+      <workItem from="1745352188668" duration="5926000" />
+      <workItem from="1746008889518" duration="34000" />
+      <workItem from="1746010818314" duration="3132000" />
+      <workItem from="1746036479074" duration="290000" />
+      <workItem from="1746036802853" duration="605000" />
+      <workItem from="1746115193894" duration="276000" />
+      <workItem from="1746201989069" duration="9593000" />
+      <workItem from="1746268514840" duration="9061000" />
+      <workItem from="1746303089154" duration="7889000" />
+      <workItem from="1746447558889" duration="3386000" />
+      <workItem from="1746451197959" duration="3694000" />
+      <workItem from="1746535734647" duration="16823000" />
+      <workItem from="1746616909000" duration="4487000" />
+      <workItem from="1746691178370" duration="5951000" />
+      <workItem from="1746697460608" duration="11537000" />
+      <workItem from="1746902819937" duration="7532000" />
+      <workItem from="1746963127646" duration="14530000" />
+      <workItem from="1747208588459" duration="10761000" />
+      <workItem from="1747480130984" duration="13576000" />
+      <workItem from="1747517530749" duration="3774000" />
+      <workItem from="1747566542633" duration="5770000" />
+      <workItem from="1747660421826" duration="8530000" />
+      <workItem from="1747753902190" duration="14015000" />
+      <workItem from="1747906281321" duration="5612000" />
+      <workItem from="1747990134194" duration="5494000" />
+      <workItem from="1748010484927" duration="3772000" />
+      <workItem from="1748112271824" duration="2253000" />
+      <workItem from="1748171586722" duration="8458000" />
+      <workItem from="1748253554952" duration="619000" />
+      <workItem from="1748342781515" duration="9000" />
+      <workItem from="1748425084685" duration="6717000" />
+      <workItem from="1748435387144" duration="4198000" />
+      <workItem from="1748444706082" duration="7578000" />
+      <workItem from="1748514194115" duration="12440000" />
+      <workItem from="1748531461538" duration="10658000" />
+      <workItem from="1748546437113" duration="690000" />
+      <workItem from="1748587399063" duration="9049000" />
+      <workItem from="1748619541558" duration="2741000" />
+      <workItem from="1748683669041" duration="3709000" />
+      <workItem from="1748779216293" duration="4191000" />
+      <workItem from="1748797502240" duration="1336000" />
+      <workItem from="1748857771889" duration="7224000" />
+      <workItem from="1748870282725" duration="4416000" />
+      <workItem from="1748882125712" duration="8523000" />
+      <workItem from="1748898660235" duration="4400000" />
+      <workItem from="1748977818571" duration="6557000" />
+      <workItem from="1748985447427" duration="5440000" />
+      <workItem from="1748990939731" duration="997000" />
+      <workItem from="1748991956985" duration="3156000" />
+      <workItem from="1748995286623" duration="4806000" />
+      <workItem from="1749000128544" duration="7537000" />
+      <workItem from="1749150727104" duration="2236000" />
+      <workItem from="1749152996223" duration="71000" />
+      <workItem from="1749153191780" duration="492000" />
+      <workItem from="1749153695726" duration="64000" />
+      <workItem from="1749153766967" duration="6848000" />
+      <workItem from="1749228657583" duration="706000" />
+      <workItem from="1749292041702" duration="6272000" />
+      <workItem from="1749298359474" duration="4647000" />
+      <workItem from="1749303343029" duration="3482000" />
+      <workItem from="1749306863127" duration="650000" />
+      <workItem from="1749307529023" duration="707000" />
+      <workItem from="1749584473860" duration="2629000" />
+      <workItem from="1749627760677" duration="16894000" />
+      <workItem from="1749807710976" duration="1536000" />
+      <workItem from="1749845536882" duration="2296000" />
+      <workItem from="1749902450875" duration="421000" />
+      <workItem from="1749902887922" duration="9705000" />
+      <workItem from="1750001506185" duration="945000" />
+      <workItem from="1750004808345" duration="596000" />
+      <workItem from="1750005997073" duration="594000" />
+      <workItem from="1750275451739" duration="591000" />
+      <workItem from="1750492005065" duration="1957000" />
+      <workItem from="1750510867476" duration="1201000" />
+      <workItem from="1750593118981" duration="3976000" />
+      <workItem from="1750665773286" duration="1784000" />
+      <workItem from="1750707866622" duration="38000" />
+      <workItem from="1750756578964" duration="330000" />
+      <workItem from="1750778107057" duration="4068000" />
+      <workItem from="1750846276296" duration="3833000" />
+      <workItem from="1750924157204" duration="44661000" />
+      <workItem from="1751026562136" duration="9303000" />
+      <workItem from="1751042834120" duration="16760000" />
+      <workItem from="1751108374164" duration="7195000" />
+      <workItem from="1751116308775" duration="1739000" />
+      <workItem from="1751268915054" duration="5084000" />
+      <workItem from="1751451447119" duration="1140000" />
+      <workItem from="1751459270084" duration="13814000" />
+      <workItem from="1751480961149" duration="10029000" />
+      <workItem from="1751491826324" duration="623000" />
+      <workItem from="1751533241213" duration="8471000" />
+      <workItem from="1751547221856" duration="7550000" />
+      <workItem from="1751800692933" duration="17149000" />
+      <workItem from="1751873233367" duration="22505000" />
+      <workItem from="1751983589417" duration="8308000" />
+      <workItem from="1752048472409" duration="4364000" />
+      <workItem from="1752052893859" duration="8956000" />
+      <workItem from="1752172455548" duration="6066000" />
+      <workItem from="1752253546592" duration="5472000" />
+      <workItem from="1752319214355" duration="10718000" />
+      <workItem from="1752584725368" duration="18870000" />
+      <workItem from="1752655970981" duration="32078000" />
+      <workItem from="1752750824541" duration="135000" />
+      <workItem from="1752771506112" duration="1650000" />
+      <workItem from="1752924050572" duration="10115000" />
+      <workItem from="1753002244492" duration="3400000" />
+      <workItem from="1753088937382" duration="16791000" />
+      <workItem from="1753191548703" duration="22096000" />
+      <workItem from="1753256326074" duration="16745000" />
+      <workItem from="1753524051663" duration="35556000" />
+      <workItem from="1753607667600" duration="19484000" />
+      <workItem from="1753691361203" duration="5340000" />
+      <workItem from="1753884689160" duration="8751000" />
+      <workItem from="1753951802800" duration="20496000" />
+      <workItem from="1753972556374" duration="2676000" />
+      <workItem from="1753975287692" duration="3189000" />
+      <workItem from="1753978547748" duration="3417000" />
+      <workItem from="1753982047446" duration="2260000" />
+      <workItem from="1753984416450" duration="1592000" />
+      <workItem from="1753992400418" duration="4844000" />
+      <workItem from="1754121406527" duration="1360000" />
+      <workItem from="1754296167059" duration="14719000" />
+      <workItem from="1754389280088" duration="1188000" />
+      <workItem from="1754673746606" duration="8373000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="UnknownFeatures">
+    <option featureType="dependencySupport" implementationName="java:org.springframework:spring-core" />
+    <option featureType="dependencySupport" implementationName="java:org.springframework.security:spring-security-core" />
+    <option featureType="dependencySupport" implementationName="java:org.springframework:spring-websocket" />
+    <option featureType="dependencySupport" implementationName="executable:docker" />
+    <option featureType="dependencySupport" implementationName="java:jakarta.validation:jakarta.validation-api" />
+    <option featureType="dependencySupport" implementationName="java:io.grpc:grpc-api" />
+    <option featureType="dependencySupport" implementationName="executable:kubectl" />
+    <option featureType="dependencySupport" implementationName="java:org.thymeleaf:thymeleaf" />
+    <option featureType="dependencySupport" implementationName="java:org.springframework:spring-messaging" />
+    <option featureType="dependencySupport" implementationName="java:org.springframework.boot:spring-boot" />
+    <option featureType="dependencySupport" implementationName="java:org.springframework:spring-webmvc" />
+    <option featureType="dependencySupport" implementationName="java:org.projectlombok:lombok" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/WebSocketHandlers/MessageWebSocketHandler.java</url>
+          <line>94</line>
+          <option name="timeStamp" value="127" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/gRPC_Client.java</url>
+          <line>96</line>
+          <option name="timeStamp" value="134" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>51</line>
+          <option name="timeStamp" value="172" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/gRPC_Client.java</url>
+          <line>93</line>
+          <option name="timeStamp" value="287" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>20</line>
+          <option name="timeStamp" value="291" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>21</line>
+          <option name="timeStamp" value="292" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>22</line>
+          <option name="timeStamp" value="293" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>25</line>
+          <option name="timeStamp" value="294" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/gRPC_Client.java</url>
+          <line>100</line>
+          <option name="timeStamp" value="306" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaConsumer.java</url>
+          <line>33</line>
+          <option name="timeStamp" value="326" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaConsumer.java</url>
+          <line>32</line>
+          <option name="timeStamp" value="327" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaConsumer.java</url>
+          <line>26</line>
+          <option name="timeStamp" value="329" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaConsumer.java</url>
+          <line>27</line>
+          <option name="timeStamp" value="331" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaConsumer.java</url>
+          <line>28</line>
+          <option name="timeStamp" value="332" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaConsumer.java</url>
+          <line>29</line>
+          <option name="timeStamp" value="333" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>61</line>
+          <option name="timeStamp" value="335" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>45</line>
+          <option name="timeStamp" value="392" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>155</line>
+          <option name="timeStamp" value="393" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>156</line>
+          <option name="timeStamp" value="394" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>165</line>
+          <option name="timeStamp" value="395" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>159</line>
+          <option name="timeStamp" value="396" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>162</line>
+          <option name="timeStamp" value="397" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>157</line>
+          <option name="timeStamp" value="398" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>158</line>
+          <option name="timeStamp" value="400" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>160</line>
+          <option name="timeStamp" value="401" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>161</line>
+          <option name="timeStamp" value="402" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>163</line>
+          <option name="timeStamp" value="403" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>164</line>
+          <option name="timeStamp" value="404" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>173</line>
+          <option name="timeStamp" value="405" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>225</line>
+          <option name="timeStamp" value="406" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>234</line>
+          <option name="timeStamp" value="412" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>231</line>
+          <option name="timeStamp" value="413" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>226</line>
+          <option name="timeStamp" value="414" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>227</line>
+          <option name="timeStamp" value="415" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>229</line>
+          <option name="timeStamp" value="420" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>230</line>
+          <option name="timeStamp" value="421" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>236</line>
+          <option name="timeStamp" value="422" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>56</line>
+          <option name="timeStamp" value="426" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>147</line>
+          <properties>
+            <option name="lambda-ordinal" value="-1" />
+          </properties>
+          <option name="timeStamp" value="431" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>141</line>
+          <option name="timeStamp" value="432" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>128</line>
+          <option name="timeStamp" value="434" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>124</line>
+          <option name="timeStamp" value="436" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>59</line>
+          <option name="timeStamp" value="439" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>58</line>
+          <option name="timeStamp" value="440" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>57</line>
+          <option name="timeStamp" value="441" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>67</line>
+          <option name="timeStamp" value="443" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>70</line>
+          <option name="timeStamp" value="445" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ChatContextService.java</url>
+          <line>60</line>
+          <option name="timeStamp" value="454" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>52</line>
+          <option name="timeStamp" value="455" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ChatContextService.java</url>
+          <line>57</line>
+          <option name="timeStamp" value="467" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ChatContextService.java</url>
+          <line>55</line>
+          <option name="timeStamp" value="470" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ChatContextService.java</url>
+          <line>51</line>
+          <option name="timeStamp" value="471" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/KafkaProducer.java</url>
+          <line>11</line>
+          <option name="timeStamp" value="473" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>103</line>
+          <option name="timeStamp" value="506" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>47</line>
+          <option name="timeStamp" value="544" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>143</line>
+          <option name="timeStamp" value="545" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>48</line>
+          <option name="timeStamp" value="553" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>49</line>
+          <option name="timeStamp" value="688" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>52</line>
+          <option name="timeStamp" value="692" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>51</line>
+          <option name="timeStamp" value="693" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>50</line>
+          <option name="timeStamp" value="694" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>53</line>
+          <option name="timeStamp" value="733" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/ReactiveGrpcClient.java</url>
+          <line>54</line>
+          <option name="timeStamp" value="734" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>63</line>
+          <option name="timeStamp" value="772" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>71</line>
+          <option name="timeStamp" value="890" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>74</line>
+          <option name="timeStamp" value="892" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>48</line>
+          <option name="timeStamp" value="903" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>42</line>
+          <option name="timeStamp" value="904" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>47</line>
+          <option name="timeStamp" value="905" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>36</line>
+          <option name="timeStamp" value="926" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>40</line>
+          <option name="timeStamp" value="928" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>261</line>
+          <option name="timeStamp" value="953" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>276</line>
+          <option name="timeStamp" value="955" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>280</line>
+          <option name="timeStamp" value="956" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>291</line>
+          <option name="timeStamp" value="957" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>290</line>
+          <option name="timeStamp" value="958" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>295</line>
+          <option name="timeStamp" value="959" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>296</line>
+          <option name="timeStamp" value="960" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>300</line>
+          <option name="timeStamp" value="963" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>301</line>
+          <option name="timeStamp" value="964" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>307</line>
+          <option name="timeStamp" value="965" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>308</line>
+          <option name="timeStamp" value="966" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>312</line>
+          <option name="timeStamp" value="967" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>313</line>
+          <option name="timeStamp" value="968" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>314</line>
+          <option name="timeStamp" value="969" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>315</line>
+          <option name="timeStamp" value="970" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>52</line>
+          <option name="timeStamp" value="972" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>63</line>
+          <option name="timeStamp" value="995" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>51</line>
+          <option name="timeStamp" value="998" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>204</line>
+          <option name="timeStamp" value="1003" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>212</line>
+          <option name="timeStamp" value="1008" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>205</line>
+          <option name="timeStamp" value="1009" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>518</line>
+          <option name="timeStamp" value="1010" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>499</line>
+          <option name="timeStamp" value="1011" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>502</line>
+          <option name="timeStamp" value="1012" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>501</line>
+          <option name="timeStamp" value="1013" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>504</line>
+          <option name="timeStamp" value="1014" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>507</line>
+          <option name="timeStamp" value="1016" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>510</line>
+          <option name="timeStamp" value="1018" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>513</line>
+          <option name="timeStamp" value="1019" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>206</line>
+          <option name="timeStamp" value="1021" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>211</line>
+          <option name="timeStamp" value="1022" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>213</line>
+          <option name="timeStamp" value="1023" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>215</line>
+          <option name="timeStamp" value="1024" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>216</line>
+          <option name="timeStamp" value="1025" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>217</line>
+          <option name="timeStamp" value="1026" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>218</line>
+          <option name="timeStamp" value="1027" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/ParsingDataService.java</url>
+          <line>26</line>
+          <option name="timeStamp" value="1031" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/ParsingDataService.java</url>
+          <line>27</line>
+          <option name="timeStamp" value="1032" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>74</line>
+          <option name="timeStamp" value="1038" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>75</line>
+          <option name="timeStamp" value="1039" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>76</line>
+          <properties>
+            <option name="lambda-ordinal" value="-1" />
+          </properties>
+          <option name="timeStamp" value="1040" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>79</line>
+          <option name="timeStamp" value="1041" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>80</line>
+          <option name="timeStamp" value="1042" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>73</line>
+          <option name="timeStamp" value="1043" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>210</line>
+          <option name="timeStamp" value="1071" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>209</line>
+          <option name="timeStamp" value="1072" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>191</line>
+          <option name="timeStamp" value="1080" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>194</line>
+          <option name="timeStamp" value="1083" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>74</line>
+          <option name="timeStamp" value="1104" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>190</line>
+          <option name="timeStamp" value="1110" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>123</line>
+          <option name="timeStamp" value="1112" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>139</line>
+          <option name="timeStamp" value="1113" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>135</line>
+          <option name="timeStamp" value="1114" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>134</line>
+          <option name="timeStamp" value="1115" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>140</line>
+          <option name="timeStamp" value="1117" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>125</line>
+          <properties>
+            <option name="lambda-ordinal" value="0" />
+          </properties>
+          <option name="timeStamp" value="1118" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>127</line>
+          <option name="timeStamp" value="1119" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>131</line>
+          <option name="timeStamp" value="1120" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>130</line>
+          <option name="timeStamp" value="1121" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>132</line>
+          <option name="timeStamp" value="1122" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>133</line>
+          <option name="timeStamp" value="1123" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>106</line>
+          <option name="timeStamp" value="1124" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>105</line>
+          <properties>
+            <option name="lambda-ordinal" value="0" />
+          </properties>
+          <option name="timeStamp" value="1125" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>104</line>
+          <option name="timeStamp" value="1126" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>102</line>
+          <option name="timeStamp" value="1127" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>81</line>
+          <option name="timeStamp" value="1128" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>82</line>
+          <option name="timeStamp" value="1129" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>83</line>
+          <option name="timeStamp" value="1130" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>84</line>
+          <option name="timeStamp" value="1131" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>89</line>
+          <option name="timeStamp" value="1133" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>99</line>
+          <option name="timeStamp" value="1134" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>101</line>
+          <option name="timeStamp" value="1135" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>217</line>
+          <option name="timeStamp" value="1142" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>132</line>
+          <option name="timeStamp" value="1143" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>245</line>
+          <option name="timeStamp" value="1144" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>242</line>
+          <option name="timeStamp" value="1145" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>91</line>
+          <option name="timeStamp" value="1177" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>101</line>
+          <option name="timeStamp" value="1186" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>102</line>
+          <option name="timeStamp" value="1187" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>104</line>
+          <option name="timeStamp" value="1188" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>106</line>
+          <option name="timeStamp" value="1189" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>107</line>
+          <option name="timeStamp" value="1190" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>132</line>
+          <option name="timeStamp" value="1192" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>134</line>
+          <option name="timeStamp" value="1193" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>136</line>
+          <option name="timeStamp" value="1194" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>138</line>
+          <option name="timeStamp" value="1195" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>139</line>
+          <option name="timeStamp" value="1196" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>140</line>
+          <option name="timeStamp" value="1197" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>141</line>
+          <option name="timeStamp" value="1198" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>133</line>
+          <option name="timeStamp" value="1199" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>137</line>
+          <option name="timeStamp" value="1200" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>146</line>
+          <option name="timeStamp" value="1202" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>145</line>
+          <option name="timeStamp" value="1203" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>148</line>
+          <option name="timeStamp" value="1204" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>149</line>
+          <option name="timeStamp" value="1205" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>147</line>
+          <option name="timeStamp" value="1206" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>121</line>
+          <option name="timeStamp" value="1207" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>122</line>
+          <option name="timeStamp" value="1208" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>110</line>
+          <option name="timeStamp" value="1209" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>109</line>
+          <option name="timeStamp" value="1210" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>183</line>
+          <option name="timeStamp" value="1226" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>213</line>
+          <option name="timeStamp" value="1228" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>216</line>
+          <option name="timeStamp" value="1229" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>225</line>
+          <option name="timeStamp" value="1232" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>236</line>
+          <option name="timeStamp" value="1233" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>240</line>
+          <option name="timeStamp" value="1234" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>66</line>
+          <option name="timeStamp" value="1235" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>76</line>
+          <option name="timeStamp" value="1236" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>77</line>
+          <option name="timeStamp" value="1237" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>78</line>
+          <option name="timeStamp" value="1238" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>79</line>
+          <option name="timeStamp" value="1239" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>80</line>
+          <option name="timeStamp" value="1240" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>83</line>
+          <option name="timeStamp" value="1241" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>85</line>
+          <option name="timeStamp" value="1242" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>61</line>
+          <option name="timeStamp" value="1243" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>60</line>
+          <option name="timeStamp" value="1244" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>58</line>
+          <option name="timeStamp" value="1245" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>57</line>
+          <option name="timeStamp" value="1247" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>55</line>
+          <option name="timeStamp" value="1248" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>56</line>
+          <option name="timeStamp" value="1249" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>62</line>
+          <option name="timeStamp" value="1250" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>59</line>
+          <option name="timeStamp" value="1251" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>192</line>
+          <option name="timeStamp" value="1252" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>195</line>
+          <option name="timeStamp" value="1253" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>207</line>
+          <option name="timeStamp" value="1254" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>221</line>
+          <option name="timeStamp" value="1255" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>241</line>
+          <option name="timeStamp" value="1256" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>123</line>
+          <option name="timeStamp" value="1257" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>119</line>
+          <option name="timeStamp" value="1271" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>83</line>
+          <option name="timeStamp" value="1274" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>92</line>
+          <option name="timeStamp" value="1277" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>97</line>
+          <option name="timeStamp" value="1278" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>99</line>
+          <option name="timeStamp" value="1279" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>106</line>
+          <option name="timeStamp" value="1280" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>107</line>
+          <option name="timeStamp" value="1281" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>108</line>
+          <option name="timeStamp" value="1282" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>109</line>
+          <option name="timeStamp" value="1283" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>112</line>
+          <option name="timeStamp" value="1284" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>113</line>
+          <option name="timeStamp" value="1285" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>111</line>
+          <option name="timeStamp" value="1286" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>116</line>
+          <option name="timeStamp" value="1287" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>117</line>
+          <option name="timeStamp" value="1288" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>144</line>
+          <option name="timeStamp" value="1289" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>145</line>
+          <option name="timeStamp" value="1291" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>154</line>
+          <option name="timeStamp" value="1293" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>155</line>
+          <option name="timeStamp" value="1294" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>113</line>
+          <option name="timeStamp" value="1312" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>112</line>
+          <option name="timeStamp" value="1313" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>110</line>
+          <option name="timeStamp" value="1314" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>108</line>
+          <option name="timeStamp" value="1316" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>100</line>
+          <option name="timeStamp" value="1317" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>103</line>
+          <option name="timeStamp" value="1318" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>102</line>
+          <option name="timeStamp" value="1330" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcJwtAuthFilter.java</url>
+          <line>104</line>
+          <option name="timeStamp" value="1331" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>69</line>
+          <option name="timeStamp" value="1334" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>68</line>
+          <option name="timeStamp" value="1335" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>70</line>
+          <option name="timeStamp" value="1336" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>74</line>
+          <option name="timeStamp" value="1337" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>73</line>
+          <option name="timeStamp" value="1338" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>71</line>
+          <option name="timeStamp" value="1339" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>72</line>
+          <option name="timeStamp" value="1340" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>75</line>
+          <option name="timeStamp" value="1341" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>76</line>
+          <option name="timeStamp" value="1342" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>77</line>
+          <option name="timeStamp" value="1343" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>79</line>
+          <option name="timeStamp" value="1344" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>80</line>
+          <option name="timeStamp" value="1345" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>81</line>
+          <option name="timeStamp" value="1346" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>82</line>
+          <option name="timeStamp" value="1347" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>84</line>
+          <option name="timeStamp" value="1348" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>87</line>
+          <option name="timeStamp" value="1349" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>88</line>
+          <option name="timeStamp" value="1350" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>90</line>
+          <option name="timeStamp" value="1351" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>91</line>
+          <option name="timeStamp" value="1352" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>93</line>
+          <option name="timeStamp" value="1353" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>94</line>
+          <option name="timeStamp" value="1354" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>98</line>
+          <option name="timeStamp" value="1355" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>99</line>
+          <option name="timeStamp" value="1356" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>105</line>
+          <option name="timeStamp" value="1357" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>109</line>
+          <option name="timeStamp" value="1358" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>110</line>
+          <option name="timeStamp" value="1359" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>119</line>
+          <option name="timeStamp" value="1360" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>121</line>
+          <option name="timeStamp" value="1361" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>122</line>
+          <option name="timeStamp" value="1362" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>124</line>
+          <option name="timeStamp" value="1363" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>120</line>
+          <option name="timeStamp" value="1364" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>133</line>
+          <option name="timeStamp" value="1365" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>135</line>
+          <option name="timeStamp" value="1366" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>48</line>
+          <option name="timeStamp" value="1373" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>50</line>
+          <option name="timeStamp" value="1374" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>51</line>
+          <option name="timeStamp" value="1375" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>53</line>
+          <option name="timeStamp" value="1376" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>56</line>
+          <option name="timeStamp" value="1378" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>57</line>
+          <option name="timeStamp" value="1379" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>59</line>
+          <option name="timeStamp" value="1380" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/AuthGrpc.java</url>
+          <line>60</line>
+          <option name="timeStamp" value="1381" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>83</line>
+          <option name="timeStamp" value="1382" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>225</line>
+          <option name="timeStamp" value="1384" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>226</line>
+          <option name="timeStamp" value="1385" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>232</line>
+          <option name="timeStamp" value="1386" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>234</line>
+          <option name="timeStamp" value="1387" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>235</line>
+          <option name="timeStamp" value="1388" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>237</line>
+          <option name="timeStamp" value="1389" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>238</line>
+          <option name="timeStamp" value="1390" />
+        </line-breakpoint>
+        <line-breakpoint type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>239</line>
+          <option name="timeStamp" value="1391" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>61</line>
+          <option name="timeStamp" value="1398" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>63</line>
+          <option name="timeStamp" value="1399" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>67</line>
+          <option name="timeStamp" value="1401" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>51</line>
+          <option name="timeStamp" value="1403" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>54</line>
+          <properties>
+            <option name="lambda-ordinal" value="-1" />
+          </properties>
+          <option name="timeStamp" value="1404" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>52</line>
+          <option name="timeStamp" value="1408" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/MvcSecurityConfig.java</url>
+          <line>60</line>
+          <option name="timeStamp" value="1409" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/StompHandlers/ChatListStompController.java</url>
+          <line>58</line>
+          <properties class="com.example.springexample.StompHandlers.ChatListStompController" method="UploadChatImageFromKafka">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="334" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/YandexGptService.java</url>
+          <line>103</line>
+          <properties class="com.example.springexample.YandexGptService">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="370" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/FrankensteinSecurityFilter.java</url>
+          <line>70</line>
+          <properties class="com.example.springexample.FrankensteinSecurityFilter">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="868" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>258</line>
+          <properties class="com.example.springexample.Services.WEBFLUX_Service">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="952" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>46</line>
+          <properties class="com.example.springexample.Services.MVC_Service">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="996" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Utils/TokensResolver.java</url>
+          <line>131</line>
+          <properties class="com.example.springexample.Utils.TokensResolver" method="CheckRefreshAndGetSub">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1191" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/MVC_Service.java</url>
+          <line>84</line>
+          <properties class="com.example.springexample.Services.MVC_Service" method="provideNewTokens">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1276" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>326</line>
+          <properties class="com.example.springexample.Services.WEBFLUX_Service" method="getChatList">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1332" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>66</line>
+          <properties class="com.example.springexample.Services.WEBFLUX_Service" method="registerHandle">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1333" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/Services/WEBFLUX_Service.java</url>
+          <line>224</line>
+          <properties class="com.example.springexample.Services.WEBFLUX_Service" method="ResultSet">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1383" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>170</line>
+          <properties class="com.example.springexample.ReactiveHybridAuthFilter" method="redirectToFingerprint">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1392" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>163</line>
+          <properties class="com.example.springexample.ReactiveHybridAuthFilter" method="createAuth">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1394" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>186</line>
+          <properties class="com.example.springexample.ReactiveHybridAuthFilter" method="sendRedirect">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1395" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>59</line>
+          <properties class="com.example.springexample.ReactiveHybridAuthFilter" method="filter">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1397" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-method">
+          <url>file://$PROJECT_DIR$/src/main/java/com/example/springexample/ReactiveHybridAuthFilter.java</url>
+          <line>50</line>
+          <properties class="com.example.springexample.ReactiveHybridAuthFilter" method="shouldNotFilter">
+            <option name="EMULATED" value="true" />
+            <option name="WATCH_EXIT" value="false" />
+          </properties>
+          <option name="timeStamp" value="1405" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="javascript">
+          <url>file://$PROJECT_DIR$/src/main/resources/static/callback.js</url>
+          <line>57</line>
+          <option name="timeStamp" value="1058" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="javascript">
+          <url>file://$PROJECT_DIR$/src/main/resources/static/welcome.js</url>
+          <line>2</line>
+          <option name="timeStamp" value="1106" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+    <pin-to-top-manager>
+      <pinned-members>
+        <PinnedItemInfo parentTag="org.springframework.security.web.servletapi.HttpServlet3RequestFactory$Servlet3SecurityContextHolderAwareRequestWrapper" memberName="request" />
+        <PinnedItemInfo parentTag="com.example.springexample.Services.ReactiveGrpcClient" memberName="chatListStomp" />
+      </pinned-members>
+    </pin-to-top-manager>
+    <watches-manager>
+      <configuration name="SpringBootApplicationConfigurationType">
+        <watch expression="ws_session" />
+        <watch expression="ws_session" />
+        <watch expression="&lt;!DOCTYPE html&gt;&#10;&lt;html lang=&quot;ru&quot; xmlns:th=&quot;http://www.thymeleaf.org&quot;&gt;&#10;&lt;head&gt;&#10;    &lt;meta charset=&quot;UTF-8&quot;&gt;&#10;    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;&gt;&#10;    &lt;title&gt;Страница входа&lt;/title&gt;&#10;    &lt;link rel=&quot;stylesheet&quot; th:href=&quot;@{/css/style_welcome.css}&quot;&gt;&#10;    &lt;!-- Мета-теги для CSRF, если они нужны для ваших POST-запросов --&gt;&#10;    &lt;meta name=&quot;_csrf&quot; th:content=&quot;${_csrf?.token}&quot;/&gt;&#10;    &lt;meta name=&quot;_csrf_header&quot; th:content=&quot;${_csrf?.headerName}&quot;/&gt;&#10;&lt;/head&gt;&#10;&lt;body&gt;&#10;&#10;&lt;div class=&quot;login-container&quot;&gt;&#10;    &lt;h1&gt;Вход в систему&lt;/h1&gt;&#10;&#10;    &lt;!-- href=&quot;##&quot; чтобы ссылка никуда не вела по умолчанию --&gt;&#10;    &lt;a href=&quot;##&quot; id=&quot;google-login-btn&quot; class=&quot;btn btn-google&quot;&gt;Войти через Google&lt;/a&gt;&#10;&#10;    &lt;!-- ИСПРАВЛЕН ID для уникальности --&gt;&#10;    &lt;a href=&quot;/registerpage&quot; id=&quot;register-link&quot; class=&quot;btn btn-regular&quot;&gt;Eще нет аккаунта?&lt;/a&gt;&#10;&#10;    &lt;!-- ДОБАВЛЕН БЛОК для сообщений пользователю --&gt;&#10;    &lt;div id=&quot;response-div&quot; class=&quot;response-message&quot; style=&quot;opacity: 0;&quot;&gt;&lt;span th:text=&quot;${error} ?: ''&quot;&gt;&lt;/span&gt;&lt;/div&gt;&#10;&#10;    &lt;form id=&quot;regular-login-form&quot; class=&quot;hidden&quot;&gt;&#10;&#10;        &lt;input type=&quot;text&quot; name=&quot;username&quot; class=&quot;input-field&quot; placeholder=&quot;Имя&quot; required&gt;&#10;        &lt;input type=&quot;password&quot; name=&quot;password&quot; class=&quot;input-field&quot; placeholder=&quot;Пароль&quot; required&gt;&#10;        &lt;button type=&quot;submit&quot; class=&quot;btn btn-regular&quot;&gt;Войти&lt;/button&gt;&#10;    &lt;/form&gt;&#10;&lt;/div&gt;&#10;&#10;&lt;!-- Подключение скриптов --&gt;&#10;&#10;&lt;script src=&quot;https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fp.min.js&quot; th:attr=&quot;nonce=${nonce}&quot;&gt;&lt;/script&gt;&#10;&lt;script src=&quot;https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js&quot; th:attr=&quot;nonce=${nonce}&quot;&gt;&lt;/script&gt;&#10;&lt;script type=&quot;module&quot; src=&quot;/axios.js&quot; th:attr=&quot;nonce=${nonce}&quot;&gt;&lt;/script&gt;&#10;&lt;script src=&quot;/welcome.js&quot; th:attr=&quot;nonce=${nonce}&quot;&gt;&lt;/script&gt;&#10;&#10;&lt;/body&gt;&#10;&lt;/html&gt;" />
+      </configuration>
+    </watches-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/HTTPService$HttpIntegrationTests_testJwtFilterSetsAuthenticationContext.ic" NAME="HttpIntegrationTests.testJwtFilterSetsAuthenticationContext Coverage Results" MODIFIED="1748620526048" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="idea" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="true" />
+  </component>
+</project>

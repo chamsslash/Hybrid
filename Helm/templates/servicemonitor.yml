@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-lag-exporter
+  namespace: default
+  labels:
+    release: kube-prometheus-stack   # <-- имя релиза Helm чарта Prometheus stack
+spec:
+  selector:
+    matchLabels:
+      app: kafka-lag-exporter        # совпасть с label у Service
+  endpoints:
+#    - Он берёт port из Service.spec.ports[].name
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package reactor;
+
+import "Common/DataTransferService.proto";
+
+service ReactiveTransferService {
+  rpc GetAllUsersByChatId(com.example.grpc.ChatData) returns (com.example.grpc.UserListResponse);
+  rpc transferchat(com.example.grpc.ChatData) returns (com.example.grpc.ChatResponse);
+  rpc getnewest(com.example.grpc.ChatData) returns (com.example.grpc.Message);
+  rpc getallchatsbyid(com.example.grpc.ChatData) returns(com.example.grpc.ListOfChats);
+  rpc transferAllMessages(com.example.grpc.ChatData) returns (com.example.grpc.ListOfMessages);
+  rpc GetUsernameById(com.example.grpc.User) returns(com.example.grpc.User);
+  rpc getimageurl(com.example.grpc.ChatData) returns(com.example.grpc.DriveUrl) ;///Chat data only with id
+  rpc getUserImageurl(com.example.grpc.UserDataRequest) returns(com.example.grpc.DriveUrl);
+}
+
+

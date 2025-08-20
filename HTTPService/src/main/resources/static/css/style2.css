@@ -1,0 +1,581 @@
+/* === БАЗОВОЕ ОФОРМЛЕНИЕ === */
+body {
+    font-family: Arial, sans-serif;
+    background-color: #e9f4fd;
+    margin: 0;
+    padding: 0;
+    color: #333;
+    overflow-x: hidden;
+}
+
+/* === КНОПКА "НАЗАД" === */
+.back-button {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    padding: 10px 20px;
+    background-color: #0066cc;
+    color: white;
+    border: none;
+    border-radius: 25px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+.back-button:hover {
+    background-color: #005bb5;
+    transform: scale(1.1);
+}
+
+/* === ЛЕНТА ПОСТОВ === */
+.post-feed {
+    max-width: 800px;
+    margin: 20px auto;
+    padding: 20px;
+    background-color: #ffffff;
+    border-radius: 15px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.post {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f3faff;
+    border-radius: 15px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease-in-out;
+}
+.post:hover {
+    transform: translateY(-5px);
+}
+
+
+.user-info {
+    display: flex;
+    align-items: center;
+}
+.user-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+.user-name {
+    font-weight: bold;
+    color: #0066cc;
+}
+.post-time {
+    font-size: 12px;
+    color: #888;
+}
+.more-options {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #888;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+.more-options:hover {
+    color: #0066cc;
+}
+
+.post-content {
+    font-size: 16px;
+    color: #444;
+}
+.post-image {
+    width: 100%;
+    height: auto;
+    margin-top: 10px;
+    border-radius: 10px;
+    transition: transform 0.3s ease;
+}
+.post-image:hover {
+    transform: scale(1.05);
+}
+
+/* === ФУТЕР ПОСТА === */
+.post-footer {
+    margin-top: 15px;
+}
+.like-share {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+.like-button, .comment-button {
+    background-color: transparent;
+    border: none;
+    color: #0066cc;
+    font-size: 14px;
+    cursor: pointer;
+    transition: color 0.3s ease, transform 0.3s ease;
+}
+.like-button:hover, .comment-button:hover {
+    color: #004b99;
+    transform: scale(1.1);
+}
+
+/* === КОММЕНТАРИИ === */
+.comments-section {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid #ddd;
+}
+.comment {
+    margin-bottom: 10px;
+}
+.comment-author {
+    font-weight: bold;
+    color: #0066cc;
+}
+.comment-text {
+    font-size: 14px;
+    color: #555;
+}
+
+/* === ФОРМА КОММЕНТАРИЯ === */
+.add-comment textarea {
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    resize: vertical;
+    transition: border-color 0.3s ease;
+}
+.add-comment textarea:focus {
+    border-color: #0066cc;
+}
+.add-comment button {
+    background-color: #0066cc;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+.add-comment button:hover {
+    background-color: #005bb5;
+    transform: scale(1.05);
+}
+
+/* === ЧАТ === */
+.chat-container {
+    width: 400px;
+    height: 630px;
+    background-color: white;
+    margin: 50px auto;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.chat-header {
+    background-color: #4CAF50;
+    color: white;
+    text-align: center;
+    padding: 10px;
+    font-size: 18px;
+    display: flex;
+    flex-direction: column; /* вот оно */
+    align-items: center;
+}
+.chat-messages {
+    padding: 20px;
+    overflow-y: auto;
+    height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+.message.user {
+    background-color: #cce7ff;
+    align-self: flex-end;
+}
+.message.bot {
+    background-color: #e0e0e0;
+    align-self: flex-start;
+}
+.chat-input {
+    display: flex;
+    padding: 10px;
+    border-top: 1px solid #ddd;
+}
+.chat-input input {
+    width: 80%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+}
+.chat-input button {
+    width: 15%;
+    padding: 10px;
+    margin-left: 10px;
+    border: none;
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.chat-input button:hover {
+    background-color: #45a049;
+}
+
+/* === УВЕДОМЛЕНИЯ === */
+.notification-area {
+    width: 400px;
+    margin: 20px auto;
+    background-color: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.notification-area h4 {
+    margin-top: 0;
+    color: #4CAF50;
+    text-align: center;
+}
+
+#notificationList {
+    list-style-type: none;
+    padding-left: 0;
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+#notificationList li {
+    background-color: #f0f9ff;
+    border: 1px solid #d6eaff;
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 5px;
+    font-size: 14px;
+    color: #333;
+}
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    max-width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 9999;
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 6px;
+    color: #fff;
+    background-color: #2196F3; /* default info */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: fadeIn 0.3s ease;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.toast-icon {
+    margin-right: 10px;
+    font-size: 18px;
+}
+
+.toast-text {
+    flex: 1;
+    font-size: 14px;
+}
+
+/* Цвета по типу */
+.toast-success {
+    background-color: #4CAF50;
+}
+.toast-error {
+    background-color: #f44336;
+}
+.toast-warning {
+    background-color: #ff9800;
+}
+.toast-info {
+    background-color: #2196F3;
+}
+
+/* Скрытие */
+.toast.hide {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+/* Анимация */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(50%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+.my-message {
+    align-self: flex-end;
+    background-color: #dcf8c6;
+    margin-left: auto;
+    margin-right: 10px;
+    padding: 8px;
+    border-radius: 10px;
+    max-width: 60%;
+}
+
+.other-message {
+    align-self: flex-start;
+    background-color: #ffffff;
+    margin-right: auto;
+    margin-left: 10px;
+    padding: 8px;
+    border-radius: 10px;
+    max-width: 60%;
+}
+
+/* Общее для всех сообщений */
+
+#registerResponse, #register-response{
+    margin-top: 20px;
+    text-align: center;
+    color: red;
+    font-weight: bold;
+    font-size: 36px;
+    text-shadow: 0 0 10px red, 0 0 20px red;
+    animation: combinedShakeGrow 0.4s infinite, flashRed 0.5s infinite alternate;
+}
+
+/* Объединённая тряска + рост */
+@keyframes combinedShakeGrow {
+    0% { transform: translate(0, 0) scale(1); }
+    10% { transform: translate(-5px, -5px) scale(1.1); }
+    20% { transform: translate(-10px, 0px) scale(1.2); }
+    30% { transform: translate(10px, 5px) scale(1.15); }
+    40% { transform: translate(5px, -10px) scale(1.2); }
+    50% { transform: translate(-5px, 10px) scale(1.1); }
+    60% { transform: translate(-10px, -5px) scale(1.2); }
+    70% { transform: translate(10px, 0px) scale(1.15); }
+    80% { transform: translate(5px, 5px) scale(1.1); }
+    90% { transform: translate(-5px, -5px) scale(1.2); }
+    100% { transform: translate(0, 0) scale(1); }
+}
+
+/* Моргание цветом */
+@keyframes flashRed {
+    0% { color: red; text-shadow: 0 0 10px red, 0 0 20px red; }
+    100% { color: darkred; text-shadow: 0 0 20px darkred, 0 0 30px darkred; }
+}
+.user-id {
+    font-weight: bold;
+    color: gray;
+}
+.post-content p {
+    margin: 0;
+}
+
+
+
+
+.message-avatar img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.message-content {
+    flex: 1;
+}
+.message-username {
+    font-size: 14px;
+    color: #555;
+    margin-top: 4px;
+}
+
+.message {
+    display: flex;
+    flex-direction: column;
+    background-color: #e0e0e0;
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    max-width: 80%;
+}
+
+.message-avatar iframe {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.message-content {
+    flex: 1;
+}
+.spinner-avatar {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #ddd;
+    border-top: 3px solid #333;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+ .spinner-avatar {
+     width: 40px;
+     height: 40px;
+     border: 4px solid #eee;
+     border-top: 4px solid #333;
+     border-radius: 50%;
+     animation: spin 1s linear infinite;
+     margin: auto;
+ }
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+ .global-spinner-overlay {
+     position: fixed;
+     top: 0; left: 0; right: 0; bottom: 0;
+     background: rgba(255,255,255,0.6);
+     display: flex;
+     justify-content: center;
+     align-items: center;
+     z-index: 9999;
+ }
+.big-spinner {
+    width: 80px;
+    height: 80px;
+    border: 8px solid #eee;
+    border-top: 8px solid #333;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.post-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+
+.chat-avatar-container {
+    display: flex;
+    align-items: center;
+}
+
+
+.user-info .chat-title {
+    font-weight: bold;
+    font-size: 1rem;
+}
+
+.post-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 5px;
+}
+.chat-avatar {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+.message-preview {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+
+.post-time {
+    font-size: 0.85em;
+    color: #999;
+    white-space: nowrap;
+}
+
+.no-message {
+    color: #888;
+}
+/* Главный контейнер для инпута, делаем его "точкой отсчета" для панели */
+.chat-input {
+    position: relative; /* Это важно для позиционирования панели */
+}
+
+/* Сама панель с подсказкой от AI */
+.ai-suggestion-panel {
+    position: absolute; /* Позиционируем относительно .chat-input */
+    bottom: 100%;       /* Располагаем ее прямо над родителем */
+    left: 0;
+    right: 0;
+    background-color: #f0f8ff; /* Светло-голубой фон */
+    border: 1px solid #b0c4de;   /* Светло-синяя рамка */
+    border-radius: 8px 8px 0 0; /* Скругляем верхние углы */
+    padding: 10px;
+    margin-bottom: -1px; /* Чтобы рамка панели слилась с рамкой инпута */
+    box-shadow: 0 -2px 5px rgba(0,0,0,0.05); /* Легкая тень сверху */
+    display: flex;
+    justify-content: space-between; /* Размещаем текст и кнопки по краям */
+    align-items: center;
+    font-family: sans-serif;
+    font-size: 14px;
+}
+
+/* Текст подсказки */
+.ai-suggestion-panel .suggestion-text {
+    flex-grow: 1; /* Занимает все доступное место */
+    margin-right: 10px;
+    color: #333;
+}
+
+/* Контейнер для кнопок "Вставить" и "Закрыть" */
+.ai-suggestion-panel .suggestion-actions {
+    display: flex;
+    gap: 5px; /* Пространство между кнопками */
+    flex-shrink: 0; /* Чтобы кнопки не сжимались */
+}
+
+/* Общий стиль для кнопок в панели */
+.ai-suggestion-panel button {
+    background: none;
+    border: 1px solid #b0c4de;
+    border-radius: 4px;
+    padding: 3px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.2s;
+}
+
+/* Кнопка "Вставить" */
+.ai-suggestion-panel button.insert-btn {
+    background-color: #e0f0ff;
+}
+.ai-suggestion-panel button.insert-btn:hover {
+    background-color: #cce4ff;
+}
+
+/* Кнопка "Закрыть" */
+.ai-suggestion-panel button.close-btn:hover {
+    background-color: #f1f1f1;
+}

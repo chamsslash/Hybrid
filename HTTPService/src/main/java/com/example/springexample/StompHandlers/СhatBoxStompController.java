@@ -1,0 +1,93 @@
+package com.example.springexample.StompHandlers;
+
+
+
+
+import com.example.grpc.DataTransferService;
+import com.example.springexample.ImageUploadDTO;
+import com.example.springexample.KafkaProducer;
+import com.example.springexample.NotificationDTO;
+import com.example.springexample.Services.AuthGrpc;
+import com.example.springexample.Services.ChatContextService;
+import com.example.springexample.Services.ReactiveGrpcClient;
+import com.google.gson.Gson;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.PathVariable;
+import reactor.ReactiveTransferServiceGrpc;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Slf4j
+@Controller
+public class СhatBoxStompController {
+    private final KafkaProducer kafkaProducer;
+    private final Gson gson = new Gson();
+    @Autowired
+    SimpMessagingTemplate template;
+    @Autowired
+    ReactiveRedisTemplate<String,String> redisTemplate;
+    @Autowired
+    com.example.springexample.StompHandlers.ChatListStompController chatListController;
+    @Autowired
+    ReactiveGrpcClient reactiveGrpcClient;
+    @Autowired
+    AuthGrpc authGrpc;
+    public СhatBoxStompController(KafkaProducer kafkaProducer) {
+        this.kafkaProducer = kafkaProducer;
+    }
+
+    @MessageMapping("/chat/send/{chatId}")
+    @SendTo("/mutual/chat/{chatId}")
+    public com.example.springexample.StompHandlers.ChatMessageDTO HandleChatMessage(com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
+        kafkaProducer.send(gson.toJson(chatMessageDTO));
+        ChatContextService contextService = new ChatContextService(redisTemplate, chatMessageDTO.getChat_id());
+        contextService.addMessage(chatMessageDTO.getUsername(),chatMessageDTO.getText());
+        List<String> client_ids = authGrpc.GetAllIdsByChat(DataTransferService.ChatData.newBuilder().setChatId(Long.parseLong(chatMessageDTO.getChat_id())).build());
+        ArrayList<String> users = new ArrayList<>(client_ids);
+        com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO = new com.example.springexample.StompHandlers.ChatListShortObjDTO();
+        chatListShortObjDTO.setChat_id(chatMessageDTO.getChat_id());
+        chatListShortObjDTO.setText(chatMessageDTO.getText());
+        chatListShortObjDTO.setUsername(chatMessageDTO.getUsername());
+        chatListShortObjDTO.setTimestamp(chatMessageDTO.getTimestamp());
+        chatListController.ChangeChatPreview(users,chatListShortObjDTO);
+        return chatMessageDTO;
+
+    }
+    @MessageMapping("/chat/user_statuses")
+
+    public void HandleChangeOfUserStatus(com.example.springexample.StompHandlers.StatusUserDTO statusDto) {
+        template.convertAndSend("/mutual/typing_statuses_channel"+statusDto.chat_id,statusDto);
+        template.convertAndSend("/mutual/typing_statuses_channel",statusDto);
+    }
+    public void UploadMessageImageFromKafka(ImageUploadDTO imageUploadDTO) {
+        template.convertAndSend("/mutual/chat/image_message_channel", imageUploadDTO);
+
+    }
+
+    public void UploadChatImageFromKafka(ImageUploadDTO imageUploadDTO) {
+        template.convertAndSend("/mutual/chat/image_chat_channel", imageUploadDTO);
+
+
+    }
+    public void SendNotificationToChatBox(NotificationDTO notificationDTO){
+
+
+        try {
+            long author_id = notificationDTO.getAuthorId();
+            template.convertAndSend("/private/chatlist/notify/" + author_id, notificationDTO);
+        }catch (Exception e){
+            log.error("Error in sending notification to author in chatBox ", e);
+        }
+    }
+
+}

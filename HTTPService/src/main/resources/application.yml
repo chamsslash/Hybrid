@@ -1,0 +1,117 @@
+# РЕШЕНИЕ ПРОБЛЕМЫ №2: Правильный синтаксис для application.yml
+
+debug: true
+securityProps:
+  refresh-secret: ${refresh_secret}
+  refresh-expiration-ms: 604800000
+  jwt-expiration-ms:  900 000
+  thymeleaf:
+    enabled: true
+    suffix: .html
+  webflux:
+    base-path: /reactive
+spring:
+
+  data:
+    redis:
+      url: redis://${REDIS_SERVICE}.default.svc.cluster.local:${REDIS_PORT}/0
+  webflux:
+    log-request-details: true
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+  main:
+    allow-bean-definition-overriding: true
+    log-bean-definition-overriding: true
+  kafka:
+    bootstrap-servers: ${BOOTSTRAP_ADDRESS}.default.svc.cluster.local:${KAFKA_PORT}
+    producer:
+      properties:
+        max.request.size: 10485760
+
+
+
+    consumer:
+      group-id: hybrid_group
+      auto-offset-reset: earliest
+      enable-auto-commit: true
+
+
+grpc:
+  client:
+
+
+    MessageTransferService:
+      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
+      negotiation-type: plaintext
+      enable-keep-alive: true
+      keep-alive-time: 30s
+      keep-alive-timeout: 10s
+      security:
+        authority-override: db.internal
+      default-load-balancing-policy: round_robin
+
+
+    ChatService:
+      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
+      negotiationType: plaintext
+      enable-keep-alive: true
+      keep-alive-time: 30s
+      keep-alive-timeout: 10s
+      security:
+        authority-override: db.internal
+      default-load-balancing-policy: round_robin
+
+
+    AuthTransferService:
+      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
+      negotiationType: plaintext
+      enable-keep-alive: true
+      keep-alive-time: 30s
+      keep-alive-timeout: 10s
+      security:
+        authority-override: auth.internal
+      default-load-balancing-policy: round_robin
+
+    ReactiveTransferService:
+      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
+      negotiation-type: plaintext
+      enable-keep-alive: true
+      keep-alive-time: 30s
+      keep-alive-timeout: 10s
+      security:
+        authority-override: db.internal
+      default-load-balancing-policy: round_robin
+
+
+server:
+  port: ${MAIN_PORT}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    prometheus:
+      enabled: true
+
+logging:
+  level:
+    org.springframework.security: TRACE
+    org.springframework.web.servlet: DEBUG
+    org.springframework.web.method: DEBUG
+    org.springframework.web.reactive: TRACE
+    org.springframework.web.reactive.function.server.DefaultRouterFunction: DEBUG
+    org.springframework.web.server.adapter: DEBUG
+    org.springframework.http.server.reactive.ServletHttpHandlerAdapter: DEBUG
+    com.example.springexample: DEBUG
+    reactor.netty: DEBUG
+
+
+
+  codec:
+    log-request-details: true

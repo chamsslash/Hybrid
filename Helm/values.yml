@@ -1,0 +1,53 @@
+postgres:
+  username: ${DB_USERNAME}
+  password: ${DB_PASSWORD}
+  db_name: ${DB_NAME}
+  db_service: ${DB_SERVICE}
+ingress:
+  ingress_namespace: ${INGRESS_NAMESPACE}
+  ingress_port: ${INGRESS_PORT}
+redis:
+  redis_address: ${REDIS_ADDRESS}
+  password_secret_name: redis-password
+kafka:
+  bootstrap_address: ${BOOTSTRAP_ADDRESS}
+  username_secret_name: kafka-username
+  password_secret_name: kafka-password
+  port: ${KAFKA_PORT}
+jars:
+  main_jar_name: ${MAIN_JAR_NAME}
+  auth_jar_name: ${AUTH_JAR_NAME}
+  handle_jar_name: ${HANDLE_JAR_NAME}
+  db_jar_name: ${DB_JAR_NAME}
+  proxy_jar_name: ${PROXY_JAR_NAME}
+ports:
+  main_port: ${MAIN_PORT}
+  auth_port: ${AUTH_PORT}
+  handle_port: ${HANDLE_PORT}
+  db_port: ${DB_PORT}
+  proxy_port: ${PROXY_PORT}
+secrets:
+  public_key_secret_name: public-key
+  private_key_secret_name: private-key
+  refresh_secret_name: refresh-secret
+  https_secret_name: https-grpc-secret
+oauth2:
+  provider:
+    google:
+      client_id_secret_name: google-client-id
+      client_secret_secret_name: google-client-secret
+urls:
+  yandex_gpt_url: ${YANDEX_GPT_URL}
+  google_oauth_url: ${GOOGLE_OAUTH_URL}
+hosts:
+  main_host: main.internal
+  auth_host: auth.internal
+  handle_host: handle.internal
+  db_host: db.internal
+  proxy_host: proxy.internal
+services_port:
+  main_service_port: ${MAIN_PORT}
+  auth_service_port: ${AUTH_PORT}
+  handle_service_port: ${HANDLE_PORT}
+  db_service_port: ${DB_PORT}
+  proxy_service_port: ${PROXY_PORT}

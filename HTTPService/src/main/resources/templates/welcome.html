@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Страница входа</title>
+    <link rel="stylesheet" th:href="@{/css/style_welcome.css}">
+</head>
+<body>
+
+<div class="login-container">
+    <h1>Вход в систему</h1>
+
+    <!-- href="#" чтобы ссылка никуда не вела по умолчанию -->
+    <a href="#" id="google-login-btn" class="btn btn-google">Войти через Google</a>
+
+    <!-- ИСПРАВЛЕН ID для уникальности -->
+    <a href="/registerpage" id="register-link" class="btn btn-regular">Eще нет аккаунта?</a>
+
+    <!-- ДОБАВЛЕН БЛОК для сообщений пользователю -->
+    <div id="response-div" class="response-message" style="opacity: 0;"><span th:text="${error} ?: ''"></span></div>
+
+    <form id="regular-login-form" >
+
+        <input type="text" name="username" class="input-field" placeholder="Имя" required>
+        <input type="password" name="password" class="input-field" placeholder="Пароль" required>
+        <button type="submit" class="btn btn-regular">Войти</button>
+    </form>
+</div>
+
+<!-- Подключение скриптов -->
+
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fp.min.js" th:attr="nonce=${nonce}"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/axios.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/welcome.js" th:attr="nonce=${nonce}"></script>
+
+</body>
+</html>

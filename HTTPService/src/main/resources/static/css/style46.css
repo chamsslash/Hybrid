@@ -1,0 +1,458 @@
+/*
+ * Футуристическая тёмная тема с неоновыми акцентами.
+ * Используются тёмные фоны, яркие неоновые градиенты (#d13eea → #53d9ea),
+ * эффект "стекла" (полупрозрачность + размытие фона),
+ * неоновые тени и свечения, скруглённые углы.
+ * Дубликаты и пересекающиеся стили удалены (напр., объединён общий стиль .spinner и .spinner-avatar),
+ * анимации сохранены и адаптированы (красный цвет заменён на неоновый фиолетовый).
+ */
+
+/* Базовые стили */
+body, html {
+    background: #0D0D0D; /* Очень тёмный фон (почти чёрный) */
+    color: #FFFFFF;     /* Светлый текст для контраста на тёмном фоне */
+    font-family: Arial, sans-serif; /* (Пример шрифта, оставить оригинальный, если был задан) */
+    margin: 0;
+    padding: 0;
+}
+a {
+    color: #53d9ea; /* Неоновый бирюзовый акцент для ссылок */
+    text-decoration: none;
+}
+a:hover {
+    color: #d13eea; /* Неоновый фиолетовый при наведении */
+    text-decoration: underline;
+    text-shadow: 0 0 6px #d13eea; /* Сияние неоновым цветом при наведении */
+}
+
+/* Кнопки */
+button, .button, .btn {
+    background: linear-gradient(45deg, #d13eea, #53d9ea); /* Градиентная заливка от фиолетового к бирюзовому */
+    color: #FFFFFF;            /* Белый текст на неоновом фоне */
+    border: none;              /* Без рамки, используем тень для акцента */
+    border-radius: 5px;        /* Умеренно скруглённые углы кнопки */
+    padding: 0.5em 1em;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(209, 62, 234, 0.5), 0 0 15px rgba(83, 217, 234, 0.5); /* Неоновое сияние вокруг кнопки */
+    transition: transform 0.3s ease, box-shadow 0.3s ease; /* Плавный переход для наведения/нажатия */
+}
+button:hover, .button:hover, .btn:hover {
+    transform: scale(1.05); /* Лёгкое увеличение при наведении для эффекта "пульсации" */
+    box-shadow: 0 0 12px rgba(209, 62, 234, 0.8), 0 0 25px rgba(83, 217, 234, 0.8); /* Усиленное свечение при наведении */
+}
+button:active, .button:active, .btn:active {
+    transform: scale(0.97); /* Небольшое уменьшение при клике (эффект нажатия) */
+    box-shadow: 0 0 6px rgba(209, 62, 234, 0.5), 0 0 10px rgba(83, 217, 234, 0.5); /* Слабое свечение при нажатии */
+}
+
+/* Посты (основные блоки контента) */
+.post {
+    background: rgba(255, 255, 255, 0.07); /* Полупрозрачный светлый фон для эффекта стекла на тёмном фоне */
+    backdrop-filter: blur(5px);           /* Размытие фона позади для усиления эффекта "стекла" */
+    -webkit-backdrop-filter: blur(5px);   /* Размытие для Safari */
+    border: 1px solid rgba(255, 255, 255, 0.15); /* Полупрозрачная светлая рамка, отделяющая блок */
+    border-radius: 8px;     /* Скруглённые углы карточки поста */
+    padding: 1em;
+    margin: 1em 0;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Мягкая тень для подъёма блока над фоном */
+}
+.post h1, .post h2, .post h3, .post h4, .post h5, .post h6 {
+    color: #53d9ea; /* Заголовки внутри поста выделены неоновым акцентом */
+}
+.post p {
+    line-height: 1.6;
+}
+
+/* Комментарии (вторичные блоки контента) */
+.comment {
+    background: rgba(255, 255, 255, 0.05); /* Чуть более прозрачный фон, чтобы комментарии были темнее постов */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;    /* Немного меньший радиус скругления для вложенных комментариев */
+    padding: 0.8em;
+    margin: 0.5em 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); /* Немного меньше тень для комментария */
+}
+.comment .author {
+    color: #d13eea; /* Имена авторов комментариев выделены неоновым фиолетовым */
+    font-weight: bold;
+}
+.comment .text {
+    color: #e0e0e0; /* Основной текст комментария чуть светлее для читабельности */
+    line-height: 1.5;
+}
+
+/* Чат (область сообщений чата) */
+.chat {
+    background: rgba(255, 255, 255, 0.06); /* Прозрачный фон панели чата */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1em;
+    margin: 1em 0;
+    max-height: 400px;      /* Пример ограничения высоты для области чата */
+    overflow-y: auto;       /* Скролл, если сообщений много */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+.chat .message {
+    background: rgba(255, 255, 255, 0.1); /* Фон отдельных сообщений чуть светлее, чтобы выделить внутри панели */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    padding: 0.5em;
+    margin: 0.5em 0;
+}
+.chat .message .user {
+    color: #53d9ea;   /* Имя пользователя в чате бирюзовым акцентом */
+    font-weight: bold;
+}
+.chat .message .text {
+    color: #ffffff;
+    line-height: 1.5;
+}
+.chat .message.self {
+    align-self: flex-end;    /* Сообщения от текущего пользователя выравниваются справа (если используется flex) */
+    background: rgba(209, 62, 234, 0.1); /* Сообщения пользователя выделены фиолетовым оттенком */
+}
+
+/* Уведомления */
+.notification {
+    background: rgba(255, 255, 255, 0.08); /* Полупрозрачный фон уведомления */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid #53d9ea;  /* Неоновая бирюзовая рамка для акцента */
+    border-radius: 6px;
+    padding: 1em;
+    color: #FFFFFF;
+    box-shadow: 0 0 10px rgba(83, 217, 234, 0.5); /* Сияние вокруг уведомления, чтобы привлекать внимание */
+    margin: 1em 0;
+    position: relative;
+}
+.notification .title {
+    font-weight: bold;
+    color: #53d9ea; /* Заголовок/тема уведомления неоновым цветом */
+}
+.notification .message {
+    display: block;
+    color: #f0f0f0;
+    margin-top: 0.5em;
+}
+/* Можно добавить стили для разных типов уведомлений, если они предусмотрены:
+.notification.success { border-color: #00FF85; }
+.notification.error { border-color: #d13eea; }
+   ... и т.д., используя неоновые цвета для разных типов
+*/
+
+/* Аватары */
+.avatar {
+    border-radius: 50%; /* Круглый аватар */
+    border: 2px solid rgba(255, 255, 255, 0.2); /* Полупрозрачная рамка вокруг аватара для отделения на тёмном фоне */
+    width: 50px;
+    height: 50px;
+    object-fit: cover;   /* Вписываем изображение, сохраняя пропорции */
+}
+/* Аватар внутри комментария или поста можно сделать меньше, если необходимо:
+.comment .avatar { width: 40px; height: 40px; }
+.post .avatar { width: 60px; height: 60px; }
+*/
+
+/* Поля ввода и текстовые области */
+input[type="text"], textarea {
+    background: rgba(255, 255, 255, 0.1); /* Полупрозрачный светлый фон для поля ввода */
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    padding: 0.5em;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+input[type="text"]::placeholder, textarea::placeholder {
+    color: rgba(255, 255, 255, 0.5); /* Полупрозрачный светлый текст для плейсхолдера */
+}
+input[type="text"]:focus, textarea:focus {
+    outline: none;
+    border-color: #53d9ea; /* Подсветка рамки неоновым цветом при фокусе */
+    box-shadow: 0 0 5px rgba(83, 217, 234, 0.7);
+}
+
+/* Спиннеры (индикаторы загрузки) */
+.spinner, .spinner-avatar {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.2); /* Полупрозрачное кольцо */
+    border-top-color: #53d9ea;                 /* Яркий неоново-бирюзовый сегмент кольца */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    /* Объединён общий стиль .spinner и .spinner-avatar,
+       убраны дублирующиеся правила */
+}
+
+/* Анимации */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+/* Универсальный класс для вращения элемента */
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes flashRed {
+    0%   { box-shadow: 0 0 10px rgba(209, 62, 234, 0.8); }
+    50%  { box-shadow: 0 0 2px rgba(209, 62, 234, 0.2); }
+    100% { box-shadow: 0 0 10px rgba(209, 62, 234, 0.8); }
+}
+/* Мерцающее свечение (ранее flashRed, адаптировано под неоновый фиолетовый) */
+.flashRed {
+    animation: flashRed 1s infinite alternate;
+}
+
+@keyframes combinedShakeGrow {
+    0%   { transform: scale(1) translateX(0); }
+    25%  { transform: scale(1.1) translateX(-5px); }
+    50%  { transform: scale(1.1) translateX(5px); }
+    75%  { transform: scale(1.1) translateX(-5px); }
+    100% { transform: scale(1) translateX(0); }
+}
+/* Комбинированная анимация тряски и увеличения */
+.combinedShakeGrow {
+    animation: combinedShakeGrow 0.5s ease;
+}
+
+@keyframes fadeIn {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+}
+/* Плавное появление элемента */
+.fadeIn {
+    animation: fadeIn 0.5s ease forwards;
+}
+/*
+ * Футуристическая тёмная тема с неоновыми акцентами.
+ * Используются тёмные фоны, яркие неоновые градиенты (#d13eea → #53d9ea),
+ * эффект "стекла" (полупрозрачность + размытие фона),
+ * неоновые тени и свечения, скруглённые углы.
+ * Дубликаты и пересекающиеся стили удалены (напр., объединён общий стиль .spinner и .spinner-avatar),
+ * анимации сохранены и адаптированы (красный цвет заменён на неоновый фиолетовый).
+ */
+
+/* Базовые стили */
+body, html {
+    background: #0D0D0D; /* Очень тёмный фон (почти чёрный) */
+    color: #FFFFFF;     /* Светлый текст для контраста на тёмном фоне */
+    font-family: Arial, sans-serif; /* (Пример шрифта, оставить оригинальный, если был задан) */
+    margin: 0;
+    padding: 0;
+}
+a {
+    color: #53d9ea; /* Неоновый бирюзовый акцент для ссылок */
+    text-decoration: none;
+}
+a:hover {
+    color: #d13eea; /* Неоновый фиолетовый при наведении */
+    text-decoration: underline;
+    text-shadow: 0 0 6px #d13eea; /* Сияние неоновым цветом при наведении */
+}
+
+/* Кнопки */
+button, .button, .btn {
+    background: linear-gradient(45deg, #d13eea, #53d9ea); /* Градиентная заливка от фиолетового к бирюзовому */
+    color: #FFFFFF;            /* Белый текст на неоновом фоне */
+    border: none;              /* Без рамки, используем тень для акцента */
+    border-radius: 5px;        /* Умеренно скруглённые углы кнопки */
+    padding: 0.5em 1em;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(209, 62, 234, 0.5), 0 0 15px rgba(83, 217, 234, 0.5); /* Неоновое сияние вокруг кнопки */
+    transition: transform 0.3s ease, box-shadow 0.3s ease; /* Плавный переход для наведения/нажатия */
+}
+button:hover, .button:hover, .btn:hover {
+    transform: scale(1.05); /* Лёгкое увеличение при наведении для эффекта "пульсации" */
+    box-shadow: 0 0 12px rgba(209, 62, 234, 0.8), 0 0 25px rgba(83, 217, 234, 0.8); /* Усиленное свечение при наведении */
+}
+button:active, .button:active, .btn:active {
+    transform: scale(0.97); /* Небольшое уменьшение при клике (эффект нажатия) */
+    box-shadow: 0 0 6px rgba(209, 62, 234, 0.5), 0 0 10px rgba(83, 217, 234, 0.5); /* Слабое свечение при нажатии */
+}
+
+/* Посты (основные блоки контента) */
+.post {
+    background: rgba(255, 255, 255, 0.07); /* Полупрозрачный светлый фон для эффекта стекла на тёмном фоне */
+    backdrop-filter: blur(5px);           /* Размытие фона позади для усиления эффекта "стекла" */
+    -webkit-backdrop-filter: blur(5px);   /* Размытие для Safari */
+    border: 1px solid rgba(255, 255, 255, 0.15); /* Полупрозрачная светлая рамка, отделяющая блок */
+    border-radius: 8px;     /* Скруглённые углы карточки поста */
+    padding: 1em;
+    margin: 1em 0;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Мягкая тень для подъёма блока над фоном */
+}
+.post h1, .post h2, .post h3, .post h4, .post h5, .post h6 {
+    color: #53d9ea; /* Заголовки внутри поста выделены неоновым акцентом */
+}
+.post p {
+    line-height: 1.6;
+}
+
+/* Комментарии (вторичные блоки контента) */
+.comment {
+    background: rgba(255, 255, 255, 0.05); /* Чуть более прозрачный фон, чтобы комментарии были темнее постов */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;    /* Немного меньший радиус скругления для вложенных комментариев */
+    padding: 0.8em;
+    margin: 0.5em 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); /* Немного меньше тень для комментария */
+}
+.comment .author {
+    color: #d13eea; /* Имена авторов комментариев выделены неоновым фиолетовым */
+    font-weight: bold;
+}
+.comment .text {
+    color: #e0e0e0; /* Основной текст комментария чуть светлее для читабельности */
+    line-height: 1.5;
+}
+
+/* Чат (область сообщений чата) */
+.chat {
+    background: rgba(255, 255, 255, 0.06); /* Прозрачный фон панели чата */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1em;
+    margin: 1em 0;
+    max-height: 400px;      /* Пример ограничения высоты для области чата */
+    overflow-y: auto;       /* Скролл, если сообщений много */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+.chat .message {
+    background: rgba(255, 255, 255, 0.1); /* Фон отдельных сообщений чуть светлее, чтобы выделить внутри панели */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    padding: 0.5em;
+    margin: 0.5em 0;
+}
+.chat .message .user {
+    color: #53d9ea;   /* Имя пользователя в чате бирюзовым акцентом */
+    font-weight: bold;
+}
+.chat .message .text {
+    color: #ffffff;
+    line-height: 1.5;
+}
+.chat .message.self {
+    align-self: flex-end;    /* Сообщения от текущего пользователя выравниваются справа (если используется flex) */
+    background: rgba(209, 62, 234, 0.1); /* Сообщения пользователя выделены фиолетовым оттенком */
+}
+
+/* Уведомления */
+.notification {
+    background: rgba(255, 255, 255, 0.08); /* Полупрозрачный фон уведомления */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid #53d9ea;  /* Неоновая бирюзовая рамка для акцента */
+    border-radius: 6px;
+    padding: 1em;
+    color: #FFFFFF;
+    box-shadow: 0 0 10px rgba(83, 217, 234, 0.5); /* Сияние вокруг уведомления, чтобы привлекать внимание */
+    margin: 1em 0;
+    position: relative;
+}
+.notification .title {
+    font-weight: bold;
+    color: #53d9ea; /* Заголовок/тема уведомления неоновым цветом */
+}
+.notification .message {
+    display: block;
+    color: #f0f0f0;
+    margin-top: 0.5em;
+}
+/* Можно добавить стили для разных типов уведомлений, если они предусмотрены:
+.notification.success { border-color: #00FF85; }
+.notification.error { border-color: #d13eea; }
+   ... и т.д., используя неоновые цвета для разных типов
+*/
+
+/* Аватары */
+.avatar {
+    border-radius: 50%; /* Круглый аватар */
+    border: 2px solid rgba(255, 255, 255, 0.2); /* Полупрозрачная рамка вокруг аватара для отделения на тёмном фоне */
+    width: 50px;
+    height: 50px;
+    object-fit: cover;   /* Вписываем изображение, сохраняя пропорции */
+}
+/* Аватар внутри комментария или поста можно сделать меньше, если необходимо:
+.comment .avatar { width: 40px; height: 40px; }
+.post .avatar { width: 60px; height: 60px; }
+*/
+
+/* Поля ввода и текстовые области */
+input[type="text"], textarea {
+    background: rgba(255, 255, 255, 0.1); /* Полупрозрачный светлый фон для поля ввода */
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    padding: 0.5em;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+input[type="text"]::placeholder, textarea::placeholder {
+    color: rgba(255, 255, 255, 0.5); /* Полупрозрачный светлый текст для плейсхолдера */
+}
+input[type="text"]:focus, textarea:focus {
+    outline: none;
+    border-color: #53d9ea; /* Подсветка рамки неоновым цветом при фокусе */
+    box-shadow: 0 0 5px rgba(83, 217, 234, 0.7);
+}
+
+/* Спиннеры (индикаторы загрузки) */
+.spinner, .spinner-avatar {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.2); /* Полупрозрачное кольцо */
+    border-top-color: #53d9ea;                 /* Яркий неоново-бирюзовый сегмент кольца */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    /* Объединён общий стиль .spinner и .spinner-avatar,
+       убраны дублирующиеся правила */
+}
+
+/* Анимации */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+/* Универсальный класс для вращения элемента */
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes flashRed {
+    0%   { box-shadow: 0 0 10px rgba(209, 62, 234, 0.8); }
+    50%  { box-shadow: 0 0 2px rgba(209, 62, 234, 0.2); }
+    100% { box-shadow: 0 0 10px rgba(209, 62, 234, 0.8); }
+}
+/* Мерцающее свечение (ранее flashRed, адаптировано под неоновый фиолетовый) */
+.flashRed {
+    animation: flashRed 1s infinite alternate;
+}
+
+@keyframes combinedShakeGrow {
+    0%   { transform: scale(1) translateX(0); }
+    25%  { transform: scale(1.1) translateX(-5px); }
+    50%  { transform: scale(1.1) translateX(5px); }
+    75%  { transform: scale(1.1) translateX(-5px); }
+    100% { transform: scale(1) translateX(0); }
+}
+/* Комбинированная анимация тряски и увеличения */
+.combinedShakeGrow {
+    animation: combinedShakeGrow 0.5s ease;
+}
+
+@keyframes fadeIn {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+}
+/* Плавное появление элемента */
+.fadeIn {
+    animation: fadeIn 0.5s ease forwards;
+}

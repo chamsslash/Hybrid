@@ -1,0 +1,23 @@
+# handle-deployment.yml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: handle-deployment
+  labels:
+    app: handle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: handle
+  template:
+    metadata:
+      labels:
+        app: handle
+    spec:
+      containers:
+      - name: handle
+        image: nginx:latest # Placeholder image
+        ports:
+        - containerPort: 80
