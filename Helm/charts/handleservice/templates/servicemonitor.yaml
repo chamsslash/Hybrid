@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: handleservice-monitor
+  labels:
+    app: handleservice
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: handleservice
+  endpoints:
+    - port: 8083
+      path: /actuator/prometheus
+      interval: 30s

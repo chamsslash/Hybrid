@@ -1,0 +1,4 @@
+# Образ для MessegerParody
+image:
+  repository: hybrid/messegerparody
+  tag: "latest"

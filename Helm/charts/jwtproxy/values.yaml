@@ -1,0 +1,4 @@
+# Образ для JwtProxy
+image:
+  repository: hybrid/jwtproxy
+  tag: "latest"

@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-lag-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: kafka-lag-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-lag-exporter
+  template:
+    metadata:
+      labels:
+        app: kafka-lag-exporter
+    spec:
+      containers:
+        - name: kafka-lag-exporter
+          image: lightbend/kafka-lag-exporter:0.8.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: CLUSTER_NAME
+              value: "hybrid-kafka"
+            - name: KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: METRICS_PORT
+              value: "8000"
+            - name: POLL_INTERVAL_SECONDS
+              value: "30"
+            - name: LOOKUP_TABLE_CACHE_SIZE
+              value: "60"
+            - name: GROUP_WHITELIST
+              value: ".*"
+            - name: TOPIC_WHITELIST
+              value: ".*"
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-lag-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: kafka-lag-exporter
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: kafka-lag-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-lag-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: kafka-lag-exporter
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: kafka-lag-exporter
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

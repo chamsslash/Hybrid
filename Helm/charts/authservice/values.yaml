@@ -1,0 +1,4 @@
+# Образ для AuthService
+image:
+  repository: hybrid/authservice
+  tag: "latest"

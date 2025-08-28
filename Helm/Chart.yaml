@@ -1,6 +1,23 @@
 apiVersion: v2
 name: Hybrid
-description: Чарт котоырый устанавливает все необходимые зависимости
+description: Чарт который устанавливает все необходимые зависимости
 type: application
 version: 0.1.0
 appVersion: "alpha-0.0.1"
+
+dependencies:
+  - name: authservice
+    version: 0.1.0
+    condition: authservice.enabled
+  - name: httpservice
+    version: 0.1.0
+    condition: httpservice.enabled
+  - name: jwtproxy
+    version: 0.1.0
+    condition: jwtproxy.enabled
+  - name: messegerparody
+    version: 0.1.0
+    condition: messegerparody.enabled
+  - name: handleservice
+    version: 0.1.0
+    condition: handleservice.enabled
