@@ -2,11 +2,11 @@
 FROM maven:3.9.5-openjdk-17 AS builder
 
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
 
 # Download dependencies
 RUN mvn dependency:go-offline -B
+COPY pom.xml .
+COPY src ./src
 
 # Build the application
 RUN mvn clean package -DskipTests
