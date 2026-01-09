@@ -5,7 +5,6 @@
 ## 📋 Предварительные требования
 
 Убедитесь, что у вас установлены следующие инструменты:
-
 - [Docker](https://docs.docker.com/get-docker/)
 - [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)

@@ -76,6 +76,7 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
 
         List<Long> userIds = newChat.getUserList().stream()
                 .map(DataTransferService.User::getId)
+                .map(Long::parseLong)
                 .filter(id -> id != 0)
                 .toList();
 
@@ -101,7 +102,7 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
             userMonos.add(userMono);
         }
 
-        Mono<r2dbc_user> authorMono = reactiveUserRepository.findById(newChat.getAuthorId().getId())
+        Mono<r2dbc_user> authorMono = reactiveUserRepository.findById(Long.parseLong(newChat.getAuthorId().getId()))
                 .switchIfEmpty(Mono.defer(() -> {
                     responseObserver.onError(new Throwable("User-author not found"));
                     return Mono.empty();
@@ -238,7 +239,7 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
 
     @Override
     public void getallchatsbyid(DataTransferService.ChatData request, StreamObserver<DataTransferService.ListOfChats> responseObserver) {
-        Long id = request.getUser(0).getId();
+        long id = Long.parseLong(request.getUser(0).getId());
         customReactiveRepository.findAllOrderedChatsByUserId(id).map(chat -> {
             return DataTransferService.ChatData.newBuilder()
                     .setChatId(id)
@@ -303,7 +304,7 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
     public void getUsernameById(DataTransferService.User request,
                                 StreamObserver<DataTransferService.User> responseObserver) {
 
-        customReactiveRepository.getUsernameById(request.getId())
+        customReactiveRepository.getUsernameById(Long.parseLong(request.getId()))
                 .filter(Objects::nonNull)
                 .subscribe(
                         uname -> {
@@ -355,4 +356,3 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
                         error -> responseObserver.onError(error)
                 );
     }}
-
