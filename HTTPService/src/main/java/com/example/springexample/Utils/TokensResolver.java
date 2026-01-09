@@ -52,15 +52,14 @@ public class TokensResolver {
     private long ACCESS_EXPIRE;
     private  final Gson gson = new Gson();
     private final RedisTemplate<String,String> redisTemplate;
-    private String genRefreshToken(RefreshSession refreshSession){
+    private String genRefreshToken(RefreshSession refreshSession,String access_jti){
         Date now = new Date();
         Date validity = new Date(now.getTime() + REFRESH_EXPIRE);
-        String RefreshUUID = UUID.randomUUID().toString();
-        String sessionKey =  this.generateSessionKey(RefreshUUID);
+        String sessionKey =  this.generateSessionKey(access_jti);
 
         redisTemplate.opsForValue().set(sessionKey,gson.toJson(refreshSession),30*24,TimeUnit.HOURS);
         redisTemplate.opsForSet().add(generateUserSessionsSetKey(refreshSession.getSub()),sessionKey);
-        return  Jwts.builder().setSubject(refreshSession.getSub()).setId(RefreshUUID).setIssuedAt(now).setExpiration(validity).claim("jwt_jti",refreshSession.getAccessId()).setIssuer("Hybrid-Http-Service").signWith(SignatureAlgorithm.HS512,REFRESH_SECRET).compact();
+        return  Jwts.builder().setSubject(refreshSession.getSub()).setId(access_jti).setIssuedAt(now).setExpiration(validity).setIssuer("Hybrid-Http-Service").signWith(SignatureAlgorithm.HS512,REFRESH_SECRET).compact();
     }
     public MvcJwtAuthFilter.jwt_refresh_auths genPairOfToken(String refreshtoken, FpSimilarityScore.ClientMeta newMeta) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         DataTransferService.Sub_Role subRole;
@@ -83,7 +82,7 @@ public class TokensResolver {
                 .setExpiration(validity).setIssuer("Hybrid-Http-Service")
                 .signWith(SignatureAlgorithm.RS512, (PrivateKey) loadKeys().get("private_key"))
                 .compact();
-        String newRefresh =  genRefreshToken(new RefreshSession(subRole.getSub(),newMeta,jti));
+        String newRefresh =  genRefreshToken(new RefreshSession(subRole.getSub(),newMeta),jti);
 //        return  new HashMap<>(){{
 //            put("RefreshToken",newRefresh);
 //            put("JwtToken",newAccess);

@@ -10,7 +10,6 @@ import java.util.Date;
 public class RefreshSession {
     String sub;
     FpSimilarityScore.ClientMeta meta;
-    String accessId;
 
 
 }
