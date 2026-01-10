@@ -17,10 +17,10 @@ jobs:
 
       - name: Build service images
         run: |
-          docker build -t authservice:latest -f AuthService/Dockerfile .
-          docker build -t httpservice:latest -f HTTPService/Dockerfile .
-          docker build -t jwtproxy:latest -f JwtProxy/Dockerfile .
-          docker build -t messegerparody:latest -f MessegerParody/Dockerfile .
+          docker build -t authservice:latest AuthService
+          docker build -t httpservice:latest HTTPService
+          docker build -t jwtproxy:latest JwtProxy
+          docker build -t messegerparody:latest MessegerParody
 
       - name: Create kind cluster
         uses: helm/kind-action@v1

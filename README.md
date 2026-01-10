@@ -31,10 +31,10 @@
 Собери образы и загрузись в kind:
 
 ```
-docker build -t authservice:latest -f AuthService/Dockerfile .
-docker build -t httpservice:latest -f HTTPService/Dockerfile .
-docker build -t jwtproxy:latest -f JwtProxy/Dockerfile .
-docker build -t messegerparody:latest -f MessegerParody/Dockerfile .
+docker build -t authservice:latest AuthService
+docker build -t httpservice:latest HTTPService
+docker build -t jwtproxy:latest JwtProxy
+docker build -t messegerparody:latest MessegerParody
 
 kind load docker-image authservice:latest
 kind load docker-image httpservice:latest
@@ -42,7 +42,6 @@ kind load docker-image jwtproxy:latest
 kind load docker-image messegerparody:latest
 ```
 
-`Common` отдельно не деплоится, он вшивается в JAR при сборке сервисов.
 
 ### 2) Поднять инфраструктуру
 
