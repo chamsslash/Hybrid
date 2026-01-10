@@ -5,7 +5,7 @@ metadata:
   labels:
     app: httpservice
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: httpservice
@@ -20,36 +20,15 @@ spec:
           ports:
             - containerPort: 8080
           env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "kubernetes"
-            - name: SPRING_DATASOURCE_URL
-              value: "jdbc:postgresql://postgres:5432/hybrid_db"
-            - name: SPRING_DATASOURCE_USERNAME
-              value: "postgres"
-            - name: SPRING_DATASOURCE_PASSWORD
-              value: "postgres123"
-            - name: SPRING_REDIS_HOST
-              value: "redis-master"
-            - name: SPRING_REDIS_PORT
-              value: "6379"
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-              value: "kafka:9092"
-          resources:
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-            requests:
-              cpu: 500m
-              memory: 512Mi
-          livenessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 60
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 5
+              value: "{{ $.Values.env.kafkaBootstrap }}"
+            - name: SPRING_DATASOURCE_URL
+              value: "{{ $.Values.env.datasourceUrl }}"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "{{ $.Values.env.datasourceUsername }}"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "{{ $.Values.env.datasourcePassword }}"
+            - name: SPRING_REDIS_HOST
+              value: "{{ $.Values.env.redisHost }}"
+            - name: SPRING_REDIS_PORT
+              value: "{{ $.Values.env.redisPort }}"

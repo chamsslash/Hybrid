@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "gentle-charmer-468711-u1",
+  "private_key_id": "092488db3b0fa48cdf950105cbbbb25ea32d967e",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCbK+80uo9VIboH\nUFuxhpWeG0HBhfeg6QfW2auOACLe8sEWhqd5K7dEJgF9G0kOfbFByPIErqUGc0U0\n8z+3E3LOzcE6jtwUZsTDjNyFG9+UGvDvpB9ubAMXMYPbzurY4IFX+kKUFb7VnaRC\n2sm1pQwDq/aibUuC1nT0Pg2nqOPRK3SzWwfkov5nGUkCDVmHWaNNSeEC95/4bsLZ\nD1uEplB4dHnyqeZOXR/wm9qaQe0xc/+cWwvcLRzU3WxOcSoXjmrvJPqOc06stwGT\nBw0nr/VoEmN5NGHcJeMstKzEbKz0JGndZuQuyR+gkGvoDaCnRIHK+KVWipVHjiJv\n4NlEVuB1AgMBAAECggEAJdrN/FsW5HnZ3DbqZ6Chl3Sm0gNQqdyvoOZxR68Y0rL+\nD/TBnnnft6xd6JtjczmOqLHQ+PtyHuS4GXbOMGd6NqFTZmm7nu6DSgFvOrnWDVeV\nN6EeWd3X0yytMk6EVGxQoZnX7DBx4cMXc4fUdY/SIoMtI+rt5PlUhtEsm55EFZ7W\nwXZNz8OkY8vHz2KyI2Vhm2YvnmQDezQYPYJt4CcNxm2NF+8uvz88Sca2R1AD3MA/\nwYZWQYQU4kVkxiiEaVBUaPSGJ/j50hoBJp9e2VubGH1jBsiZ5pvNn1cYhwF5V6EF\nlh7weu7XTaACvzLeJjXwEKci400NVUyg9AFuGlvk8QKBgQDYfG6iOKqbUheVbX6L\n4rX8eE3spzJryCr462B6oH1i5z5iddOPZQe/WABQIvYG+v2/s9N06DJgCb6khCNn\n8sQwiHhHIIaQ1ZhVYzFVWMl7YGzodJZKybb+x3YOZemyBsBagK1gAuzv7XtseU6N\nBAtu5Tf9Zm1ny02xXGVNMZ5d6wKBgQC3foMdIuJaH9P6PReV40kzJhKD4YIt/Qh9\nPL1c+Zngu+DJlNnRt3juckJBzZi0wWFcozI3ln71T2gx3GieDitMHy6aw1CQUSJV\n1w5QGk9Ag2EmJtM9MXgcg+mAO6Mw1o1JmHkbOwzkHYp0t5txxVvxjQ8O416PgVga\neRazqH9DHwKBgFrwWmEWwMQiRfnlVwVYJO57cvB4g7u3CCYsagjZJhLH5PLjYA2a\neRit1OPU69ie0r0WwzsW1yJ0tXrSbzUZS8S/bxch2KU6tJUZ5/1cILcNGHLFluSv\nu4lnLHZ75SF9qIvcBfiRAgr/jZtRkee2zT62V0DBKDAzvN1GXN+Cem4lAoGAZd62\nq9ZSE/bXmHWSQoSMfvkEDnOD8kQoEl9GQffQlhO4GDGrO+LAIKEOZ7ncrX0usF9p\n4bKLiWUsU4IqEpWLNBebqBAHChgBF+bs60uv9AD8TlH/tFlidXJGkAqL7vEuP02G\n7rc50OsVkvbcNa17/f5x/bH9LW6BmzDeiZ9iB8ECgYA1tZaFqsS5q6wPERXhAKdF\nkJxp2nvNOnMpbmWNBqCT3uq97EC29x0KHXAAg5tgdTNAqSouYQH/2Img9+6vKkrt\n/i77iyd6YibkDkE2r74DEt0EIKfKffqZPlvK0TbrCimg0F+YDmw2gj0iM6atiQsN\nf7VeR92GqsJ5E2mzyMF1Gg==\n-----END PRIVATE KEY-----\n",
+  "client_email": "cloudadmin@gentle-charmer-468711-u1.iam.gserviceaccount.com",
+  "client_id": "111195617288804607172",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/cloudadmin%40gentle-charmer-468711-u1.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

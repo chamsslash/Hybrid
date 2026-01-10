@@ -12,8 +12,6 @@ import com.example.springexample.JPA_Entities.User;
 import com.example.springexample.JPA_Entities.r2dbc_chat;
 import com.example.springexample.JPA_Repositories.MessageRepBase;
 import com.example.springexample.JPA_Repositories.UserRepBase;
-import com.example.springexample.NotificationDTO;
-import com.example.springexample.Notification_gRPC_Client;
 import com.example.springexample.R2DBC_Repositories.ReactiveChatRepository;
 import com.example.springexample.R2DBC_Repositories.ReactiveUserChatRepository;
 import io.grpc.Status;
@@ -37,7 +35,6 @@ public class MTS_impl
     private final MessageRepBase messageRepBase;
     private final UserRepBase userRepBase;
     private final ReactiveUserChatRepository userChatRepository;
-    private final Notification_gRPC_Client ngc;
     private final ReactiveChatRepository reactiveChatRepository;
     private final R2DBC_to_JDBC reactiveparser;
 
@@ -46,14 +43,12 @@ public class MTS_impl
         MessageRepBase messageRepBase,
         UserRepBase userRepBase,
         ReactiveUserChatRepository userChatRepository,
-        Notification_gRPC_Client ngc,
         ReactiveChatRepository reactiveChatRepository,
         R2DBC_to_JDBC reactiveparser
     ) {
         this.messageRepBase = messageRepBase;
         this.userRepBase = userRepBase;
         this.userChatRepository = userChatRepository;
-        this.ngc = ngc;
         this.reactiveChatRepository = reactiveChatRepository;
         this.reactiveparser = reactiveparser;
     }
@@ -136,14 +131,6 @@ public class MTS_impl
                 messagetocreate.setUser_id(userOptional.get());
                 messageRepBase.save(messagetocreate);
                 log.info("Message created in db");
-                NotificationDTO tosend = new NotificationDTO(
-                    newMessage.getUserId(),
-                    "Message has been successfully sent",
-                    "MessageCreated"
-                );
-                tosend.setChat_id(chatOptional.getId());
-                ngc.notifyme(tosend);
-
                 responseObserver.onNext(newMessage);
             } else log.error(
                 "User or chat not found,cant create new message --> skip"

@@ -1,53 +1,67 @@
-# Порта для сервисов
-ports:
-  main_port: 8080
-  auth_port: 8081
-  handle_port: 8082
-  db_port: 8083
-  proxy_port: 8084
+# Global toggles
+infra:
+  kafka: true
+  postgres: true
+  redis: true
+  prometheus: true
+  grafana: true
+  ingress: true
 
-# Включение/выключение сервисов
+# Local ingress domain
+ingress:
+  host: myapp.local
+
+# Kafka (KRaft)
+kafka:
+  image: bitnami/kafka:latest
+  replicas: 1
+
+postgres:
+  image: postgres:15
+  database: hybrid_db
+  username: postgres
+  password: postgres123
+
+redis:
+  image: redis:7
+
+prometheus:
+  image: prom/prometheus:latest
+
+grafana:
+  image: grafana/grafana:latest
+  adminPassword: admin123
+
+# Service images
 authservice:
   enabled: true
+  image:
+    repository: your-registry/authservice
+    tag: latest
+
 httpservice:
   enabled: true
+  image:
+    repository: your-registry/httpservice
+    tag: latest
+
 jwtproxy:
   enabled: true
+  image:
+    repository: your-registry/jwtproxy
+    tag: latest
+
 messegerparody:
   enabled: true
-handleservice:
-  enabled: true
+  image:
+    repository: your-registry/messegerparody
+    tag: latest
 
-# Kafka настройки
-kafka:
-  enabled: true
-  bootstrap_servers: kafka:9092
-
-# Prometheus настройки
-monitoring:
-  enabled: true
-  prometheus_port: 9090
-  grafana_port: 3000
-
-# База данных
-database:
-  host: postgres
-  port: 5432
-  name: hybrid_db
-
-# Redis
-redis:
-  host: redis-master
-  port: 6379
-
-# Секреты
-secrets:
-  private_key_secret_name: "private-key-secret"
-  public_key_secret_name: "public-key-secret"
-  refresh_secret_name: "refresh-secret"
-  https_secret_name: "https-secret"
-  private_key: "PLACEHOLDER_PRIVATE_KEY"
-  public_key: "PLACEHOLDER_PUBLIC_KEY"
-  refresh_secret: "PLACEHOLDER_REFRESH_SECRET"
-  https_secret_crt: "PLACEHOLDER_TLS_CRT"
-  https_secret_key: "PLACEHOLDER_TLS_KEY"
+# Shared env
+env:
+  kafkaBootstrap: kafka:9092
+  datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
+  datasourceUsername: postgres
+  datasourcePassword: postgres123
+  redisHost: redis
+  redisPort: "6379"

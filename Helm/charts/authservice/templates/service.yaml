@@ -6,9 +6,12 @@ metadata:
     app: authservice
 spec:
   type: ClusterIP
+  selector:
+    app: authservice
   ports:
     - port: 8081
       targetPort: 8081
       protocol: TCP
-  selector:
-    app: authservice
+    - port: 9092
+      targetPort: 9092
+      protocol: TCP

@@ -1,4 +1,0 @@
-# Образ для HTTPService
-image:
-  repository: hybrid/httpservice
-  tag: "latest"

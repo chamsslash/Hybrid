@@ -1,4 +1,0 @@
-# Образ для HandleService
-image:
-  repository: hybrid/handleservice
-  tag: "latest"
