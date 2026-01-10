@@ -8,7 +8,6 @@
 - **HTTPService** (порт 8080) - Основной HTTP сервис  
 - **JwtProxy** (порт 8084) - JWT прокси
 - **MessegerParody** (порт 8082) - Сообщения
-- **HandleService** (порт 8083) - Обработка
 
 ## Инфраструктура
 
@@ -24,14 +23,12 @@
 ├── HTTPService/          # Основной HTTP сервис
 ├── JwtProxy/            # JWT прокси сервис
 ├── MessegerParody/      # Сервис сообщений
-├── HandleService/       # Сервис обработки
 ├── Helm/                # Helm чарты
 │   ├── charts/
 │   │   ├── authservice/
 │   │   ├── httpservice/
 │   │   ├── jwtproxy/
 │   │   ├── messegerparody/
-│   │   └── handleservice/
 │   └── templates/       # Инфраструктура (Kafka, Prometheus, Grafana)
 └── .github/workflows/   # CI/CD пайплайны
 ```

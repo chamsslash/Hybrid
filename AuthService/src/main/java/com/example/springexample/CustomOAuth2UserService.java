@@ -2,7 +2,6 @@ package com.example.springexample;
 
 import com.example.springexample.JPA_Entities.User;
 import com.example.springexample.Repositories.Auth_rep;
-import com.example.springexample.Services.ImageGrpcService;
 import com.google.gson.JsonObject;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -32,8 +31,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     @Autowired
     KafkaProducer kafkaProducer;
 
-    @Autowired
-    ImageGrpcService imageGrpcService;
 
     private final Auth_rep auth_rep;
 
@@ -71,7 +68,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     pictureUrl
                 );
                 String B64_string = b64Future.get();
-//                imageGrpcService.SaveImage(B64_string,"image/jpeg ",".jpeg","avatar_"+name); //change to kafka implementation
                 Upload_image(B64_string, user.getId().toString());
             }
         } catch (MalformedURLException e) {

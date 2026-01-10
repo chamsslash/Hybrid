@@ -68,6 +68,18 @@ public class MTS_impl
                     user.setImageUrl(request.getUrl());
                     userRepBase.save(user);
                 });
+            } else if (request.getType().equals("chatimage")) {
+                r2dbc_chat updatedChat = reactiveChatRepository
+                    .findById(Long.parseLong(request.getChatId()))
+                    .map(chat -> {
+                        chat.setImageUrl(request.getUrl());
+                        return chat;
+                    })
+                    .flatMap(reactiveChatRepository::save)
+                    .block();
+                if (updatedChat == null) {
+                    throw new RuntimeException("Chat not found for image update");
+                }
             } else {
                 Mono.defer(() -> {
                     throw new RuntimeException("error in transfer image to DB");

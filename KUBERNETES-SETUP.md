@@ -52,7 +52,6 @@ kubectl get nodes
 - **HTTPService** (порт 8080) - Основной HTTP API
 - **JwtProxy** (порт 8084) - Прокси для JWT токенов
 - **MessegerParody** (порт 8085) - Сервис сообщений
-- **HandleService** (порт 8082) - Обработка запросов
 
 ### Инфраструктура (устанавливается отдельно)
 - **Zookeeper** - Координация для Kafka
@@ -106,7 +105,6 @@ Helm/
 │   ├── httpservice/        # HTTPService
 │   ├── jwtproxy/          # JwtProxy
 │   ├── messegerparody/    # MessegerParody
-│   └── handleservice/     # HandleService
 └── templates/              # Общие шаблоны
 ```
 
