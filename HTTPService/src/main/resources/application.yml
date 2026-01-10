@@ -2,7 +2,7 @@
 
 debug: true
 securityProps:
-  refresh-secret: CHANGE_ME
+  refresh-secret: ${REFRESH_SECRET}
   refresh-expiration-ms: 604800000
   jwt-expiration-ms: 900000
   thymeleaf:

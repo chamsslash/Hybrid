@@ -38,12 +38,17 @@ authservice:
   image:
     repository: your-registry/authservice
     tag: latest
+  google:
+    clientId: CHANGE_ME
+    clientSecret: CHANGE_ME
 
 httpservice:
   enabled: true
   image:
     repository: your-registry/httpservice
     tag: latest
+  security:
+    refreshSecret: CHANGE_ME
 
 jwtproxy:
   enabled: true
