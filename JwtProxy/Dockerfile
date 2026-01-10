@@ -1,5 +1,5 @@
 # Multi-stage build for JwtProxy
-FROM maven:3.9.5-openjdk-17 AS builder
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 COPY pom.xml .
@@ -12,7 +12,7 @@ RUN mvn dependency:go-offline -B
 RUN mvn clean package -DskipTests
 
 # Runtime stage
-FROM openjdk:17-jre-slim
+FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
