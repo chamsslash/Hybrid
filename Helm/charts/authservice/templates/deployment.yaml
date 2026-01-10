@@ -32,3 +32,7 @@ spec:
               value: "{{ $.Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
               value: "{{ $.Values.env.redisPort }}"
+            - name: GOOGLE_CLIENT_ID
+              value: "{{ .Values.google.clientId }}"
+            - name: GOOGLE_CLIENT_SECRET
+              value: "{{ .Values.google.clientSecret }}"

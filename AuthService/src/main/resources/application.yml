@@ -25,8 +25,8 @@ spring:
         registration:
           google:
           provider: google
-          client-id: CHANGE_ME
-          client-secret: CHANGE_ME
+          client-id: ${GOOGLE_CLIENT_ID}
+          client-secret: ${GOOGLE_CLIENT_SECRET}
           scope:
           - profile
           redirect-uri: "http://myapp.local/login/oauth2/code/google"

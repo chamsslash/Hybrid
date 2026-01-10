@@ -32,3 +32,5 @@ spec:
               value: "{{ $.Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
               value: "{{ $.Values.env.redisPort }}"
+            - name: REFRESH_SECRET
+              value: "{{ .Values.security.refreshSecret }}"
