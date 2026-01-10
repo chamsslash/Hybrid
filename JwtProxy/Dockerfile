@@ -1,15 +1,19 @@
 # Multi-stage build for JwtProxy
 FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
-WORKDIR /app
+WORKDIR /workspace
 COPY pom.xml .
-COPY src ./src
+COPY Common/pom.xml Common/pom.xml
+COPY JwtProxy/pom.xml JwtProxy/pom.xml
 
 # Download dependencies
-RUN mvn dependency:go-offline -B
+RUN mvn -pl JwtProxy -am dependency:go-offline -B
+
+COPY Common/src Common/src
+COPY JwtProxy/src JwtProxy/src
 
 # Build the application
-RUN mvn clean package -DskipTests
+RUN mvn -pl JwtProxy -am clean package -DskipTests
 
 # Runtime stage
 FROM eclipse-temurin:21-jre
@@ -22,7 +26,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built JAR file
-COPY --from=builder /app/target/*.jar app.jar
+COPY --from=builder /workspace/JwtProxy/target/*.jar app.jar
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
