@@ -69,6 +69,8 @@ jwtproxy:
   image:
     repository: your-registry/jwtproxy
     tag: latest
+  env:
+    kafkaBootstrap: kafka:9092
 
 messegerparody:
   enabled: true
