@@ -52,21 +52,10 @@ message AccessResponse {
   string id = 3;
 }
 
-message ImageId {
-  string id = 1;
-}
 message DriveUrl {
   string url = 1;
   string chat_id = 2;
 
-}
-
-message ImageDTO {
-  string Base64Image = 1;
-  string ImageName = 2;
-  string Extension = 3;
-  string MimeType = 4;
-  string ChatId = 5; //can be replaced as user_id
 }
 
 message Message {
@@ -118,10 +107,6 @@ service AuthTransferService {
   rpc CheckOneTimeCodeAndGetSub_Role(idToken) returns (Sub_Role);
 }
 
-service ImageTransferService {
-  rpc getImageFromDrive(ImageId) returns (DriveUrl);
-  rpc saveImageToDrive(ImageDTO) returns (DriveUrl);
-}
 service ChatService {
   rpc getnewest(ChatData) returns (Message);
   rpc transferchat(ChatData) returns (ChatResponse);
@@ -137,5 +122,4 @@ service MessageTransferService {
   rpc transferAllMessages(ChatData) returns (ListOfMessages);
   rpc transferimageUrltoDB(DriveUrl) returns (google.protobuf.Empty);
 }
-
 
