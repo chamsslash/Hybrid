@@ -1,87 +1,86 @@
-# Hybrid Platform - Простая микросервисная платформа
+# Hybrid Platform
 
-Простая микросервисная платформа с автоматическим деплоем в Kubernetes.
+Минимальный деплой в Kubernetes без лишнего, с Kafka (KRaft) и мониторингом.
 
-## Микросервисы
+## Сервисы
 
-- **AuthService** (порт 8081) - Аутентификация
-- **HTTPService** (порт 8080) - Основной HTTP сервис  
-- **JwtProxy** (порт 8084) - JWT прокси
-- **MessegerParody** (порт 8082) - Сообщения
+- AuthService (8081)
+- HTTPService (8080)
+- JwtProxy (8084)
+- MessegerParody (8082)
 
 ## Инфраструктура
 
-- **Kafka** (порт 9092) - Брокер сообщений
-- **Zookeeper** (порт 2181) - Координация Kafka
-- **Prometheus** (порт 9090) - Мониторинг
-- **Grafana** (порт 3000) - Дашборды
+- Kafka (KRaft, без Zookeeper)
+- PostgreSQL (если не внешний)
+- Redis (если не внешний)
+- Prometheus
+- Grafana
 
-## Структура проекта
+## Поток изображений
+
+1) AuthService/HTTPService -> Kafka `Images` (base64)
+2) MessegerParody -> Google Drive -> DB
+3) MessegerParody -> Kafka `Images` (final `Image_url`)
+4) HTTPService -> WebSocket -> UI
+
+## Деплой (программа минимум)
+
+### 1) Собрать образы (локально для kind)
+
+Собери образы и загрузись в kind:
 
 ```
-├── AuthService/          # Микросервис аутентификации
-├── HTTPService/          # Основной HTTP сервис
-├── JwtProxy/            # JWT прокси сервис
-├── MessegerParody/      # Сервис сообщений
-├── Helm/                # Helm чарты
-│   ├── charts/
-│   │   ├── authservice/
-│   │   ├── httpservice/
-│   │   ├── jwtproxy/
-│   │   ├── messegerparody/
-│   └── templates/       # Инфраструктура (Kafka, Prometheus, Grafana)
-└── .github/workflows/   # CI/CD пайплайны
+docker build -t authservice:latest AuthService
+docker build -t httpservice:latest HTTPService
+docker build -t jwtproxy:latest JwtProxy
+docker build -t messegerparody:latest MessegerParody
+
+kind load docker-image authservice:latest
+kind load docker-image httpservice:latest
+kind load docker-image jwtproxy:latest
+kind load docker-image messegerparody:latest
 ```
 
-## Быстрый старт
+`Common` отдельно не деплоится, он вшивается в JAR при сборке сервисов.
 
-### Развертывание
+### 2) Поднять инфраструктуру
 
-1. **Разверните все сразу:**
-```bash
-helm upgrade --install hybrid-platform ./Helm \
-  --namespace hybrid-platform \
-  --create-namespace
-```
+Нужны рабочие инстансы:
 
-2. **Разверните отдельные сервисы:**
-```bash
-# AuthService
-helm upgrade --install authservice ./Helm/charts/authservice \
-  --namespace hybrid-platform \
-  --set image.repository=your-registry/authservice \
-  --set image.tag=latest
+- Kafka в KRaft-режиме
+- PostgreSQL
+- Redis
+- Prometheus
+- Grafana
 
-# Остальные сервисы аналогично...
-```
+Можно ставить через свои манифесты или готовые чарты. Важно только,
+чтобы сервисы видели их по адресам, которые ты укажешь в env.
 
-## CI/CD
+### 3) Деплой сервисов
 
-Один универсальный пайплайн `.github/workflows/deploy.yml`:
+Каждый сервис должен получать переменные окружения:
 
-- Запускается при push в main
-- Автоматически определяет какие сервисы изменились
-- Собирает и деплоит только измененные сервисы
-- Деплоит инфраструктуру при изменении Helm чартов
+- SPRING_KAFKA_BOOTSTRAP_SERVERS
+- SPRING_DATASOURCE_URL
+- SPRING_DATASOURCE_USERNAME
+- SPRING_DATASOURCE_PASSWORD
+- SPRING_REDIS_HOST
+- SPRING_REDIS_PORT
 
-## Проверка статуса
+### 4) Локальный ingress
 
-```bash
-kubectl get pods -n hybrid-platform
-kubectl get services -n hybrid-platform
-kubectl get hpa -n hybrid-platform
-```
+Используем ingress с локальным доменом через `/etc/hosts`.
 
-## Доступ к сервисам
+1) Подними ingress-controller (nginx)
+2) Добавь домен в `/etc/hosts`, например:
+   127.0.0.1 myapp.local
+3) В ingress укажи `host: myapp.local` и сервис HTTPService
 
-```bash
-# Prometheus
-kubectl port-forward svc/prometheus 9090:9090 -n hybrid-platform
+После этого открывай `http://myapp.local`.
 
-# Grafana
-kubectl port-forward svc/grafana 3000:3000 -n hybrid-platform
-# Логин: admin, Пароль: admin123
+## Примечания
 
-# Kafka
-kubectl port-forward svc/kafka 9092:9092 -n hybrid-platform
-```
+- Секреты храним в открытую (пока без sealed/external secret).
+- Ingress только для HTTP. gRPC ingress не нужен для минимума.
+- Kafka должна быть без Zookeeper (KRaft).

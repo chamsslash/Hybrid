@@ -47,13 +47,6 @@ message UserDataRequest {
 message ListOfMessages {
   repeated Message message_list = 1;
 }
-message Notification{
-  string  content = 1;
-  string type = 2;
-  repeated int64 user_id = 3;
-  int64 chat_id= 4;
-  int64 author_id =5;
-}
 message UserListResponse {
   repeated UserDataRequest users = 1;
 }
@@ -78,9 +71,6 @@ message DriveUrl{
   string url = 1;
   string  chat_id =2;
   string  type = 3;
-}
-service NotifyService{
-  rpc transfernotification(Notification) returns(ChatData);
 }
 service MessageTransferService {
   rpc getnewest(ChatData) returns (Message);

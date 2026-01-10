@@ -1,13 +1,5 @@
 apiVersion: v2
 name: authservice
-description: Helm chart для сервиса аутентификации Hybrid Platform
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
-keywords:
-  - authentication
-  - oauth2
-  - jwt
-maintainers:
-  - name: Hybrid Team
-    email: team@hybrid.com
+appVersion: "0.1.0"

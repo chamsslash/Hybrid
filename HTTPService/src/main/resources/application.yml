@@ -2,9 +2,9 @@
 
 debug: true
 securityProps:
-  refresh-secret: ${refresh_secret}
+  refresh-secret: CHANGE_ME
   refresh-expiration-ms: 604800000
-  jwt-expiration-ms:  900 000
+  jwt-expiration-ms: 900000
   thymeleaf:
     enabled: true
     suffix: .html
@@ -14,7 +14,7 @@ spring:
 
   data:
     redis:
-      url: redis://${REDIS_SERVICE}.default.svc.cluster.local:${REDIS_PORT}/0
+      url: redis://redis:6379/0
   webflux:
     log-request-details: true
   servlet:
@@ -27,7 +27,7 @@ spring:
     allow-bean-definition-overriding: true
     log-bean-definition-overriding: true
   kafka:
-    bootstrap-servers: ${BOOTSTRAP_ADDRESS}.default.svc.cluster.local:${KAFKA_PORT}
+    bootstrap-servers: kafka:9092
     producer:
       properties:
         max.request.size: 10485760
@@ -42,53 +42,43 @@ spring:
 
 grpc:
   client:
-
-
     MessageTransferService:
-      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
-      negotiation-type: plaintext
+      address: "dns:///messegerparody:9091"
+      negotiationType: plaintext
       enable-keep-alive: true
       keep-alive-time: 30s
       keep-alive-timeout: 10s
-      security:
-        authority-override: db.internal
       default-load-balancing-policy: round_robin
 
 
     ChatService:
-      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
+      address: "dns:///messegerparody:9091"
       negotiationType: plaintext
       enable-keep-alive: true
       keep-alive-time: 30s
       keep-alive-timeout: 10s
-      security:
-        authority-override: db.internal
       default-load-balancing-policy: round_robin
 
 
     AuthTransferService:
-      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
+      address: "dns:///authservice:9092"
       negotiationType: plaintext
       enable-keep-alive: true
       keep-alive-time: 30s
       keep-alive-timeout: 10s
-      security:
-        authority-override: auth.internal
       default-load-balancing-policy: round_robin
 
     ReactiveTransferService:
-      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
-      negotiation-type: plaintext
+      address: "dns:///messegerparody:9091"
+      negotiationType: plaintext
       enable-keep-alive: true
       keep-alive-time: 30s
       keep-alive-timeout: 10s
-      security:
-        authority-override: db.internal
       default-load-balancing-policy: round_robin
 
 
 server:
-  port: ${MAIN_PORT}
+  port: 8080
 
 management:
   endpoints:

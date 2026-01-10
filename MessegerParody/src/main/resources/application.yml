@@ -1,39 +1,29 @@
 debug: true
 
+server:
+  port: 8082
+
 grpc:
   server:
-    port: ${DB_PORT}
-  client:
-    NotifyService:
-      address: "dns:///${GRPC_SERVICE_NAME}.default.svc.cluster.local:${INGRESS_PORT}"
-      negotiationType: plaintext
-      enable-keep-alive: true
-      keep-alive-time: 30s
-      keep-alive-timeout: 10s
-      default-load-balancing-policy: round_robin
-      security:
-        authority-override: handle.internal
-
+    port: 9091
 
 spring:
   kafka:
-    bootstrap-servers: ${BOOTSTRAP_ADRESS}.default.svc.cluster.local
+    bootstrap-servers: kafka:9092
     producer:
       properties:
         max.request.size: 10485760
 
   datasource:
-    url: jdbc:postgresql://${DB_SERVICE}:${DB_PORT}/${DB_NAME}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD
+    url: jdbc:postgresql://postgres:5432/hybrid_db
+    username: postgres
+    password: postgres123
     driver-class-name: org.postgresql.Driver
 
-
   r2dbc:
-    url: r2dbc:postgresql://${DB_SERVICE}:${DB_PORT}/${DB_NAME}
-    username: bot
-    password: bot
-
+    url: r2dbc:postgresql://postgres:5432/hybrid_db
+    username: postgres
+    password: postgres123
 
   jpa:
     hibernate:
@@ -48,8 +38,6 @@ logging:
   level:
     org.springframework.r2dbc: DEBUG
     org.springframework.jdbc: DEBUG
-
     org.springframework.beans.factory: DEBUG
     org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator: DEBUG
     org.hibernate: DEBUG
-

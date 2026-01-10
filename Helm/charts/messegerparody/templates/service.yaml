@@ -6,9 +6,12 @@ metadata:
     app: messegerparody
 spec:
   type: ClusterIP
+  selector:
+    app: messegerparody
   ports:
     - port: 8082
       targetPort: 8082
       protocol: TCP
-  selector:
-    app: messegerparody
+    - port: 9091
+      targetPort: 9091
+      protocol: TCP

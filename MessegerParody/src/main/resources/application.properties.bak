@@ -1,7 +1,5 @@
 # gRPC Configuration
 grpc.server.port=9091
-grpc.client.NotifyService.address=static://localhost:9098
-grpc.client.NotifyService.negotiationType=plaintext
 
 # JPA DataSource Configuration
 spring.datasource.url=jdbc:postgresql://localhost:5432/MSdb

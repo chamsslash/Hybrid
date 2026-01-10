@@ -1,5 +1,5 @@
 server:
-  port: {AUTH_PORT}
+  port: 8081
   reactive:
     session:
       cookie:
@@ -8,9 +8,9 @@ server:
 spring:
   data:
     redis:
-      url: redis://localhost:6379/0
+      url: redis://redis:6379/0
   kafka:
-    bootstrap-servers: ${BOOTSTRAP_ADDRESS}.default.svc.cluster.local:${ingress_port}
+    bootstrap-servers: kafka:9092
 
 
   security:
@@ -25,11 +25,11 @@ spring:
         registration:
           google:
           provider: google
-          client-id: ${GOOGLE_CLIENT_ID}
-          client-secret: ${GOOGLE_CLIENT_SECRET}
+          client-id: CHANGE_ME
+          client-secret: CHANGE_ME
           scope:
           - profile
-          redirect-uri: "http://localhost:2010/login/oauth2/code/google"
+          redirect-uri: "http://myapp.local/login/oauth2/code/google"
 #        registration:
 #          google:
 #            provider: google
@@ -45,9 +45,9 @@ spring:
 
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://${DB_SERVICE}:${DB_PORT}/${DB_NAME}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: jdbc:postgresql://postgres:5432/hybrid_db
+    username: postgres
+    password: postgres123
 
   jpa:
     hibernate:
@@ -61,13 +61,3 @@ spring:
 grpc:
   server:
     port: 9092
-  client:
-    ImageTransferService:
-      address: "dns:///${grpc_service_name}.default.svc.cluster.local:${ingress_port}"
-      negotiation-type: plaintext
-      enable-keep-alive: true
-      keep-alive-time: 30s
-      keep-alive-timeout: 10s
-      default-load-balancing-policy: round_robin
-      security:
-        authority-override: handle.internal

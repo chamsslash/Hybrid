@@ -10,8 +10,6 @@ import com.example.springexample.R2DBC_Repositories.ReactiveChatRepository;
 import com.example.springexample.R2DBC_Repositories.ReactiveRepository;
 import com.example.springexample.R2DBC_Repositories.ReactiveUserChatRepository;
 import com.example.springexample.R2DBC_Repositories.ReactiveUserRepository;
-import com.example.springexample.NotificationDTO;
-import com.example.springexample.Notification_gRPC_Client;
 
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +33,6 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
     private final ReactiveUserChatRepository reactiveUserChatRepository;
     private final ReactiveUserRepository reactiveUserRepository;
     private final ReactiveChatRepository reactiveChatRepository;
-    private final Notification_gRPC_Client notification_gRPC_Client;
     @Override
     public void getAllUsersByChatId(DataTransferService.ChatData request, StreamObserver<DataTransferService.UserListResponse> responseObserver) {
         customReactiveRepository.findAllUsersByChatId(request.getChatId()).collectList().as(toProto::toUserListResponse)
@@ -158,14 +155,6 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
 
                                         })
                                         .doOnNext(saved -> {
-                                            NotificationDTO notify = new NotificationDTO();
-                                            notify.setAuthorId(author.getId());
-                                            notify.setUser_id(allIds);
-                                            notify.setText("Chat by " + author.getName() + " --" + author.getId() + " created with users: " +
-                                                    users.stream().map(r2dbc_user::getName).toList());
-                                            notify.setType("ChatCreated");
-                                            notification_gRPC_Client.notifyme(notify);
-
                                             responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
                                                     .setMessage("Chat has been created")
                                                     .setStatus("200")

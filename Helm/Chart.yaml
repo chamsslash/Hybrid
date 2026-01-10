@@ -1,9 +1,9 @@
 apiVersion: v2
-name: Hybrid
-description: Чарт который устанавливает все необходимые зависимости
+name: hybrid
+description: Umbrella chart for Hybrid Platform (minimal)
 type: application
 version: 0.1.0
-appVersion: "alpha-0.0.1"
+appVersion: "0.1.0"
 
 dependencies:
   - name: authservice
@@ -18,6 +18,3 @@ dependencies:
   - name: messegerparody
     version: 0.1.0
     condition: messegerparody.enabled
-  - name: handleservice
-    version: 0.1.0
-    condition: handleservice.enabled
