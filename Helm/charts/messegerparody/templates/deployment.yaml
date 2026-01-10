@@ -21,14 +21,14 @@ spec:
             - containerPort: 8082
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-              value: "{{ $.Values.env.kafkaBootstrap }}"
+              value: "{{ .Values.env.kafkaBootstrap }}"
             - name: SPRING_DATASOURCE_URL
-              value: "{{ $.Values.env.datasourceUrl }}"
+              value: "{{ .Values.env.datasourceUrl }}"
             - name: SPRING_DATASOURCE_USERNAME
-              value: "{{ $.Values.env.datasourceUsername }}"
+              value: "{{ .Values.env.datasourceUsername }}"
             - name: SPRING_DATASOURCE_PASSWORD
-              value: "{{ $.Values.env.datasourcePassword }}"
+              value: "{{ .Values.env.datasourcePassword }}"
             - name: SPRING_REDIS_HOST
-              value: "{{ $.Values.env.redisHost }}"
+              value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
-              value: "{{ $.Values.env.redisPort }}"
+              value: "{{ .Values.env.redisPort }}"
