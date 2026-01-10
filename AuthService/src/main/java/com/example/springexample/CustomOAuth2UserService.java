@@ -71,7 +71,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     pictureUrl
                 );
                 String B64_string = b64Future.get();
-                //                image_url =imageGrpcService.SaveImage(B64_string,"image/jpeg ",".jpeg","avatar_"+name); //change to kafka implementation
+//                imageGrpcService.SaveImage(B64_string,"image/jpeg ",".jpeg","avatar_"+name); //change to kafka implementation
                 Upload_image(B64_string, user.getId().toString());
             }
         } catch (MalformedURLException e) {

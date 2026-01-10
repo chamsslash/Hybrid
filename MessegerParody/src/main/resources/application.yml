@@ -16,6 +16,11 @@ grpc:
 
 
 spring:
+  kafka:
+    bootstrap-servers: ${BOOTSTRAP_ADRESS}.default.svc.cluster.local
+    producer:
+      properties:
+        max.request.size: 10485760
 
   datasource:
     url: jdbc:postgresql://${DB_SERVICE}:${DB_PORT}/${DB_NAME}
