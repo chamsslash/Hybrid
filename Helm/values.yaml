@@ -41,6 +41,13 @@ authservice:
   google:
     clientId: CHANGE_ME
     clientSecret: CHANGE_ME
+  env:
+    kafkaBootstrap: kafka:9092
+    datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
+    datasourceUsername: postgres
+    datasourcePassword: postgres123
+    redisHost: redis
+    redisPort: "6379"
 
 httpservice:
   enabled: true
@@ -49,24 +56,31 @@ httpservice:
     tag: latest
   security:
     refreshSecret: CHANGE_ME
+  env:
+    kafkaBootstrap: kafka:9092
+    datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
+    datasourceUsername: postgres
+    datasourcePassword: postgres123
+    redisHost: redis
+    redisPort: "6379"
 
 jwtproxy:
   enabled: true
   image:
     repository: your-registry/jwtproxy
     tag: latest
+  env:
+    kafkaBootstrap: kafka:9092
 
 messegerparody:
   enabled: true
   image:
     repository: your-registry/messegerparody
     tag: latest
-
-# Shared env
-env:
-  kafkaBootstrap: kafka:9092
-  datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
-  datasourceUsername: postgres
-  datasourcePassword: postgres123
-  redisHost: redis
-  redisPort: "6379"
+  env:
+    kafkaBootstrap: kafka:9092
+    datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
+    datasourceUsername: postgres
+    datasourcePassword: postgres123
+    redisHost: redis
+    redisPort: "6379"

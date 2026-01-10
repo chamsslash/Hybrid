@@ -9,9 +9,11 @@ spec:
   selector:
     app: messegerparody
   ports:
-    - port: 8082
+    - name: http
+      port: 8082
       targetPort: 8082
       protocol: TCP
-    - port: 9091
+    - name: grpc
+      port: 9091
       targetPort: 9091
       protocol: TCP
