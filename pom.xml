@@ -17,6 +17,7 @@
     <packaging>pom</packaging>
 
     <modules>
+        <module>Common</module>
         <module>AuthService</module>
         <module>HTTPService</module>
         <module>JwtProxy</module>
