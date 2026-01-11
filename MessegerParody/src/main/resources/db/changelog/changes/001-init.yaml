@@ -1,0 +1,92 @@
+databaseChangeLog:
+  - changeSet:
+      id: messenger-001-init-chat
+      author: liquibase
+      changes:
+        - createTable:
+            tableName: chat
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: title
+                  type: VARCHAR(255)
+              - column:
+                  name: image_url
+                  type: VARCHAR(255)
+  - changeSet:
+      id: messenger-001-init-message
+      author: liquibase
+      changes:
+        - createTable:
+            tableName: message
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: text
+                  type: VARCHAR(255)
+              - column:
+                  name: time_stamp
+                  type: VARCHAR(255)
+              - column:
+                  name: user_id
+                  type: BIGINT
+              - column:
+                  name: chat_id
+                  type: BIGINT
+        - addForeignKeyConstraint:
+            baseTableName: message
+            baseColumnNames: chat_id
+            referencedTableName: chat
+            referencedColumnNames: id
+            constraintName: fk_message_chat
+        - addForeignKeyConstraint:
+            baseTableName: message
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            constraintName: fk_message_user
+  - changeSet:
+      id: messenger-001-init-user-chat
+      author: liquibase
+      changes:
+        - createTable:
+            tableName: user_chat
+            columns:
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: chat_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+        - addPrimaryKey:
+            tableName: user_chat
+            columnNames: user_id, chat_id
+            constraintName: pk_user_chat
+        - addForeignKeyConstraint:
+            baseTableName: user_chat
+            baseColumnNames: chat_id
+            referencedTableName: chat
+            referencedColumnNames: id
+            constraintName: fk_user_chat_chat
+        - addForeignKeyConstraint:
+            baseTableName: user_chat
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            constraintName: fk_user_chat_user

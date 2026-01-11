@@ -28,6 +28,16 @@ spec:
               value: "{{ .Values.env.datasourceUsername }}"
             - name: SPRING_DATASOURCE_PASSWORD
               value: "{{ .Values.env.datasourcePassword }}"
+            - name: DB_HOST
+              value: "{{ .Values.env.dbHost }}"
+            - name: DB_PORT
+              value: "{{ .Values.env.dbPort }}"
+            - name: DB_NAME
+              value: "{{ .Values.env.dbName }}"
+            - name: DB_USER
+              value: "{{ .Values.env.dbUser }}"
+            - name: DB_PASSWORD
+              value: "{{ .Values.env.dbPassword }}"
             - name: SPRING_REDIS_HOST
               value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
