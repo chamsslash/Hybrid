@@ -57,7 +57,10 @@ authservice:
     enabled: true
     image: liquibase/liquibase:4.27.0
     schedule: "*/10 * * * *"
-    changeLogFile: /tmp/authservice-diff.yaml
+    changeLogFile: /liquibase/changelog/changes/authservice-diff.yaml
+    persistence:
+      enabled: true
+      size: 1Gi
 
 httpservice:
   enabled: true
@@ -103,4 +106,7 @@ messegerparody:
     enabled: true
     image: liquibase/liquibase:4.27.0
     schedule: "*/10 * * * *"
-    changeLogFile: /tmp/messegerparody-diff.yaml
+    changeLogFile: /liquibase/changelog/changes/messegerparody-diff.yaml
+    persistence:
+      enabled: true
+      size: 1Gi

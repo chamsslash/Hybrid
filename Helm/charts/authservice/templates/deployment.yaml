@@ -46,3 +46,18 @@ spec:
               value: "{{ .Values.google.clientId }}"
             - name: GOOGLE_CLIENT_SECRET
               value: "{{ .Values.google.clientSecret }}"
+            {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+            - name: SPRING_LIQUIBASE_CHANGE_LOG
+              value: "file:{{ .Values.liquibaseDiff.changeLogFile }}"
+            {{- end }}
+          {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+          volumeMounts:
+            - name: liquibase-changelog
+              mountPath: /liquibase/changelog
+          {{- end }}
+      {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+      volumes:
+        - name: liquibase-changelog
+          persistentVolumeClaim:
+            claimName: authservice-liquibase-changelog
+      {{- end }}
