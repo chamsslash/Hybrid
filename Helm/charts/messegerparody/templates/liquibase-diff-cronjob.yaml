@@ -21,6 +21,11 @@ spec:
                 - --referenceUrl=offline:postgresql
                 - --changeLogFile={{ .Values.liquibaseDiff.changeLogFile | quote }}
                 - diffChangelog
+              {{- if .Values.liquibaseDiff.persistence.enabled }}
+              volumeMounts:
+                - name: liquibase-changelog
+                  mountPath: /liquibase/changelog
+              {{- end }}
               env:
                 - name: DB_HOST
                   value: "{{ .Values.env.dbHost }}"
@@ -32,4 +37,10 @@ spec:
                   value: "{{ .Values.env.dbUser }}"
                 - name: DB_PASSWORD
                   value: "{{ .Values.env.dbPassword }}"
+          {{- if .Values.liquibaseDiff.persistence.enabled }}
+          volumes:
+            - name: liquibase-changelog
+              persistentVolumeClaim:
+                claimName: messegerparody-liquibase-changelog
+          {{- end }}
 {{- end }}

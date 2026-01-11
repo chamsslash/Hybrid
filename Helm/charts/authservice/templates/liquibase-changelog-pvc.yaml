@@ -1,0 +1,12 @@
+{{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: authservice-liquibase-changelog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.liquibaseDiff.persistence.size | quote }}
+{{- end }}

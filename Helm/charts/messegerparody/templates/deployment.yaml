@@ -42,3 +42,18 @@ spec:
               value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
               value: "{{ .Values.env.redisPort }}"
+            {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+            - name: SPRING_LIQUIBASE_CHANGE_LOG
+              value: "file:{{ .Values.liquibaseDiff.changeLogFile }}"
+            {{- end }}
+          {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+          volumeMounts:
+            - name: liquibase-changelog
+              mountPath: /liquibase/changelog
+          {{- end }}
+      {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
+      volumes:
+        - name: liquibase-changelog
+          persistentVolumeClaim:
+            claimName: messegerparody-liquibase-changelog
+      {{- end }}
