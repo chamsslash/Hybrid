@@ -67,9 +67,9 @@ public class WebFluxConfig {
         RouterFunction<?> combinedRoutes = chatListRouter
                 .and(chatPageRouter)
                 .and(createchatHandle)
-                .and(registerHandle) // <-- 2. ДОБАВЛЕНО ЗДЕСЬ
-                .and(loginHandle)    // <-- И этот
-                .and(staticResourceRouter); // Статику лучше ставить в конец
+                .and(registerHandle)
+                .and(loginHandle)
+                .and(staticResourceRouter);
         WebHandler routerHandler = (WebHandler) toHttpHandler(combinedRoutes, strategies);
         WebFilter securityFilter = new WebFilterChainProxy(List.of(securityWebFilterChain));
         return WebHttpHandlerBuilder
