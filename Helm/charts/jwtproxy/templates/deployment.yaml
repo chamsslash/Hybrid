@@ -17,7 +17,7 @@ spec:
       containers:
         - name: jwtproxy
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: "{{ default "IfNotPresent" .Values.image.pullPolicy }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8084
           env:
