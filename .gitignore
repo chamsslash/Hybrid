@@ -1,5 +1,8 @@
 .vscode
 .idea
-
-# bv (beads viewer) local config and caches
+.beads
+AGENTS.md
+ai_docs
+.github
 .bv/
+tasks

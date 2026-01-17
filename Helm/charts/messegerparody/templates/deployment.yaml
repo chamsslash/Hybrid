@@ -17,6 +17,7 @@ spec:
       containers:
         - name: messegerparody
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: "{{ default "IfNotPresent" .Values.image.pullPolicy }}"
           ports:
             - containerPort: 8082
           env:

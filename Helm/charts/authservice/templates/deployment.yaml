@@ -17,6 +17,7 @@ spec:
       containers:
         - name: authservice
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: "{{ default "IfNotPresent" .Values.image.pullPolicy }}"
           ports:
             - containerPort: 8081
           env:

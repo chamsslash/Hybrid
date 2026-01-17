@@ -17,6 +17,7 @@ spec:
       containers:
         - name: httpservice
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: "{{ .Values.image.pullPolicy default "IfNotPresent"  }}"
           ports:
             - containerPort: 8080
           env:

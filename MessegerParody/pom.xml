@@ -67,6 +67,7 @@
                 <executions>
                     <execution>
                         <id>grpc-java-common</id>
+                        <phase>generate-sources</phase>
                         <goals>
                             <goal>compile</goal>
                             <goal>compile-custom</goal>
@@ -110,6 +111,18 @@
                                 </outputTarget>
                             </outputTargets>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.1.3</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

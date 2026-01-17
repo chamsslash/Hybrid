@@ -52,9 +52,17 @@ jobs:
             --create-namespace \
             --set authservice.image.repository=authservice \
             --set authservice.image.tag=latest \
+            --set authservice.google.clientId=local-google-client-id \
+            --set authservice.google.clientSecret=local-google-client-secret \
             --set httpservice.image.repository=httpservice \
             --set httpservice.image.tag=latest \
+            --set httpservice.security.refreshSecret=local-refresh-secret \
             --set jwtproxy.image.repository=jwtproxy \
             --set jwtproxy.image.tag=latest \
             --set messegerparody.image.repository=messegerparody \
             --set messegerparody.image.tag=latest
+
+      - name: Wait for workloads
+        run: |
+          kubectl wait --namespace hybrid-platform --for=condition=Available deployment --all --timeout=300s
+          kubectl get pods -n hybrid-platform -o wide

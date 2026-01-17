@@ -36,11 +36,12 @@ grafana:
 authservice:
   enabled: true
   image:
-    repository: your-registry/authservice
+    repository: authservice
     tag: latest
+    pullPolicy: IfNotPresent
   google:
-    clientId: CHANGE_ME
-    clientSecret: CHANGE_ME
+    clientId: local-google-client-id
+    clientSecret: local-google-client-secret
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -65,10 +66,11 @@ authservice:
 httpservice:
   enabled: true
   image:
-    repository: your-registry/httpservice
+    repository: httpservice
     tag: latest
+    pullPolicy: IfNotPresent
   security:
-    refreshSecret: CHANGE_ME
+    refreshSecret: local-refresh-secret
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -80,16 +82,18 @@ httpservice:
 jwtproxy:
   enabled: true
   image:
-    repository: your-registry/jwtproxy
+    repository: jwtproxy
     tag: latest
+    pullPolicy: IfNotPresent
   env:
     kafkaBootstrap: kafka:9092
 
 messegerparody:
   enabled: true
   image:
-    repository: your-registry/messegerparody
+    repository: messegerparody
     tag: latest
+    pullPolicy: IfNotPresent
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
