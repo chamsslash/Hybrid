@@ -60,8 +60,12 @@ public class SecurityConfiguration {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // ВАЖНО: Укажите точный адрес вашего фронтенда!
-        configuration.setAllowedOrigins(List.of("http://localhost:2009"));
+        // Разрешаем запросы с ingress-домена и локальной разработки.
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost",
+                "http://myapp.local",
+                "https://myapp.local"
+        ));
 
         // Разрешаем методы
         configuration.setAllowedMethods(List.of("POST","GET"));

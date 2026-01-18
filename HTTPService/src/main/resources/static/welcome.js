@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     window.location.href =  response.data.redirectUri
                 } else {
                     const errorText = await response.text();
-                    throw new Error(errorText || "Неверные учетные данные.");р
+                    throw new Error(errorText || "Неверные учетные данные.");
                 }
             } catch (error) {
                 handleError(error.message);

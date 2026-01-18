@@ -48,4 +48,7 @@ spec:
             - name: GOOGLE_CLIENT_SECRET
               value: "{{ .Values.google.clientSecret }}"
             - name: JWT_PUBLIC_KEY_PEM
-              value: "{{ .Values.env.jwtPublicKey }}"
+              value: |-
+{{ .Values.env.jwtPublicKey | nindent 16 }}
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              value: "{{ .Values.env.kafkaConsumerGroup }}"
