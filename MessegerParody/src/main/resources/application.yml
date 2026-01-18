@@ -13,6 +13,9 @@ spring:
     producer:
       properties:
         max.request.size: 10485760
+    consumer:
+      group-id: messegerparody-consumer
+      auto-offset-reset: earliest
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:hybrid_db}

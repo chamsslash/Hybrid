@@ -18,8 +18,8 @@ import org.springframework.web.client.RestTemplate;
 import java.io.IOException;
 
 import java.io.StringReader;
-import java.nio.file.*;
-import java.io.FileReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPrivateKey;
@@ -277,13 +277,18 @@ public class YandexGptService {
 
     }
     public Map<String,String> ParsePublic_PrivateKey() throws IOException {
-        Path parsedata_path = Paths.get("src/main/resources/authorized_key.json");
-        String data = Files.readString(parsedata_path);
-        JsonObject jsondata = JsonParser.parseString(data).getAsJsonObject();
-        String public_key = jsondata.get("public_key").getAsString();
-        String private_key = jsondata.get("private_key").getAsString();
-        String service_account_id = jsondata.get("service_account_id").getAsString();
-        String key_id = jsondata.get("id").getAsString();
+        // Read secrets strictly from environment; fail fast if missing.
+        String public_key = System.getenv("YANDEX_PUBLIC_KEY_PEM");
+        String private_key = System.getenv("YANDEX_PRIVATE_KEY_PEM");
+        String service_account_id = System.getenv("YANDEX_SERVICE_ACCOUNT_ID");
+        String key_id = System.getenv("YANDEX_KEY_ID");
+
+        if (public_key == null || private_key == null || service_account_id == null || key_id == null) {
+            throw new IllegalStateException("Yandex GPT secrets are not set in environment variables");
+        }
+        // Handle \n escaped PEM from .env
+        public_key = public_key.replace("\\n", "\n");
+        private_key = private_key.replace("\\n", "\n");
         PemObject privateKeyPem;
         PemObject publicKeyPem;
         try (PemReader privateReader = new PemReader(new StringReader(private_key));
@@ -317,4 +322,3 @@ public class YandexGptService {
 //        return sb.toString();
 //    }
     }
-

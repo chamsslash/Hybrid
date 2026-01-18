@@ -1,7 +1,0 @@
-databaseChangeLog:
-  - changeSet:
-      id: auth-002-placeholder
-      author: liquibase
-      changes:
-        - sql:
-            sql: "SELECT 1;"

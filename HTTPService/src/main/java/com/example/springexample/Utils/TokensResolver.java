@@ -97,10 +97,16 @@ public class TokensResolver {
     }
     @SneakyThrows
     public   Map<String,Object> loadKeys() throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
-        String data = Files.readString(Paths.get("src/main/resources/mycrypt.json"));
-        JsonObject jsondata = JsonParser.parseString(data).getAsJsonObject();
-        String public_key = jsondata.get("public_key").getAsString();
-        String private_key = jsondata.get("private_key").getAsString();
+        // Read keys from environment; fail fast if missing.
+        String public_key = System.getenv("JWT_PUBLIC_KEY_PEM");
+        String private_key = System.getenv("JWT_PRIVATE_KEY_PEM");
+
+        if (public_key == null || private_key == null) {
+            throw new IllegalStateException("JWT_PUBLIC_KEY_PEM / JWT_PRIVATE_KEY_PEM are not set");
+        }
+        // Handle \n escaped PEM from .env
+        public_key = public_key.replace("\\n", "\n");
+        private_key = private_key.replace("\\n", "\n");
         PemObject privateKeyPem;
         PemObject publicKeyPem;
         try (PemReader privateReader = new PemReader(new StringReader(private_key));
@@ -223,4 +229,3 @@ public class TokensResolver {
     };
 
     }
-

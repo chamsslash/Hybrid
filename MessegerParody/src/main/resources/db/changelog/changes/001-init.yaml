@@ -2,6 +2,11 @@ databaseChangeLog:
   - changeSet:
       id: messenger-001-init-chat
       author: liquibase
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: chat
       changes:
         - createTable:
             tableName: chat
@@ -22,6 +27,11 @@ databaseChangeLog:
   - changeSet:
       id: messenger-001-init-message
       author: liquibase
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: message
       changes:
         - createTable:
             tableName: message
@@ -60,6 +70,11 @@ databaseChangeLog:
   - changeSet:
       id: messenger-001-init-user-chat
       author: liquibase
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: user_chat
       changes:
         - createTable:
             tableName: user_chat

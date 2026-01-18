@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ---
     const googleLoginBtn = document.getElementById('google-login-btn');
-    const registerLink = document.getElementById('register-link'); // <-- Используем правильный ID
+    const registerLink = document.getElementById('register-link');
     const regularLoginForm = document.getElementById('regular-login-form');
     const responseDiv = document.getElementById('response-div');
     let hideTimeout; // Для таймера скрытия ошибок

@@ -13,8 +13,13 @@ ingress:
 
 # Kafka (KRaft)
 kafka:
-  image: bitnami/kafka:latest
+  image: moeenz/docker-kafka-kraft
   replicas: 1
+  brokerId: 1
+  hostName: kafka
+  createTopics: topic-a,topic-b,topic-c
+  partitionsPerTopic: 3
+  autoCreateTopics: true
 
 postgres:
   image: postgres:15
@@ -35,6 +40,7 @@ grafana:
 # Service images
 authservice:
   enabled: true
+  replicaCount: 1
   image:
     repository: authservice
     tag: latest
@@ -54,17 +60,12 @@ authservice:
     dbName: hybrid_db
     dbUser: postgres
     dbPassword: postgres123
-  liquibaseDiff:
-    enabled: true
-    image: liquibase/liquibase:4.27.0
-    schedule: "*/10 * * * *"
-    changeLogFile: /liquibase/changelog/changes/authservice-diff.yaml
-    persistence:
-      enabled: true
-      size: 1Gi
+    kafkaConsumerGroup: messegerparody-consumer
+
 
 httpservice:
   enabled: true
+  replicaCount: 1
   image:
     repository: httpservice
     tag: latest
@@ -78,9 +79,17 @@ httpservice:
     datasourcePassword: postgres123
     redisHost: redis
     redisPort: "6379"
+    refreshSecret: local-refresh-secret
+    jwtPublicKey: "-----BEGIN PUBLIC KEY-----\\nREPLACE_ME\\n-----END PUBLIC KEY-----"
+    jwtPrivateKey: "-----BEGIN PRIVATE KEY-----\\nREPLACE_ME\\n-----END PRIVATE KEY-----"
+    yandexPublicKey: "-----BEGIN PUBLIC KEY-----\\nREPLACE_ME\\n-----END PUBLIC KEY-----"
+    yandexPrivateKey: "-----BEGIN PRIVATE KEY-----\\nREPLACE_ME\\n-----END PRIVATE KEY-----"
+    yandexServiceAccountId: replace-service-account-id
+    yandexKeyId: replace-key-id
 
 jwtproxy:
   enabled: true
+  replicaCount: 1
   image:
     repository: jwtproxy
     tag: latest
@@ -90,10 +99,12 @@ jwtproxy:
 
 messegerparody:
   enabled: true
+  replicaCount: 1
   image:
     repository: messegerparody
     tag: latest
     pullPolicy: IfNotPresent
+
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -106,11 +117,3 @@ messegerparody:
     dbName: hybrid_db
     dbUser: postgres
     dbPassword: postgres123
-  liquibaseDiff:
-    enabled: true
-    image: liquibase/liquibase:4.27.0
-    schedule: "*/10 * * * *"
-    changeLogFile: /liquibase/changelog/changes/messegerparody-diff.yaml
-    persistence:
-      enabled: true
-      size: 1Gi

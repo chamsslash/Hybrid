@@ -54,13 +54,15 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
 
     // Список публичных путей
     private static final List<String> PUBLIC_PATHS = List.of(
-            "/reactive/login", "/reactive/register", "/welcome", "/authcallback",
-            "/collect-fingerprint", "/exchangeTokens","/actuator/**",
+            "/reactive/login", "/reactive/register", "/welcome", "/", "/authcallback",
+            "/collect-fingerprint", "/exchangeTokens", "/actuator/**",
             "/public/**",
             "/static/**",
+            "/css/**",
+            "/images/**",
             "/reactive/**",
             "**.js",
-            "/**/*.js","/verifylogin"
+            "/**/*.js", "/verifylogin"
     );
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
