@@ -12,9 +12,6 @@ dependencies:
   - name: httpservice
     version: 0.1.0
     condition: httpservice.enabled
-  - name: jwtproxy
-    version: 0.1.0
-    condition: jwtproxy.enabled
   - name: messegerparody
     version: 0.1.0
     condition: messegerparody.enabled

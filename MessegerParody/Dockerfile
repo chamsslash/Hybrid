@@ -5,8 +5,9 @@ WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 
-RUN mvn dependency:go-offline -B
-RUN mvn clean package -DskipTests
+# Use build cache for Maven repo to avoid refetching dependencies
+RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B -Dmaven.repo.local=/root/.m2
+RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests -Dmaven.repo.local=/root/.m2
 
 # Runtime stage
 FROM eclipse-temurin:21-jre

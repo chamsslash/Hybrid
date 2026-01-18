@@ -18,8 +18,8 @@ import org.springframework.web.client.RestTemplate;
 import java.io.IOException;
 
 import java.io.StringReader;
-import java.nio.file.*;
-import java.io.FileReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPrivateKey;
@@ -277,27 +277,55 @@ public class YandexGptService {
 
     }
     public Map<String,String> ParsePublic_PrivateKey() throws IOException {
-        Path parsedata_path = Paths.get("src/main/resources/authorized_key.json");
-        String data = Files.readString(parsedata_path);
-        JsonObject jsondata = JsonParser.parseString(data).getAsJsonObject();
-        String public_key = jsondata.get("public_key").getAsString();
-        String private_key = jsondata.get("private_key").getAsString();
-        String service_account_id = jsondata.get("service_account_id").getAsString();
-        String key_id = jsondata.get("id").getAsString();
-        PemObject privateKeyPem;
-        PemObject publicKeyPem;
-        try (PemReader privateReader = new PemReader(new StringReader(private_key));
-             PemReader publicReader = new PemReader(new StringReader(public_key))) {
+        String public_key = normalizePemFromEnv(System.getenv("YANDEX_PUBLIC_KEY_PEM"), "public");
+        String private_key = normalizePemFromEnv(System.getenv("YANDEX_PRIVATE_KEY_PEM"), "private");
+        String service_account_id = normalizeRequiredEnv(System.getenv("YANDEX_SERVICE_ACCOUNT_ID"), "service_account_id");
+        String key_id = normalizeRequiredEnv(System.getenv("YANDEX_KEY_ID"), "key_id");
 
-            privateKeyPem = privateReader.readPemObject();
-            publicKeyPem = publicReader.readPemObject();
-        }
+        PemObject privateKeyPem = readPemObject(private_key, "private");
+        PemObject publicKeyPem = readPemObject(public_key, "public");
         return new HashMap<>() {{
             put("public_key", Base64.getEncoder().encodeToString(publicKeyPem.getContent()));
             put("private_key", Base64.getEncoder().encodeToString(privateKeyPem.getContent()));
             put("service_account_id", service_account_id);
             put("key_id", key_id);
         }};
+    }
+    private String normalizePemFromEnv(String raw, String label) {
+        if (raw == null) {
+            throw new IllegalStateException("Yandex GPT " + label + " key is not set in environment variables");
+        }
+        String cleaned = raw.trim();
+        if ((cleaned.startsWith("\"") && cleaned.endsWith("\"")) ||
+                (cleaned.startsWith("'") && cleaned.endsWith("'")) ||
+                (cleaned.startsWith("`") && cleaned.endsWith("`"))) {
+            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+        }
+        // Handle \n escaped PEM from .env
+        cleaned = cleaned.replace("\\n", "\n").trim();
+        if (cleaned.isEmpty()) {
+            throw new IllegalStateException("Yandex GPT " + label + " key is empty after normalization");
+        }
+        return cleaned;
+    }
+
+    private String normalizeRequiredEnv(String raw, String label) {
+        if (raw == null || raw.trim().isEmpty()) {
+            throw new IllegalStateException("Yandex GPT " + label + " is not set in environment variables");
+        }
+        return raw.trim();
+    }
+
+    private PemObject readPemObject(String pem, String label) throws IOException {
+        try (PemReader reader = new PemReader(new StringReader(pem))) {
+            PemObject pemObject = reader.readPemObject();
+            if (pemObject == null) {
+                throw new IllegalStateException("Unable to parse " + label + " PEM: data is empty or malformed");
+            }
+            return pemObject;
+        } catch (IOException e) {
+            throw new IllegalStateException("Unable to parse " + label + " PEM: check escaping and quotes", e);
+        }
     }
 //    public String Clean(String pem) {
 //
@@ -317,4 +345,3 @@ public class YandexGptService {
 //        return sb.toString();
 //    }
     }
-

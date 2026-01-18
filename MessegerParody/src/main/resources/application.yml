@@ -13,6 +13,9 @@ spring:
     producer:
       properties:
         max.request.size: 10485760
+    consumer:
+      group-id: messegerparody-consumer
+      auto-offset-reset: earliest
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:hybrid_db}
@@ -21,7 +24,8 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   liquibase:
-    enabled: true
+    # Liquibase выключен по умолчанию; включайте профиль "liquibase" при необходимости миграций.
+    enabled: false
     change-log: classpath:db/changelog/db.changelog-master.yaml
 
   r2dbc:

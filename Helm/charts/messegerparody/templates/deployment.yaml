@@ -5,7 +5,7 @@ metadata:
   labels:
     app: messegerparody
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: messegerparody
@@ -17,6 +17,7 @@ spec:
       containers:
         - name: messegerparody
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8082
           env:
@@ -42,18 +43,5 @@ spec:
               value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
               value: "{{ .Values.env.redisPort }}"
-            {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
-            - name: SPRING_LIQUIBASE_CHANGE_LOG
-              value: "file:{{ .Values.liquibaseDiff.changeLogFile }}"
-            {{- end }}
-          {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
-          volumeMounts:
-            - name: liquibase-changelog
-              mountPath: /liquibase/changelog
-          {{- end }}
-      {{- if and .Values.liquibaseDiff.enabled .Values.liquibaseDiff.persistence.enabled }}
-      volumes:
-        - name: liquibase-changelog
-          persistentVolumeClaim:
-            claimName: messegerparody-liquibase-changelog
-      {{- end }}
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              value: "{{ .Values.env.kafkaConsumerGroup }}"

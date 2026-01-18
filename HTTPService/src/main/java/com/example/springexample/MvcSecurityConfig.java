@@ -18,13 +18,13 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
-import org.springframework.security.web.server.csrf.CookieServerCsrfTokenRepository;
+import org.springframework.security.web.servlet.support.csrf.CsrfRequestDataValueProcessor;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.servlet.support.RequestDataValueProcessor;
 
 import java.util.List;
 
@@ -36,6 +36,12 @@ import java.util.List;
 public class MvcSecurityConfig  {
 
     private final MvcJwtAuthFilter mvcJwtAuthFilter;
+
+    @Bean(name = "requestDataValueProcessor")
+    public RequestDataValueProcessor requestDataValueProcessor() {
+        return new CsrfRequestDataValueProcessor();
+    }
+
     @Bean
     public WebSecurityCustomizer webSecurityCustomizer() {
         return (web) -> {
@@ -69,6 +75,7 @@ public class MvcSecurityConfig  {
                                 new AntPathRequestMatcher("/verifylogin"),
                                 new AntPathRequestMatcher("/welcome"),
                                 new AntPathRequestMatcher("/registerpage"),
+                                new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/reactive/**"),
                                 new AntPathRequestMatcher("/authcallback"),
                                 new AntPathRequestMatcher("/collect-fingerprint"),
@@ -79,7 +86,7 @@ public class MvcSecurityConfig  {
                 )
                 .addFilterBefore(mvcJwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("http://localhost:2009/welcome"))
+                        .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/welcome"))
                 )
 
                 .csrf(csrf -> csrf

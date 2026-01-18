@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ---
     const googleLoginBtn = document.getElementById('google-login-btn');
-    const registerLink = document.getElementById('register-link'); // <-- Используем правильный ID
+    const registerLink = document.getElementById('register-link');
     const regularLoginForm = document.getElementById('regular-login-form');
     const responseDiv = document.getElementById('response-div');
     let hideTimeout; // Для таймера скрытия ошибок
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // const {api} =await import("./axios.js")
 
 
-            const response = await api.post('http://localhost:2010/startauth',
+            const response = await api.post('/startauth',
                 new URLSearchParams({FpComponents: JSON.stringify(meta.components)}),
                 {
                     headers: {
@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
                 console.log(csrfToken)
-                const response = await api.post('http://localhost:2009/reactive/login',
+                const response = await api.post('/reactive/login',
                     params,
                     {
                         headers: {
@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     window.location.href =  response.data.redirectUri
                 } else {
                     const errorText = await response.text();
-                    throw new Error(errorText || "Неверные учетные данные.");р
+                    throw new Error(errorText || "Неверные учетные данные.");
                 }
             } catch (error) {
                 handleError(error.message);

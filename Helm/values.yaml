@@ -13,8 +13,13 @@ ingress:
 
 # Kafka (KRaft)
 kafka:
-  image: bitnami/kafka:latest
+  image: moeenz/docker-kafka-kraft
   replicas: 1
+  brokerId: 1
+  hostName: kafka
+  createTopics: topic-a,topic-b,topic-c
+  partitionsPerTopic: 3
+  autoCreateTopics: true
 
 postgres:
   image: postgres:15
@@ -35,12 +40,14 @@ grafana:
 # Service images
 authservice:
   enabled: true
+  replicaCount: 1
   image:
-    repository: your-registry/authservice
+    repository: authservice
     tag: latest
+    pullPolicy: IfNotPresent
   google:
-    clientId: CHANGE_ME
-    clientSecret: CHANGE_ME
+    clientId: local-google-client-id
+    clientSecret: local-google-client-secret
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -53,22 +60,30 @@ authservice:
     dbName: hybrid_db
     dbUser: postgres
     dbPassword: postgres123
-  liquibaseDiff:
-    enabled: true
-    image: liquibase/liquibase:4.27.0
-    schedule: "*/10 * * * *"
-    changeLogFile: /liquibase/changelog/changes/authservice-diff.yaml
-    persistence:
-      enabled: true
-      size: 1Gi
+    kafkaConsumerGroup: messegerparody-consumer
+    jwtPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkxWruRf9t3Bdp/7gqc7t
+      ywjlRngQPy2m+aPxrzqY2i1XE/mLiqik54Ad3tnr9fXBHr42pQjooC8MUBnpR2hA
+      TDZD4duVDDNcR1w+EkFexk2c0/OHZPYF3wodKGOnZl2sxR/hupOtH+YvSruJHe33
+      oEGsTS4zdjVsA53UXEzEkbzRi5hiC08zZ9C5DYgJzvjr1rPpE/vGy/CGuWX1PQPH
+      UExDKuxqhA4cycSI3crE6d1nB8CnFbk8SxE9oLtWbatKpLCk4ty/y2vhC8r6wHat
+      jSC3lyg765maEi4WRcBYq9telxesMrf2hlu6GnJwLFrPPiCiTpycD1wloH//XC4s
+      IwIDAQAB
+      -----END PUBLIC KEY-----
+
+
+
 
 httpservice:
   enabled: true
+  replicaCount: 1
   image:
-    repository: your-registry/httpservice
+    repository: httpservice
     tag: latest
+    pullPolicy: IfNotPresent
   security:
-    refreshSecret: CHANGE_ME
+    refreshSecret: local-refresh-secret
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -76,20 +91,97 @@ httpservice:
     datasourcePassword: postgres123
     redisHost: redis
     redisPort: "6379"
-
-jwtproxy:
-  enabled: true
-  image:
-    repository: your-registry/jwtproxy
-    tag: latest
-  env:
-    kafkaBootstrap: kafka:9092
+    refreshSecret: local-refresh-secret
+    jwtPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkxWruRf9t3Bdp/7gqc7t
+      ywjlRngQPy2m+aPxrzqY2i1XE/mLiqik54Ad3tnr9fXBHr42pQjooC8MUBnpR2hA
+      TDZD4duVDDNcRVw+EkFexk2c0/OHZPYF3wodKGOnZl2sxR/hupOtH+YvSruJHe33
+      oEGsTS4zdjVsA53UXEzEkbzRi5hiC08zZ9C5DYgJzvjr1rPpE/vGy/CGuWX1PQPH
+      UExDKuxqhA4cycSI3crE6d1nB8CnFbk8SxE9oLtWbatKpLCk4ty/y2vhC8r6wHat
+      jSC3lyg765maEi4WRcBYq9telxesMrf2hlu6GnJwLFrPPiCiTpycD1wloH//XC4s
+      IwIDAQAB
+      -----END PUBLIC KEY-----
+    jwtPrivateKey: |
+      -----BEGIN PRIVATE KEY-----
+      MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCTFau5F/23cF2n
+      /uCpzu3LCOVGeBA/Lab5o/GvOpjaLVcT+YuKqKTngB3e2ev19cEevjalCOigLwxQ
+      GelHaEBMNkPh25UMM1xFXD4SQV7GTZzT84dk9gXfCh0oY6dmXazFH+G6k60f5i9K
+      u4kd7fegQaxNLjN2NWwDndRcTMSRvNGLmGILTzNn0LkNiAnO+OvWs+kT+8bL8Ia5
+      ZfU9A8dQTEMq7GqEDhzJxIjdysTp3WcHwKcVuTxLET2gu1Ztq0qksKTi3L/La+EL
+      yvrAdq2NILeXKDvrmZoSLhZFwFir216XF6wyt/aGW7oacnAsWs8+IKJOnJwPXCWg
+      f/9cLiwjAgMBAAECggEAMKElmZjZBeFc1cJrPTlxXYOfamEf3gOWBUuzCKBzEQ+U
+      jsIe5MVFYFT3i0q5vSR3qVZycrYzU2K6y3EFs9pAB/KZFv+mk9YXV8dbrmV2lFHs
+      3BbUWQkOf+O0KDpqimnGSZZ0518UCkvsruS6PO8ExDNyaEIyOY8IG1n/cFThWN14
+      XuWRoAKB3lYjtU70pftiDFOiyruN+UWtO69xMZffzxQDnEx1Imt29j+J+ZBLu3Lm
+      mZPssmjqPeDwxYulCe3VUplaTVopYi1PyQutD006yxIpndkI7/2grxtp1v2BlD1w
+      xosZx3aKqjML9scx0pH6UCTy98EA4QPUj7JcbEohIQKBgQDMR+atWN6DX3CpO1nR
+      PVO+1HLNysxHY47hxrz8sbBWba9ZugEH20bPZJhYq5wv7fEUj3ChV60XAyamnhUi
+      1sL79k/wOrRVgkXQj4duHu0oX0QkrfTMEKRTXQiFXMGLRKgTioKbiHrOGWFUunST
+      uP8Nvgq6vGMGafrGppJsGWzZvQKBgQC4UrMR94feko8zpksGjudigk4pDrLqZDoP
+      K1CubjO2vu9MlgRGFMHmBTVCYKhaJmy/NNg9//RFtu/BzBub0swmaWVTjkExkkXw
+      126f1ICQSAgXSEEDtycsYDjKBHXXEg1JBGhy+tu7lI+Ex8gS3yhgE0H1yajfA8ty
+      sE/TE2tLXwKBgDropSHqFcjGtgNnZSBM0iCevTiROdWAZUzAdfFdAF/8I2v5kqCE
+      YGggNzqiylicAkCOmMk+MmEHfJbh0XCJhBMK1cSN+UELXzykl0ZvTq6swkbdj1Fl
+      ny2XD4T92aZityFjeQSHF/rlIMdBOar71zlMS2XMO7Y2y6WLlX/s2RH1AoGAPyhX
+      I3jlnWYqm1AHtR+SOTbdAUSAGcBuBHSbGKm6HoweAugEXt8N8XsnXK8yAHHaIUpC
+      LjxdvuWIEaeWbjY0rZS/m3nK7Olp/bRTu4Bc7RNBcnjXjiZbzeDKlK4ikqck1jgk
+      cgFy+TtWUfECpTTB6OmwWD/ZFVF/jLTNJU4qHZECgYAKCFtrLtqIJAavT+MTlKZY
+      sFG8lEbViA0Or1NKHtn8CvJvaRS8IMv/MZSvOqxyLzy8peJI7jlfl0japnsvz9r2
+      BSyhgRAMT8zptZDjaZ6kUCYJ7eLWm1MfvMB4pJyZghCbGVXq9pUZeC76XkxVRt9+
+      QjquZmqB54hb5Nu1Jcsysg==
+      -----END PRIVATE KEY-----
+    yandexPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7vBgO+vNIYF3ZapGOsD
+      hCFbpyw88CdnS7Sb7qfK8Tahp+OERzEaeCs1BNd/EnuV0fY1zIa4hcB48ATzyEOv
+      QfFfcUhrWivkdJ4rVx5l8Dkc0wcG5as/trfup0X60JKanSbSq0Bi1BZQ34e9LNWD
+      ud44x7fGxHrKBGqgRS2gp9TSXMlEIWHLtnFL5Sc4xTRvxVI1tuonQ2ui+J1lzoJI
+      biImnG5WAXUye7Iyz7cjv9o3vbkib4fkCriglhluYkQ8qWlnedq7cahsBrDALtFI
+      re9h5iJVvigslIsf73S/WKRhG1ArlfxBL2DphVv2QmCmphKWVGaOv8yK3oNT9WEp
+      tQIDAQAB
+      -----END PUBLIC KEY-----
+    yandexPrivateKey: |
+      PLEASE DO NOT REMOVE THIS LINE! Yandex.Cloud SA Key ID <ajep47sbfhdosn8eav2k>
+      -----BEGIN PRIVATE KEY-----
+      MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/u8GA7680hgXd
+      lqkY6wOEIVunLDzwJ2dLtJvup8rxNqGn44RHMRp4KzUE138Se5XR9jXMhriFwHjw
+      BPPIQ69B8V9xSGtaK+R0nitXHmXwORzTBwblqz+2t+6nRfrQkpqdJtKrQGLUFlDf
+      h70s1YO53jjHt8bEesoEaqBFLaCn1NJcyUQhYcu2cUvlJzjFNG/FUjW26idDa6L4
+      nWXOgkhuIiacblYBdTJ7sjLPtyO/2je9uSJvh+QKuKCWGW5iRDypaWd52rtxqGwG
+      sMAu0Uit72HmIlW+KCyUix/vdL9YpGEbUCuV/EEvYOmFW/ZCYKamEpZUZo6/zIre
+      g1P1YSm1AgMBAAECggEAB4xIrd7Bsvujt3l65rQ5yzXU+dvP+lRSyLQvf1Gzt5ND
+      Aez/BB52wExTJgGlywB6gW2D6K1VDk7pc+l9/2BKwfnSnA8Rytb3g2/GnQNhV/en
+      ntcj+l6nf3X2OzeSDCv5Uj55BKzgNyE5xdL+K4msSeDps1MUzB9ZXJsl/BMzw+eX
+      fcs0hJirk2GS9pQUNqSvMZcfhI0TMjz2HWZEUC9+PwVnXBeJkB4brSDUIyyNbVwn
+      j3nLJQeas6KZhbRBEKhlzOICQ4UkpVBOeAdEIdeAgojWN1gGnCQCslNLBMYEWsXO
+      SZP3LZ8ACz/vBlJCQxdPFiEt64n/vafAK38xkUw38QKBgQDifPbiVpsFsQ9jKk4W
+      p1WCCRBvagADK4Bvj4VZ+AwYeneN7GeT1wXXL1bexU7PBqAkCuqux5oCg16i2p48
+      akniR/kl1yLpG9yd/hGL6Gm2alaAWg//JFviKW9/sNz6/LgljSK5GoGKswUg2noT
+      Q0VC/wrE/vZGYT0Y8wgAXLMyJwKBgQDYt3eo21QNdTGm1FhCygk275+60pxfskwC
+      W4+9Z775uVtgk48gqXmyS4NKHi8eKJk9znR+F5UAj/RFJOFSBuo7sTvzS3WF4v9s
+      XP1A3ajTjOPSDNdnQQeLRzCHO7Y3YalyyReK7sLIhRewO5+L8Q9EJ5l5jDf+lJbO
+      EzwdLCYawwKBgBfs0XupYGjiglicYHFeLdc1s+nBDc1H7CJcy95sKILxdO2mGm7w
+      mOpZUtjniOKvtXz5Nj9OUIORcw7K/0oshC+GINiReFudmNmLvDjGTVx6sTaPzP7L
+      zXT/oYqgmUdeKOm2lgNtvF91d8Y3rguY4JkqLe4PbN6UaQrYqXC4WimjAoGACBM+
+      CDKz/RRi1z6OU17H3R4sq39xiDdSkbvrrTkSaqe3ee/Fo4ftGvGpYLejNdJ5c04g
+      FRq32J+EkJcBNlc/nx3JiBVFucltjxIf9azMv6U+T/Nei2Bm8Y+jhUZ6UbH36GkJ
+      0Yl4BJTA/zYZidNfqEB5fYf2BixvOhqJYOTmPpUCgYBeskoVQFaON3ZSrO0WBqe3
+      +uMN7SuYeEI+AnyUlCKX/dSVbzpqn3z+wvp1M1bH3faLFqTTSB/g+PO7qrQNS4kA
+      +98c64hcFeHPkO+/ozM9kqH9M+2n/pEQKCiWZHP3e659UWYPOIWtorL+dqJD0W4r
+      VdZqg+eVJ2K/tFUInZxCew==
+      -----END PRIVATE KEY-----
+    yandexServiceAccountId: ajehr6no83h6drm62nc2
+    yandexKeyId: ajep47sbfhdosn8eav2k
 
 messegerparody:
   enabled: true
+  replicaCount: 1
   image:
-    repository: your-registry/messegerparody
+    repository: messegerparody
     tag: latest
+    pullPolicy: IfNotPresent
+
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -102,11 +194,4 @@ messegerparody:
     dbName: hybrid_db
     dbUser: postgres
     dbPassword: postgres123
-  liquibaseDiff:
-    enabled: true
-    image: liquibase/liquibase:4.27.0
-    schedule: "*/10 * * * *"
-    changeLogFile: /liquibase/changelog/changes/messegerparody-diff.yaml
-    persistence:
-      enabled: true
-      size: 1Gi
+    kafkaConsumerGroup: messegerparody-consumer

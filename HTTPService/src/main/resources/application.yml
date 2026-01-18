@@ -1,5 +1,3 @@
-# РЕШЕНИЕ ПРОБЛЕМЫ №2: Правильный синтаксис для application.yml
-
 debug: true
 securityProps:
   refresh-secret: ${REFRESH_SECRET}
@@ -100,8 +98,6 @@ logging:
     org.springframework.http.server.reactive.ServletHttpHandlerAdapter: DEBUG
     com.example.springexample: DEBUG
     reactor.netty: DEBUG
+    org.apache.kafka: ERROR
+    org.springframework.kafka: ERROR
 
-
-
-  codec:
-    log-request-details: true

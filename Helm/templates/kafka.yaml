@@ -36,24 +36,16 @@ spec:
           ports:
             - containerPort: 9092
           env:
-            - name: KAFKA_ENABLE_KRAFT
-              value: "yes"
-            - name: KAFKA_CFG_NODE_ID
-              value: "1"
-            - name: KAFKA_CFG_PROCESS_ROLES
-              value: "broker,controller"
-            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
-              value: "CONTROLLER"
-            - name: KAFKA_CFG_LISTENERS
-              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
-            - name: KAFKA_CFG_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://kafka:9092"
-            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-              value: "1@kafka:9093"
-            - name: ALLOW_PLAINTEXT_LISTENER
-              value: "yes"
+            - name: KRAFT_BROKER_ID
+              value: "{{ default "1" .Values.kafka.brokerId }}"
+            - name: KRAFT_CONTAINER_HOST_NAME
+              value: "{{ default "kafka" .Values.kafka.hostName }}"
+            - name: KRAFT_CREATE_TOPICS
+              value: "{{ default "" .Values.kafka.createTopics }}"
+            - name: KRAFT_PARTITIONS_PER_TOPIC
+              value: "{{ default "1" .Values.kafka.partitionsPerTopic }}"
+            - name: KRAFT_AUTO_CREATE_TOPICS
+              value: "{{ default "true" .Values.kafka.autoCreateTopics }}"
           volumeMounts:
             - name: kafka-data
               mountPath: /bitnami/kafka

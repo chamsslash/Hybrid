@@ -1,12 +1,9 @@
 package com.example.springexample;
 
 import com.example.springexample.Utils.TokensResolver;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.Jwts;
+import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -27,7 +24,7 @@ import reactor.core.scheduler.Schedulers;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +36,7 @@ import java.util.stream.Collectors;
 public class ReactiveHybridAuthFilter implements WebFilter {
 
     private final TokensResolver tokensResolver;
+    private final Gson gson = new Gson();
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
     // Список публичных путей (аналогично сервлетной версии)
@@ -64,105 +62,60 @@ public class ReactiveHybridAuthFilter implements WebFilter {
             return chain.filter(exchange);
         }
         log.info("Запрос по фильтру прошел");
-        // Получаем JWT из cookie "access"
-        String jwt = getJwtFromRequest(request);
 
-        // Валидируем токен
-        return isTokenValid(jwt)
-                .flatMap(result -> {
-                    // --- Сценарий 1: JWT валиден ---
-                    // Если результат - это объект Authentication, устанавливаем его в контекст
-                    if (result instanceof Authentication) {
-                        log.warn("JWT валиден, пропускаем запрос на {}", request.getURI().getPath());
-                        Authentication auth = (Authentication) result;
-                        return chain.filter(exchange)
-                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
-                    }
-                    // --- Сценарий 2: JWT истек ---
-                    // Если результат - это строка (JTI), токен истек, и нужно проверить Refresh токен
-                    else if (result instanceof String) {
-
-                        String jti = (String) result;
-                        return Mono.fromCallable(() -> tokensResolver.getRefreshByJti(jti))
-                                .subscribeOn(Schedulers.boundedElastic()) // Выполняем блокирующий вызов в отдельном потоке
-                                .flatMap(refreshToken -> {
-                                    if (Objects.nonNull(refreshToken)) {
-                                        // Refresh токен найден, редиректим на сбор фингерпринта
-                                        return redirectToFingerprint(exchange);
-                                    } else {
-                                        // Refresh токен не найден, пропускаем запрос без аутентификации
-                                        return chain.filter(exchange);
-                                    }
-                                });
-                    }
-                    // Если результат другого типа (неожиданный случай), пропускаем
-                    return chain.filter(exchange);
-                })
-                // --- Сценарий 3: JWT невалиден (ошибка парсинга) или отсутствует ---
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.debug("JWT отсутствует или невалиден (ошибка парсинга). Пропускаем запрос.");
-                    // Пропускаем запрос без аутентификации. Его может перехватить `AuthenticationEntryPoint`.
-                    return chain.filter(exchange);
-                }));
-    }
-
-    /**
-     * Валидирует JWT.
-     * Возвращает:
-     * - Mono<Object> содержащий Authentication, если токен валиден.
-     * - Mono<Object> содержащий String (JTI), если токен истек.
-     * - Mono.empty(), если токен невалиден по другим причинам (ошибка подписи, и т.д.).
-     */
-    public Mono<Object> isTokenValid(String jwt) {
-        if (!StringUtils.hasText(jwt)) {
-            return Mono.empty();
+        String auths = request.getHeaders().getFirst("X-Authorities");
+        String userId = request.getHeaders().getFirst("X-User-ID");
+        if (StringUtils.hasText(auths) && StringUtils.hasText(userId)) {
+            List<SimpleGrantedAuthority> authorities = parseAuthorities(auths);
+            if (!authorities.isEmpty()) {
+                Authentication auth = new UsernamePasswordAuthenticationToken(userId, null, authorities);
+                return chain.filter(exchange)
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
+            }
         }
 
-        return Mono.fromCallable(() -> {
-                    try {
-                        Claims claims = Jwts.parser()
-                                .verifyWith((PublicKey) tokensResolver.loadKeys().get("public_key"))
-                                .build()
-                                .parseSignedClaims(jwt)
-                                .getPayload();
-
-                        // Если все проверки пройдены, создаем объект Authentication
-                        log.debug("JWT токен успешно валидирован.");
-                        List<Map<String, String>> authoritiesMaps = claims.get("authorities", List.class);
-                        List<SimpleGrantedAuthority> authoritiesList = authoritiesMaps.stream()
-                                .map(map -> map.get("authority"))
-                                .map(SimpleGrantedAuthority::new)
-                                .collect(Collectors.toList());
-                        return (Object) createAuth(claims.getSubject(), authoritiesList);
-
-                    } catch (ExpiredJwtException e) {
-                        log.warn("JWT токен истек.");
-                        // Если токен истек, возвращаем его JTI для поиска Refresh токена
-                        return e.getClaims().getId();
-                    }
-                }).subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(e -> {
-                    log.error("Ошибка валидации JWT: {}", e.getMessage());
-                    return Mono.empty(); // Любая другая ошибка при парсинге = невалидный токен
-                });
-    }
-
-    /**
-     * Извлекает JWT из cookie "access".
-     */
-    private String getJwtFromRequest(ServerHttpRequest request) {
-        HttpCookie accessTokenCookie = request.getCookies().getFirst("access");
-        if (accessTokenCookie != null) {
-            return accessTokenCookie.getValue();
+        String jti = request.getHeaders().getFirst("X-Jti");
+        if (StringUtils.hasText(jti)) {
+            return Mono.fromCallable(() -> tokensResolver.getRefreshByJti(jti))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMap(refreshToken -> {
+                        if (Objects.isNull(refreshToken)) {
+                            return chain.filter(exchange);
+                        }
+                        exchange.getResponse().setStatusCode(HttpStatus.valueOf(419));
+                        return exchange.getResponse().setComplete();
+                    });
         }
-        return null;
+
+        return chain.filter(exchange);
     }
 
-    /**
-     * Создает объект Authentication.
-     */
-    private Authentication createAuth(String sub, List<SimpleGrantedAuthority> authorities) {
-        return new UsernamePasswordAuthenticationToken(sub, null, authorities);
+    private List<SimpleGrantedAuthority> parseAuthorities(String raw) {
+        try {
+            List<?> parsed = gson.fromJson(raw, List.class);
+            if (parsed == null) {
+                return List.of();
+            }
+            List<String> roles = new ArrayList<>();
+            for (Object entry : parsed) {
+                if (entry instanceof String s && StringUtils.hasText(s)) {
+                    roles.add(s);
+                    continue;
+                }
+                if (entry instanceof Map<?, ?> map) {
+                    Object val = map.get("authority");
+                    if (val instanceof String s && StringUtils.hasText(s)) {
+                        roles.add(s);
+                    }
+                }
+            }
+            return roles.stream()
+                    .map(SimpleGrantedAuthority::new)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("Не удалось распарсить X-Authorities: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     /**

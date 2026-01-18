@@ -5,7 +5,7 @@ metadata:
   labels:
     app: httpservice
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: httpservice
@@ -17,6 +17,7 @@ spec:
       containers:
         - name: httpservice
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8080
           env:
@@ -33,4 +34,20 @@ spec:
             - name: SPRING_REDIS_PORT
               value: "{{ .Values.env.redisPort }}"
             - name: REFRESH_SECRET
-              value: "{{ .Values.security.refreshSecret }}"
+              value: "{{ .Values.env.refreshSecret | default .Values.security.refreshSecret }}"
+            - name: JWT_PUBLIC_KEY_PEM
+              value: |-
+{{ .Values.env.jwtPublicKey | nindent 16 }}
+            - name: JWT_PRIVATE_KEY_PEM
+              value: |-
+{{ .Values.env.jwtPrivateKey | nindent 16 }}
+            - name: YANDEX_PUBLIC_KEY_PEM
+              value: |-
+{{ .Values.env.yandexPublicKey | nindent 16 }}
+            - name: YANDEX_PRIVATE_KEY_PEM
+              value: |-
+{{ .Values.env.yandexPrivateKey | nindent 16 }}
+            - name: YANDEX_SERVICE_ACCOUNT_ID
+              value: "{{ .Values.env.yandexServiceAccountId }}"
+            - name: YANDEX_KEY_ID
+              value: "{{ .Values.env.yandexKeyId }}"

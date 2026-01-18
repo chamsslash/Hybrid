@@ -11,14 +11,12 @@ import com.example.springexample.R2DBC_Repositories.ReactiveRepository;
 import com.example.springexample.R2DBC_Repositories.ReactiveUserChatRepository;
 import com.example.springexample.R2DBC_Repositories.ReactiveUserRepository;
 
-import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
-import reactor.ReactiveTransferServiceGrpc;
+import reactor.ReactorReactiveTransferServiceGrpc;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -27,48 +25,32 @@ import java.util.stream.Collectors;
 @Slf4j
 @GrpcService
 @RequiredArgsConstructor
-public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferServiceImplBase {
+public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTransferServiceImplBase {
     private  final ConvertToProto toProto;
     private  final ReactiveRepository customReactiveRepository;
     private final ReactiveUserChatRepository reactiveUserChatRepository;
     private final ReactiveUserRepository reactiveUserRepository;
     private final ReactiveChatRepository reactiveChatRepository;
     @Override
-    public void getAllUsersByChatId(DataTransferService.ChatData request, StreamObserver<DataTransferService.UserListResponse> responseObserver) {
-        customReactiveRepository.findAllUsersByChatId(request.getChatId()).collectList().as(toProto::toUserListResponse)
-                .doOnNext(responseObserver::onNext)
-                .doOnSuccess(ignored -> responseObserver.onCompleted())
-                .doOnError(responseObserver::onError)
-                .subscribe();
+    public Mono<DataTransferService.UserListResponse> getAllUsersByChatId(DataTransferService.ChatData request) {
+        return customReactiveRepository.findAllUsersByChatId(request.getChatId())
+                .collectList()
+                .as(toProto::toUserListResponse);
     }
 
     @Override
-    public void transferchat(DataTransferService.ChatData newChat, StreamObserver<DataTransferService.ChatResponse> responseObserver) {
+    public Mono<DataTransferService.ChatResponse> transferchat(DataTransferService.ChatData newChat) {
         if (newChat.getUserList().isEmpty() || !newChat.hasAuthorId()) {
-            customReactiveRepository.findChatById(newChat.getChatId())
-                    .switchIfEmpty(Mono.fromRunnable(() -> {
-                        responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
-                                .setStatus("500")
-                                .setMessage("Cannot find chat ERROR")
-                                .build());
-                        responseObserver.onCompleted();
-                    }))
+            return customReactiveRepository.findChatById(newChat.getChatId())
                     .map(toProto::toChatResp)
-//                    .map(a->toProto.toChatResp())
-                    .subscribe(
-                            response -> {
-                                responseObserver.onNext(response);
-                                responseObserver.onCompleted();
-                            },
-                            error -> {
-                                responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
-                                        .setStatus("500")
-                                        .setMessage(error.getMessage())
-                                        .build());
-                                responseObserver.onCompleted();
-                            }
-                    );
-            return;
+                    .switchIfEmpty(Mono.just(DataTransferService.ChatResponse.newBuilder()
+                            .setStatus("500")
+                            .setMessage("Cannot find chat ERROR")
+                            .build()))
+                    .onErrorResume(error -> Mono.just(DataTransferService.ChatResponse.newBuilder()
+                            .setStatus("500")
+                            .setMessage(error.getMessage())
+                            .build()));
         }
 
         List<Long> userIds = newChat.getUserList().stream()
@@ -78,34 +60,21 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
                 .toList();
 
         if (userIds.size() != newChat.getUserList().size()) {
-            responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
+            return Mono.just(DataTransferService.ChatResponse.newBuilder()
                     .setStatus("500")
                     .setMessage("Chat with such users doesn't exist")
                     .build());
-            responseObserver.onCompleted();
-            return;
         }
 
-        List<Mono<r2dbc_user>> userMonos = new ArrayList<>();
-        for (Long user_id : userIds) {
-            Mono<r2dbc_user> userMono = reactiveUserRepository.findById(user_id).switchIfEmpty(Mono.defer(() -> {
-                responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
-                        .setStatus("500")
-                        .setMessage("Пользователь не найден по ID: " + user_id)
-                        .build());
-                responseObserver.onCompleted();
-                return Mono.empty();
-            }));
-            userMonos.add(userMono);
-        }
+        List<Mono<r2dbc_user>> userMonos = userIds.stream()
+                .map(userId -> reactiveUserRepository.findById(userId)
+                        .switchIfEmpty(Mono.error(new IllegalStateException("Пользователь не найден по ID: " + userId))))
+                .toList();
 
         Mono<r2dbc_user> authorMono = reactiveUserRepository.findById(Long.parseLong(newChat.getAuthorId().getId()))
-                .switchIfEmpty(Mono.defer(() -> {
-                    responseObserver.onError(new Throwable("User-author not found"));
-                    return Mono.empty();
-                }));
+                .switchIfEmpty(Mono.error(new IllegalStateException("User-author not found")));
 
-        Mono.zip(authorMono, Mono.zip(userMonos, res -> Arrays.stream(res)
+        return Mono.zip(authorMono, Mono.zip(userMonos, res -> Arrays.stream(res)
                         .map(obj -> (r2dbc_user) obj)
                         .collect(Collectors.toList())))
                 .flatMap(tuple -> {
@@ -123,21 +92,19 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
 
                     return customReactiveRepository.findChatByTitleAndExactUsers(newChat.getTitle(), allIds)
                             .flatMap(exchat -> {
-                                responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
+                                return Mono.just(DataTransferService.ChatResponse.newBuilder()
                                         .setMessage("Chat already exists")
                                         .setId(exchat.getId())
                                         .setImageUrl(exchat.getImageUrl())
                                         .setStatus("666")
                                         .build());
-                                responseObserver.onCompleted();
-                                return Mono.empty();
                             })
                             .switchIfEmpty(Mono.defer(() -> {
                                 r2dbc_chat newChatEntity = new r2dbc_chat();
                                 newChatEntity.setTitle(newChat.getTitle());
                                 newChatEntity.setImageUrl(newChat.getImageUrl());
 
-                                return reactiveChatRepository.save(newChatEntity).flatMap(savedchat->{
+                                return reactiveChatRepository.save(newChatEntity).flatMap(savedchat -> {
                                     return reactiveChatRepository.save(newChatEntity).flatMap(savedChat -> {
                                         List<Mono<r2dbc_user_Chat>> bindings = users.stream()
                                                 .map(usr -> {
@@ -153,26 +120,18 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
                                     });
 
 
-                                        })
-                                        .doOnNext(saved -> {
-                                            responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
-                                                    .setMessage("Chat has been created")
-                                                    .setStatus("200")
-                                                    .setImageUrl(saved.getImageUrl())
-                                                            .setId(saved.getId())
-                                                    .build());
-                                            responseObserver.onCompleted();
-                                        });
+                                }).map(saved -> DataTransferService.ChatResponse.newBuilder()
+                                        .setMessage("Chat has been created")
+                                        .setStatus("200")
+                                        .setImageUrl(saved.getImageUrl())
+                                        .setId(saved.getId())
+                                        .build());
                             }));
                 })
-                .doOnError(e -> {
-                    responseObserver.onNext(DataTransferService.ChatResponse.newBuilder()
-                            .setStatus("500")
-                            .setMessage("Unexpected error in chat serving: " + e.getMessage())
-                            .build());
-                    responseObserver.onCompleted();
-                })
-                .subscribe();
+                .onErrorResume(e -> Mono.just(DataTransferService.ChatResponse.newBuilder()
+                        .setStatus("500")
+                        .setMessage("Unexpected error in chat serving: " + e.getMessage())
+                        .build()));
     }
 
 
@@ -180,32 +139,13 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
 
     // message
     @Override
-    public void getnewest(DataTransferService.ChatData request, StreamObserver<DataTransferService.Message
-> responseObserver) {
+    public Mono<DataTransferService.Message> getnewest(DataTransferService.ChatData request) {
         Long chatId = request.getChatId();
 
-        reactiveChatRepository.findById(chatId)
-                .switchIfEmpty(Mono.defer(() -> {
-//                    responseObserver.onError(new Throwable("Chat not found"));
-                    responseObserver.onNext(DataTransferService.Message.getDefaultInstance());
-                    responseObserver.onCompleted();
-                    return Mono.empty();
-                }))
+        return reactiveChatRepository.findById(chatId)
                 .flatMap(chat -> customReactiveRepository.findTopByChatIdOrderByTimestampDesc(chat.getId())
-                        .switchIfEmpty(Mono.defer(() -> {
-                            DataTransferService.Message
- fallback = DataTransferService.Message
-.newBuilder()
-                                    .setChatId(chat.getId())
-                                    .setChatName(chat.getTitle())
-                                    .build();
-                            responseObserver.onNext(fallback);
-                            responseObserver.onCompleted();
-                            return Mono.empty();
-                        }))
                         .flatMap(message -> reactiveUserRepository.findById(message.getUserId())
-                                .map(user -> DataTransferService.Message
-.newBuilder()
+                                .map(user -> DataTransferService.Message.newBuilder()
                                         .setUserName(user.getName())
                                         .setChatName(chat.getTitle())
                                         .setText(message.getText())
@@ -214,57 +154,44 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
                                         .setChatId(chat.getId())
                                         .setUserId(user.getId())
                                         .setImageUrl(user.getImageUrl())
-                                        .build())
-                        )
-                )
-                .subscribe(
-                        response -> {
-                            responseObserver.onNext(response);
-                            responseObserver.onCompleted();
-                        },
-                        responseObserver::onError
-                );
+                                        .build()))
+                        .switchIfEmpty(Mono.just(DataTransferService.Message.newBuilder()
+                                .setChatId(chat.getId())
+                                .setChatName(chat.getTitle())
+                                .build())))
+                .switchIfEmpty(Mono.just(DataTransferService.Message.getDefaultInstance()));
     }
 
     @Override
-    public void getallchatsbyid(DataTransferService.ChatData request, StreamObserver<DataTransferService.ListOfChats> responseObserver) {
+    public Mono<DataTransferService.ListOfChats> getallchatsbyid(DataTransferService.ChatData request) {
         long id = Long.parseLong(request.getUser(0).getId());
-        customReactiveRepository.findAllOrderedChatsByUserId(id).map(chat -> {
-            return DataTransferService.ChatData.newBuilder()
-                    .setChatId(id)
-                    .setTitle(chat.getTitle())
-                    .setImageUrl(chat.getImageUrl())
-                    .build();
-
-
-        }).collectList().map(listOfChatData-> DataTransferService.ListOfChats.newBuilder().addAllChatdataList(listOfChatData).build()).subscribe(sub->{
-            responseObserver.onNext(sub);
-            responseObserver.onCompleted();
-        },err->{
-            log.error("Error in reactive stream", err);
-            responseObserver.onError(err);
-        });
-
+        return customReactiveRepository.findAllOrderedChatsByUserId(id)
+                .map(chat -> DataTransferService.ChatData.newBuilder()
+                        .setChatId(id)
+                        .setTitle(chat.getTitle())
+                        .setImageUrl(chat.getImageUrl())
+                        .build())
+                .collectList()
+                .map(listOfChatData -> DataTransferService.ListOfChats.newBuilder()
+                        .addAllChatdataList(listOfChatData)
+                        .build())
+                .doOnError(err -> log.error("Error in reactive stream", err));
     }
 
     @Override
-    public void transferAllMessages(DataTransferService.ChatData request,
-                                    StreamObserver<DataTransferService.ListOfMessages> responseObserver) {
+    public Mono<DataTransferService.ListOfMessages> transferAllMessages(DataTransferService.ChatData request) {
 
-        customReactiveRepository.getMessagesByChatId(request.getChatId())
+        return customReactiveRepository.getMessagesByChatId(request.getChatId())
                 .flatMap(msg -> {
-                    Mono<r2dbc_user>
- userMono = reactiveUserRepository.findById(msg.getUserId());
-                    Mono<r2dbc_chat>
- chatMono = reactiveChatRepository.findById(msg.getChatId());
+                    Mono<r2dbc_user> userMono = reactiveUserRepository.findById(msg.getUserId());
+                    Mono<r2dbc_chat> chatMono = reactiveChatRepository.findById(msg.getChatId());
 
                     return Mono.zip(userMono, chatMono)
                             .map(tuple -> {
                                 r2dbc_user user = tuple.getT1();
                                 r2dbc_chat chat = tuple.getT2();
 
-                                return DataTransferService.Message
-.newBuilder()
+                                return DataTransferService.Message.newBuilder()
                                         .setId(msg.getId())
                                         .setUserName(user.getName())
                                         .setUserId(user.getId())
@@ -277,71 +204,51 @@ public class ReactiveImpl extends ReactiveTransferServiceGrpc.ReactiveTransferSe
                             });
                 })
                 .collectList()
-                .doOnNext(messageList -> {
-                    DataTransferService.ListOfMessages response = DataTransferService.ListOfMessages.newBuilder()
-                            .addAllMessageList(messageList)
-                            .build();
-                    responseObserver.onNext(response);
-                    responseObserver.onCompleted();
-                })
-                .doOnError(responseObserver::onError)
-                .subscribe();
+                .map(messageList -> DataTransferService.ListOfMessages.newBuilder()
+                        .addAllMessageList(messageList)
+                        .build());
     }
 
 
     @Override
-    public void getUsernameById(DataTransferService.User request,
-                                StreamObserver<DataTransferService.User> responseObserver) {
-
-        customReactiveRepository.getUsernameById(Long.parseLong(request.getId()))
+    public Mono<DataTransferService.User> getUsernameById(DataTransferService.User request) {
+        return customReactiveRepository.getUsernameById(Long.parseLong(request.getId()))
                 .filter(Objects::nonNull)
-                .subscribe(
-                        uname -> {
-                            responseObserver.onNext(DataTransferService.User.newBuilder()
-                                    .setId(request.getId()) // добавлено — желательно сохранять ID
-                                    .setUsername(uname)
-                                    .build());
-                            responseObserver.onCompleted();
-                        },
-                        err -> responseObserver.onError(err)
-                );
+                .map(uname -> DataTransferService.User.newBuilder()
+                        .setId(request.getId())
+                        .setUsername(uname)
+                        .build())
+                .switchIfEmpty(Mono.just(DataTransferService.User.newBuilder()
+                        .setId(request.getId())
+                        .build()));
     }
 
 
     @Override
-    public void getimageurl(DataTransferService.ChatData request, StreamObserver<DataTransferService.DriveUrl> responseObserver) {
-        reactiveChatRepository.findById(request.getChatId())
+    public Mono<DataTransferService.DriveUrl> getimageurl(DataTransferService.ChatData request) {
+        return reactiveChatRepository.findById(request.getChatId())
                 .map(r2dbc_chat::getImageUrl)
                 .filter(url -> url != null)
                 .map(url -> DataTransferService.DriveUrl.newBuilder()
                         .setUrl(url)
                         .setChatId(String.valueOf(request.getChatId()))
                         .build())
-                .subscribe(
-                        response -> {
-                            responseObserver.onNext(response);
-                            responseObserver.onCompleted();
-                        },
-                        responseObserver::onError,
-                        responseObserver::onCompleted
-                );
+                .switchIfEmpty(Mono.just(DataTransferService.DriveUrl.newBuilder()
+                        .setChatId(String.valueOf(request.getChatId()))
+                        .build()));
     }
 
 
     @Override
-    public void getUserImageurl(DataTransferService.UserDataRequest request,
-                                StreamObserver<DataTransferService.DriveUrl> responseObserver) {
-
-        customReactiveRepository.getUserImageUrl(request.getId())
+    public Mono<DataTransferService.DriveUrl> getUserImageurl(DataTransferService.UserDataRequest request) {
+        return customReactiveRepository.getUserImageUrl(request.getId())
                 .filter(Objects::nonNull)
-                .subscribe(
-                        url -> {
-                            responseObserver.onNext(DataTransferService.DriveUrl.newBuilder()
-                                    .setUrl(url)
-                                    .setChatId(String.valueOf(request.getId()))
-                                    .build());
-                            responseObserver.onCompleted();
-                        },
-                        error -> responseObserver.onError(error)
-                );
-    }}
+                .map(url -> DataTransferService.DriveUrl.newBuilder()
+                        .setUrl(url)
+                        .setChatId(String.valueOf(request.getId()))
+                        .build())
+                .switchIfEmpty(Mono.just(DataTransferService.DriveUrl.newBuilder()
+                        .setChatId(String.valueOf(request.getId()))
+                        .build()));
+    }
+}
