@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // const {api} =await import("./axios.js")
 
 
-            const response = await api.post('http://localhost:2010/startauth',
+            const response = await api.post('/startauth',
                 new URLSearchParams({FpComponents: JSON.stringify(meta.components)}),
                 {
                     headers: {
@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
                 console.log(csrfToken)
-                const response = await api.post('http://localhost:2009/reactive/login',
+                const response = await api.post('/reactive/login',
                     params,
                     {
                         headers: {

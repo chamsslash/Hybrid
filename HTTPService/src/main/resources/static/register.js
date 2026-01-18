@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // ШАГ 5: Отправляем запрос
         try {
-            const response = await api.post('http://localhost:2009/reactive/register',
+            const response = await api.post('/reactive/register',
                 formData,
                 {
                     headers: {
