@@ -2,7 +2,142 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: http-ingress
+  name: http-public
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /startauth
+            pathType: Prefix
+            backend:
+              service:
+                name: authservice
+                port:
+                  number: 8081
+          - path: /authcallback
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /reactive/login
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /reactive/register
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /collect-fingerprint
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /exchangeTokens
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /welcome
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /registerpage
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /static/
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /css/
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /js/
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /images/
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /axios.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /welcome.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /register.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /meta_catcher.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /actuator/prometheus
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: http-protected
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti"
+    nginx.ingress.kubernetes.io/auth-snippet: |
+      proxy_set_header Authorization $http_authorization;
 spec:
   ingressClassName: nginx
   rules:

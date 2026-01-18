@@ -23,13 +23,11 @@ kind create cluster --name "$CLUSTER" --config /tmp/kind-hybrid-config.yaml || t
 echo "▶ build images"
 docker build -t authservice:latest AuthService
 docker build -t httpservice:latest HTTPService
-docker build -t jwtproxy:latest JwtProxy
 docker build -t messegerparody:latest MessegerParody
 
 echo "▶ load images into kind"
 kind load docker-image authservice:latest --name "$CLUSTER"
 kind load docker-image httpservice:latest --name "$CLUSTER"
-kind load docker-image jwtproxy:latest --name "$CLUSTER"
 kind load docker-image messegerparody:latest --name "$CLUSTER"
 
 echo "▶ install ingress-nginx"
@@ -44,8 +42,6 @@ helm upgrade --install hybrid ./Helm \
   --set authservice.image.tag=latest \
   --set httpservice.image.repository=httpservice \
   --set httpservice.image.tag=latest \
-  --set jwtproxy.image.repository=jwtproxy \
-  --set jwtproxy.image.tag=latest \
   --set messegerparody.image.repository=messegerparody \
   --set messegerparody.image.tag=latest
 

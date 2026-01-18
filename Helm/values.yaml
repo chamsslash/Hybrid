@@ -60,6 +60,7 @@ authservice:
     dbName: hybrid_db
     dbUser: postgres
     dbPassword: postgres123
+    jwtPublicKey: "-----BEGIN PUBLIC KEY-----\\nREPLACE_ME\\n-----END PUBLIC KEY-----"
     kafkaConsumerGroup: messegerparody-consumer
 
 
@@ -86,16 +87,6 @@ httpservice:
     yandexPrivateKey: "-----BEGIN PRIVATE KEY-----\\nREPLACE_ME\\n-----END PRIVATE KEY-----"
     yandexServiceAccountId: replace-service-account-id
     yandexKeyId: replace-key-id
-
-jwtproxy:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: jwtproxy
-    tag: latest
-    pullPolicy: IfNotPresent
-  env:
-    kafkaBootstrap: kafka:9092
 
 messegerparody:
   enabled: true

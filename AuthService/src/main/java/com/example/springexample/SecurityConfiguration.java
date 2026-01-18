@@ -34,7 +34,13 @@ public class SecurityConfiguration {
                 )
 
                 .csrf(AbstractHttpConfigurer::disable)
-                .authorizeHttpRequests(auth->auth.requestMatchers(new AntPathRequestMatcher("/startauth")).permitAll())
+                .authorizeHttpRequests(auth->auth
+                        .requestMatchers(
+                                new AntPathRequestMatcher("/startauth"),
+                                new AntPathRequestMatcher("/jwtcheck")
+                        ).permitAll()
+                        .anyRequest().authenticated()
+                )
                 .oauth2Login(oauth ->{
                     oauth.successHandler(authSuccessHandler);
                     oauth.authorizedClientService(authorizedClientService);
@@ -57,8 +63,8 @@ public class SecurityConfiguration {
         // ВАЖНО: Укажите точный адрес вашего фронтенда!
         configuration.setAllowedOrigins(List.of("http://localhost:2009"));
 
-        // Разрешаем все стандартные методы
-        configuration.setAllowedMethods(List.of("POST"));
+        // Разрешаем методы
+        configuration.setAllowedMethods(List.of("POST","GET"));
 
         // Разрешаем все стандартные и ваши кастомные заголовки
         configuration.setAllowedHeaders(List.of( "Content-Type","Accept","X-Fingerprint","X-SecureUUID","X-Client-Meta"));
