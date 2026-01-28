@@ -52,12 +52,13 @@ public class TokensResolver {
     private long ACCESS_EXPIRE;
     private  final Gson gson = new Gson();
     private final RedisTemplate<String,String> redisTemplate;
-    private String buildAccessToken(DataTransferService.Sub_Role subRole, String accessJti) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
+    private String buildAccessToken(DataTransferService.Sub_Role subRole, String accessJti, String sid) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         Date now = new Date();
         Date validity = new Date(now.getTime() + ACCESS_EXPIRE);
         return Jwts.builder()
                 .setSubject(subRole.getSub())
                 .setId(accessJti)
+                .claim("sid", sid)
                 .claim("authorities", Collections.singletonList(new SimpleGrantedAuthority(subRole.getRole())))
                 .claim("token_use", "access")
                 .setIssuedAt(now)
@@ -88,7 +89,7 @@ public class TokensResolver {
         String refreshJti = UUID.randomUUID().toString();
         String sid = UUID.randomUUID().toString();
 
-        String newAccess = buildAccessToken(subRole, accessJti);
+        String newAccess = buildAccessToken(subRole, accessJti, sid);
         String newRefresh = buildRefreshToken(subRole.getSub(), refreshJti, sid);
 
         RefreshSession session = new RefreshSession(
@@ -103,7 +104,6 @@ public class TokensResolver {
                 "active"
         );
         saveSession(session);
-        saveAccessSessionMapping(accessJti, sid);
         return new MvcJwtAuthFilter.jwt_refresh_auths(newAccess, newRefresh, subRole.getRole());
     }
 
@@ -123,11 +123,10 @@ public class TokensResolver {
         if (session == null) {
             throw new TokenException(HttpStatus.FORBIDDEN, "REFRESH_SESSION_MISSING", "refresh session missing");
         }
-        String newAccess = buildAccessToken(subRole, accessJti);
+        String newAccess = buildAccessToken(subRole, accessJti, session.getSid());
         String newRefresh = buildRefreshToken(subRole.getSub(), refreshJti, session.getSid());
 
         rotateSession(session, refreshJti, accessJti, newMeta);
-        saveAccessSessionMapping(accessJti, session.getSid());
         return new MvcJwtAuthFilter.jwt_refresh_auths(newAccess, newRefresh, subRole.getRole());
     }
     public String saveAccess(String access){
@@ -168,18 +167,6 @@ public class TokensResolver {
             put("private_key",privateKey);
         }};
     }
-    public String getRefreshByJti(String accessJti){
-        if (!StringUtils.hasText(accessJti)) {
-            return null;
-        }
-        String sid = redisTemplate.opsForValue().get(generateAccessSessionKey(accessJti));
-        if (!StringUtils.hasText(sid)) {
-            return null;
-        }
-        String res = redisTemplate.opsForValue().get(generateSessionKey(sid));
-        return res;
-    }
-
     private RefreshSubject CheckRefreshAndGetSub(String refreshtoken, FpSimilarityScore.ClientMeta newMeta)  {
         try {
             Claims claims = Jwts.parser().setSigningKey(REFRESH_SECRET).build().parseClaimsJws(refreshtoken).getBody();
@@ -234,9 +221,6 @@ public class TokensResolver {
     private String generateSessionKey(String sid){
         return "RefreshSession:"+sid;
     }
-    private String generateAccessSessionKey(String accessJti){
-        return "AccessSession:"+accessJti;
-    }
     private String generateUserSessionsSetKey(String sub){
         return "user:"+sub;
     }
@@ -249,15 +233,6 @@ public class TokensResolver {
             return;
         }
         List<String> allSessionKeys = new ArrayList<>(setOfRefreshTokensOfUser.stream().toList());
-        for (String sessionKey : setOfRefreshTokensOfUser) {
-            String jsoned = redisTemplate.opsForValue().get(sessionKey);
-            if (StringUtils.hasText(jsoned)) {
-                RefreshSession session = gson.fromJson(jsoned, RefreshSession.class);
-                if (StringUtils.hasText(session.getAccessJti())) {
-                    redisTemplate.delete(generateAccessSessionKey(session.getAccessJti()));
-                }
-            }
-        }
         allSessionKeys.add(generateUserSessionsSetKey(sub));
         redisTemplate.delete(allSessionKeys);
         log.info("All sessions by user were deleted");
@@ -267,9 +242,6 @@ public class TokensResolver {
         String jsoned = redisTemplate.opsForValue().get(keyOfSession);
         if (StringUtils.hasText(jsoned)) {
             RefreshSession session = gson.fromJson(jsoned, RefreshSession.class);
-            if (StringUtils.hasText(session.getAccessJti())) {
-                redisTemplate.delete(generateAccessSessionKey(session.getAccessJti()));
-            }
             redisTemplate.opsForSet().remove(generateUserSessionsSetKey(session.getSub()), keyOfSession);
         }
         redisTemplate.delete(keyOfSession);
@@ -283,10 +255,6 @@ public class TokensResolver {
         redisTemplate.expire(userSetKey, REFRESH_EXPIRE, TimeUnit.MILLISECONDS);
     }
 
-    private void saveAccessSessionMapping(String accessJti, String sid){
-        redisTemplate.opsForValue().set(generateAccessSessionKey(accessJti), sid, REFRESH_EXPIRE, TimeUnit.MILLISECONDS);
-    }
-
     private RefreshSession getSessionBySid(String sid){
         String jsoned = redisTemplate.opsForValue().get(generateSessionKey(sid));
         if (!StringUtils.hasText(jsoned)) {
@@ -296,9 +264,6 @@ public class TokensResolver {
     }
 
     private void rotateSession(RefreshSession session, String newRefreshJti, String newAccessJti, FpSimilarityScore.ClientMeta newMeta){
-        if (StringUtils.hasText(session.getAccessJti())) {
-            redisTemplate.delete(generateAccessSessionKey(session.getAccessJti()));
-        }
         session.setRefreshJti(newRefreshJti);
         session.setAccessJti(newAccessJti);
         session.setMeta(newMeta);

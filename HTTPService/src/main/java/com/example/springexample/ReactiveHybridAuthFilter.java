@@ -1,10 +1,8 @@
 package com.example.springexample;
 
-import com.example.springexample.Utils.TokensResolver;
 import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -18,11 +16,9 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Component
@@ -30,7 +26,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReactiveHybridAuthFilter implements WebFilter {
 
-    private final TokensResolver tokensResolver;
     private final Gson gson = new Gson();
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -65,19 +60,6 @@ public class ReactiveHybridAuthFilter implements WebFilter {
             Authentication auth = createAuth(headerUserId, authorities);
             return chain.filter(exchange)
                     .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
-        }
-
-        String jti = request.getHeaders().getFirst("X-Jti");
-        if (StringUtils.hasText(jti)) {
-            return Mono.fromCallable(() -> tokensResolver.getRefreshByJti(jti))
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .flatMap(refreshToken -> {
-                        if (Objects.isNull(refreshToken)) {
-                            return chain.filter(exchange);
-                        }
-                        exchange.getResponse().setStatusCode(HttpStatus.valueOf(419));
-                        return exchange.getResponse().setComplete();
-                    });
         }
 
         return chain.filter(exchange);

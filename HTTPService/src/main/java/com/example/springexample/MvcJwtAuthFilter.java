@@ -4,7 +4,6 @@ import com.example.grpc.DataTransferService;
 import com.example.springexample.Services.AuthGrpc;
 import com.example.springexample.Utils.ParsingDataService;
 import com.example.springexample.Utils.TokenException;
-import com.example.springexample.Utils.TokensResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.Http;
 import com.google.gson.Gson;
@@ -49,7 +48,6 @@ import java.util.stream.Collectors;
 public class MvcJwtAuthFilter extends OncePerRequestFilter {
     public record  jwt_refresh_auths(String jwt,String refresh,String auths){}
     // Ваши зависимости остаются
-    private final TokensResolver tokensResolver;
     private Gson gson= new Gson();
 
     // Список публичных путей
@@ -100,21 +98,7 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
 
 
 
-        String jti =  request.getHeader("X-Jti");
-        String Refresh = tokensResolver.getRefreshByJti(jti);
-        // --- Шаг 2: JWT невалиден. Проверяем наличие Refresh Token ---
-        if (Objects.isNull(Refresh)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-        log.debug("JWT невалиден, но Refresh Token доступен. Возвращаем статус {}.", 419);
-        response.setStatus(419); //refresh required status
-//        String originalUrl = request.getRequestURI() +
-//                (request.getQueryString() != null ? "?" + request.getQueryString() : "");
-//        String collectorUrl = "/collect-fingerprint?return_url=" + URLEncoder.encode(originalUrl, StandardCharsets.UTF_8);
-//
-//        log.debug("JWT невалиден. Запускаем флоу обновления через страницу сбора фингерпринта.");
-//        response.sendRedirect(collectorUrl);
+        filterChain.doFilter(request, response);
     }
 
 

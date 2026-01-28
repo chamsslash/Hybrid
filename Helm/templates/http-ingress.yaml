@@ -142,7 +142,7 @@ metadata:
   name: http-protected
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
-    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti"
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti, X-Sid"
     nginx.ingress.kubernetes.io/auth-signin: "$scheme://$host/collect-fingerprint"
     nginx.ingress.kubernetes.io/auth-signin-redirect-param: "return_url"
     nginx.ingress.kubernetes.io/auth-snippet: |
@@ -153,6 +153,7 @@ metadata:
       proxy_set_header X-User-ID "";
       proxy_set_header X-Authorities "";
       proxy_set_header X-Jti "";
+      proxy_set_header X-Sid "";
 spec:
   ingressClassName: nginx
   rules:
