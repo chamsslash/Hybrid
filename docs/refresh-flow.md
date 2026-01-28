@@ -22,7 +22,7 @@
 
 ## 3) Что кладем в токены
 ### Access JWT (короткий)
-- `sub`, `jti`, `authorities`, `exp`, `iat`, `iss`, `token_use=access`.
+- `sub`, `jti`, `sid`, `authorities`, `exp`, `iat`, `iss`, `token_use=access`.
 
 ### Refresh JWT (длинный)
 - `sub`, `jti` (refresh), `sid` (session id), `exp`, `iat`, `iss`, `token_use=refresh`.
@@ -31,7 +31,6 @@
 - `RefreshSession:<sid>` → JSON:
   - `sub`, `sid`, `refreshJti`, `accessJti`,
   - `meta` (fingerprint), `createdAt`, `lastSeenAt`, `rotatedAt`, `status`.
-- `AccessSession:<accessJti>` → `sid` (быстрый путь от access к сессии).
 - `user:<sub>` → set ключей refresh‑сессий (для массового revoke).
 
 ## 5) Логин / первичная выдача токенов
@@ -39,15 +38,16 @@
 2) `HTTPService` получает `sub/role`, создает:
    - `accessJti`, `refreshJti`, `sid`,
    - access‑JWT + refresh‑JWT.
-3) Создается `RefreshSession:<sid>` и `AccessSession:<accessJti>`.
+3) Создается `RefreshSession:<sid>`.
 4) Клиент получает cookie `access` и `refresh`.
 
 ## 6) Проверка запросов
 1) Клиент стучится в backend.
 2) Ingress/nginx делает `auth_request` → `/jwtcheck`.
 3) `jwtcheck` валидирует access:
-   - если токен валиден → отдаёт `X-User-ID`, `X-Authorities`, `X-Jti` (200).
+   - если токен валиден и `RefreshSession:<sid>` существует → отдаёт `X-User-ID`, `X-Authorities`, `X-Jti`, `X-Sid` (200).
    - если токен отсутствует/истек/битый → отдаёт **401**.
+   - если refresh‑сессии нет → тоже **401** (моментальный logout).
 4) Ingress/nginx перехватывает 401 и **редиректит на** `/collect-fingerprint?return_url=...`.
 
 ## 7) Refresh‑флоу
@@ -60,8 +60,7 @@
    - сравнивает fingerprint мету.
 4) Ротация:
    - новый `refreshJti` + новый `accessJti`,
-   - обновление `RefreshSession`,
-   - новый mapping `AccessSession:<accessJti>`.
+   - обновление `RefreshSession`.
 5) Клиент получает новые cookies `access` и `refresh`.
 6) Если refresh‑cookie отсутствует или сессия невалидна → 401/403 и редирект на `/welcome`.
 
