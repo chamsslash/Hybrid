@@ -1,12 +1,14 @@
 .vscode
 .idea
-.beads
+.beads/
 .bv/
 .github
 AGENTS.md
 ai_docs
 tasks
 .env
+.env.local
+.env.*.local
 
 # Build outputs
 target/
@@ -49,4 +51,8 @@ nbdist/
 
 # OS / misc
 .DS_Store
+Thumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
 *.log
