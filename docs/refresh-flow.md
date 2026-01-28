@@ -46,14 +46,12 @@
 1) Клиент стучится в backend.
 2) Ingress/nginx делает `auth_request` → `/jwtcheck`.
 3) `jwtcheck` валидирует access:
-   - если токен валиден → отдаёт `X-User-ID`, `X-Authorities`, `X-Jti`.
-   - если токен истек → отдаёт `X-Jti`.
-4) Backend‑фильтры:
-   - если есть `X-User-ID`/`X-Authorities` → ставят `Authentication`.
-   - если нет, но есть `X-Jti` и `AccessSession` существует → отдают **419**.
+   - если токен валиден → отдаёт `X-User-ID`, `X-Authorities`, `X-Jti` (200).
+   - если токен отсутствует/истек/битый → отдаёт **401**.
+4) Ingress/nginx перехватывает 401 и **редиректит на** `/collect-fingerprint?return_url=...`.
 
 ## 7) Refresh‑флоу
-1) Клиент получает 419 → идет на `/collect-fingerprint`.
+1) Клиент попадает на `/collect-fingerprint`.
 2) `/exchangeTokens` получает:
    - refresh cookie,
    - fingerprint мету.
@@ -65,13 +63,19 @@
    - обновление `RefreshSession`,
    - новый mapping `AccessSession:<accessJti>`.
 5) Клиент получает новые cookies `access` и `refresh`.
+6) Если refresh‑cookie отсутствует или сессия невалидна → 401/403 и редирект на `/welcome`.
 
 ## 8) Ошибки и защита
 - **Refresh reuse** (старый refresh после ротации) → 403 и удаление сессии.
 - **Нет refresh‑сессии** → 403/401 и редирект на login.
 - **FP mismatch** → 403, чистка сессии, re‑login.
 
-## 9) Быстрый чеклист
+## 9) Кеширование fingerprint на фронте
+- `meta_catcher.js` кеширует fingerprint/meta в `localStorage` (TTL ~ 24ч).
+- Если кеш свежий, `getFingerprintData()` возвращает его без повторного сбора.
+- Это уменьшает лишние вызовы FP‑скрипта и IP‑API.
+
+## 10) Быстрый чеклист
 - Логин ставит cookie `access` и `refresh`.
-- Истекший access → 419 → `/collect-fingerprint` → `/exchangeTokens` → новые cookies.
-- Нельзя подделать `X-User-ID`/`X-Authorities` (ингресс их сбрасывает).
+- Access невалиден → nginx редиректит на `/collect-fingerprint` → `/exchangeTokens` → новые cookies.
+- Нет refresh → `/exchangeTokens` вернет 401/403 и отправит на `/welcome`.
