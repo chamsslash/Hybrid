@@ -59,11 +59,7 @@ public class SecurityConfiguration {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost",
-                "http://myapp.local",
-                "https://myapp.local"
-        ));
+        configuration.setAllowedOrigins(List.of("http://localhost"));
         configuration.setAllowedMethods(List.of("GET","POST"));
 
         // Разрешаем все стандартные и ваши кастомные заголовки

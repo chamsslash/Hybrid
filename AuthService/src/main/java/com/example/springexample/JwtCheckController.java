@@ -29,14 +29,20 @@ public class JwtCheckController {
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @CookieValue(value = "access", required = false) String accessCookie) {
 
-        String token = null;
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            token = authHeader.substring(7);
-        } else if (StringUtils.hasText(accessCookie)) {
-            token = accessCookie;
+        String resolvedAuthHeader = authHeader;
+        if ((resolvedAuthHeader == null || !resolvedAuthHeader.startsWith("Bearer "))
+                && StringUtils.hasText(accessCookie)) {
+            resolvedAuthHeader = "Bearer " + accessCookie;
         }
+
+        if (resolvedAuthHeader == null || !resolvedAuthHeader.startsWith("Bearer ")) {
+            log.warn("Запрос без заголовка Authorization или некорректный формат.");
+            return ResponseEntity.ok().build();
+        }
+
+        String token = resolvedAuthHeader.substring(7);
         if (!StringUtils.hasText(token)) {
-            log.warn("Токен отсутствует в Authorization и cookie.");
+            log.warn("Токен в заголовке пустой.");
             return ResponseEntity.ok().build();
         }
         try {

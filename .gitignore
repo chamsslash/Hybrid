@@ -1,61 +1,15 @@
 .vscode
 .idea
 .beads
-.docs
-.docs/
-.beads/
-.bv/
-AGENTS.md
-ai_docs
-tasks
-.env
-.env.local
-.env.*.local
-
-# Build outputs
-target/
-build/
-!**/src/main/**/target/
-!**/src/test/**/target/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-# Maven wrapper
-!.mvn/wrapper/maven-wrapper.jar
-
-# IDE files
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
-*.iws
-*.iml
-*.ipr
-
-# Eclipse
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-# NetBeans
-nbproject/private/
-nbbuild/
-dist/
-nbdist/
-.nb-gradle/
-
-# VS Code
-.vscode/
-
-# OS / misc
 .DS_Store
 .DSStore
-Thumbs.db
-Desktop.ini
-.Spotlight-V100
-.Trashes
-*.log
+AGENTS.md
+ai_docs
+.github
+.bv/
+tasks
+.env
+beads/
+AuthService/bin/
+HTTPService/bin/
+MessegerParody/bin/

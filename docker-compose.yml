@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: hybrid_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+
+  redis:
+    image: redis:7
+
+  kafka:
+    image: moeenz/docker-kafka-kraft
+    environment:
+      KRAFT_BROKER_ID: 1
+      KRAFT_CONTAINER_HOST_NAME: kafka
+      KRAFT_CREATE_TOPICS: hybrid-topic
+      KRAFT_AUTO_CREATE_TOPICS: "true"
+      KRAFT_PARTITIONS_PER_TOPIC: 1
+
+  authservice:
+    build: ./AuthService
+    env_file: ./AuthService/.env
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+
+  httpservice:
+    build: ./HTTPService
+    env_file: ./HTTPService/.env
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - authservice
+
+  messegerparody:
+    build: ./MessegerParody
+    env_file: ./MessegerParody/.env
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+
+  nginx:
+    build: ./nginx
+    depends_on:
+      - authservice
+      - httpservice
+    ports:
+      - "80:80"
