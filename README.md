@@ -1,25 +1,25 @@
-# Hybrid Platform
+# Hybrid Platform (local branch)
 
-Минималистичная микросервисная платформа.
+Локальная версия для docker‑compose. Ветка `local`.
 
 ## Что внутри
 - AuthService (OAuth + база пользователей)
 - HTTPService (основной HTTP API + WebSocket)
-- JwtProxy (JWT прокси)
 - MessegerParody (DB + gRPC + обработка картинок)
-- Kafka (KRaft), Postgres, Redis, Prometheus, Grafana
+- nginx (локальная точка входа + auth_request)
 
-## Быстрый старт (k8s + Helm)
+## Как запускать локально
+```bash
+./scripts/local-run.sh
+```
 
-1) В `Helm/values.yaml` замени на свои значения:
-- `authservice.google.clientId`
-- `authservice.google.clientSecret`
-- `httpservice.security.refreshSecret`
-- `image.repository`/`image.tag` для сервисов (если не local)
+## Security flow
+Полный флоу access/refresh + fingerprint описан здесь:
+- `docs/refresh-flow.md`
 
-2) для локального docker‑compose используется `http://localhost` (доп. hosts не нужен).
+Ключевая идея: nginx валидирует access через `/jwtcheck` и выставляет `X-User-ID / X-Authorities / X-Jti`,
+backend доверяет только этим заголовкам.
 
 ## Ноты
-- Secrets пока храним в открытую (values).
-- Ingress только для HTTP.
-- gRPC доступен внутри кластера по сервисам.
+- `access` и `refresh` живут в HttpOnly cookies.
+- `refresh` используется только для ротации, хранится с `sid` в Redis.
