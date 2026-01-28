@@ -64,11 +64,12 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
             "**.js",
             "/**/*.js", "/verifylogin"
     );
+    private final AntPathMatcher pathMatcher = new AntPathMatcher();
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        AntPathMatcher pathMatcher = new AntPathMatcher();
         String uri = request.getRequestURI();
-        return PUBLIC_PATHS.stream().anyMatch(pattern -> pathMatcher.match(pattern, uri));    }
+        return PUBLIC_PATHS.stream().anyMatch(pattern -> pathMatcher.match(pattern, uri));
+    }
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
@@ -122,6 +123,5 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
 
 
     private boolean isPublicPath(String path) {
-        // ... (код без изменений)
-        return PUBLIC_PATHS.stream().anyMatch(path::equalsIgnoreCase);
+        return PUBLIC_PATHS.stream().anyMatch(pattern -> pathMatcher.match(pattern, path));
     }}

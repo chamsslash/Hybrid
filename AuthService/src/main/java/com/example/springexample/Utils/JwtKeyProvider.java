@@ -9,7 +9,8 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
 /**
- * Загружает публичный ключ для валидации JWT из переменной окружения.
+ * Загружает публичный ключ JWT из переменной окружения JWT_PUBLIC_KEY_PEM.
+ * Поддерживает PEM с экранированными \\n.
  */
 @Component
 public class JwtKeyProvider {

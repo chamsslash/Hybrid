@@ -33,6 +33,9 @@ kind load docker-image messegerparody:latest --name "$CLUSTER"
 echo "▶ install ingress-nginx"
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 kubectl wait -n ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+kubectl -n ingress-nginx patch configmap ingress-nginx-controller --type merge -p '{"data":{"allow-snippet-annotations":"true"}}'
+kubectl -n ingress-nginx rollout restart deployment ingress-nginx-controller
+kubectl wait -n ingress-nginx --for=condition=available deployment/ingress-nginx-controller --timeout=180s
 
 echo "▶ helm deploy"
 helm upgrade --install hybrid ./Helm \

@@ -24,8 +24,7 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   liquibase:
-    # Liquibase выключен по умолчанию; включайте профиль "liquibase" при необходимости миграций.
-    enabled: false
+    enabled: true
     change-log: classpath:db/changelog/db.changelog-master.yaml
 
   r2dbc:

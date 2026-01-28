@@ -17,12 +17,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -40,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class TokensResolver {
+    private record RefreshSubject(String sub, String role, String sid) {}
     @Lazy
     @Autowired
     MVC_Service mvcService;
@@ -52,47 +52,87 @@ public class TokensResolver {
     private long ACCESS_EXPIRE;
     private  final Gson gson = new Gson();
     private final RedisTemplate<String,String> redisTemplate;
-    private String genRefreshToken(RefreshSession refreshSession,String access_jti){
-        Date now = new Date();
-        Date validity = new Date(now.getTime() + REFRESH_EXPIRE);
-        String sessionKey =  this.generateSessionKey(access_jti);
-
-        redisTemplate.opsForValue().set(sessionKey,gson.toJson(refreshSession),30*24,TimeUnit.HOURS);
-        redisTemplate.opsForSet().add(generateUserSessionsSetKey(refreshSession.getSub()),sessionKey);
-        return  Jwts.builder().setSubject(refreshSession.getSub()).setId(access_jti).setIssuedAt(now).setExpiration(validity).setIssuer("Hybrid-Http-Service").signWith(SignatureAlgorithm.HS512,REFRESH_SECRET).compact();
-    }
-    public MvcJwtAuthFilter.jwt_refresh_auths genPairOfToken(String refreshtoken, FpSimilarityScore.ClientMeta newMeta) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
-        DataTransferService.Sub_Role subRole;
-        try {
-            subRole =  gson.fromJson(refreshtoken, DataTransferService.Sub_Role.class);
-
-        }
-        catch (Exception e){
-            subRole = this.CheckRefreshAndGetSub(refreshtoken,newMeta);
-            if( Objects.isNull(subRole)){
-                throw new TokenException(HttpStatus.FORBIDDEN,"NotSimilar","not similar refresh meta's");
-            }
-        }
+    private String buildAccessToken(DataTransferService.Sub_Role subRole, String accessJti) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         Date now = new Date();
         Date validity = new Date(now.getTime() + ACCESS_EXPIRE);
-        String jti =  UUID.randomUUID().toString();
-        String newAccess= Jwts.builder()
-                .setSubject(subRole.getSub()).setId(jti)
-                .claim("authorities",Collections.singletonList(new SimpleGrantedAuthority(subRole.getRole()))).setIssuedAt(now)
-                .setExpiration(validity).setIssuer("Hybrid-Http-Service")
+        return Jwts.builder()
+                .setSubject(subRole.getSub())
+                .setId(accessJti)
+                .claim("authorities", Collections.singletonList(new SimpleGrantedAuthority(subRole.getRole())))
+                .claim("token_use", "access")
+                .setIssuedAt(now)
+                .setExpiration(validity)
+                .setIssuer("Hybrid-Http-Service")
                 .signWith(SignatureAlgorithm.RS512, (PrivateKey) loadKeys().get("private_key"))
                 .compact();
-        String newRefresh =  genRefreshToken(new RefreshSession(subRole.getSub(),newMeta),jti);
-//        return  new HashMap<>(){{
-//            put("RefreshToken",newRefresh);
-//            put("JwtToken",newAccess);
-//            put("Authorities",subRole.getRole());
-//        }};
-        return new MvcJwtAuthFilter.jwt_refresh_auths(newAccess,newRefresh,subRole.getRole());
+    }
+
+    private String buildRefreshToken(String sub, String refreshJti, String sid) {
+        Date now = new Date();
+        Date validity = new Date(now.getTime() + REFRESH_EXPIRE);
+        return Jwts.builder()
+                .setSubject(sub)
+                .setId(refreshJti)
+                .claim("sid", sid)
+                .claim("token_use", "refresh")
+                .setIssuedAt(now)
+                .setExpiration(validity)
+                .setIssuer("Hybrid-Http-Service")
+                .signWith(SignatureAlgorithm.HS512, REFRESH_SECRET)
+                .compact();
+    }
+
+    public MvcJwtAuthFilter.jwt_refresh_auths genPairOfToken(DataTransferService.Sub_Role subRole, FpSimilarityScore.ClientMeta newMeta)
+            throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
+        String accessJti = UUID.randomUUID().toString();
+        String refreshJti = UUID.randomUUID().toString();
+        String sid = UUID.randomUUID().toString();
+
+        String newAccess = buildAccessToken(subRole, accessJti);
+        String newRefresh = buildRefreshToken(subRole.getSub(), refreshJti, sid);
+
+        RefreshSession session = new RefreshSession(
+                subRole.getSub(),
+                sid,
+                refreshJti,
+                accessJti,
+                newMeta,
+                System.currentTimeMillis(),
+                System.currentTimeMillis(),
+                0,
+                "active"
+        );
+        saveSession(session);
+        saveAccessSessionMapping(accessJti, sid);
+        return new MvcJwtAuthFilter.jwt_refresh_auths(newAccess, newRefresh, subRole.getRole());
+    }
+
+    public MvcJwtAuthFilter.jwt_refresh_auths rotateTokens(String refreshToken, FpSimilarityScore.ClientMeta newMeta)
+            throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
+        RefreshSubject subject = this.CheckRefreshAndGetSub(refreshToken, newMeta);
+        if (Objects.isNull(subject)) {
+            throw new TokenException(HttpStatus.FORBIDDEN, "NotSimilar", "not similar refresh meta's");
+        }
+        DataTransferService.Sub_Role subRole = DataTransferService.Sub_Role.newBuilder()
+                .setSub(subject.sub())
+                .setRole(subject.role())
+                .build();
+        String accessJti = UUID.randomUUID().toString();
+        String refreshJti = UUID.randomUUID().toString();
+        RefreshSession session = getSessionBySid(subject.sid());
+        if (session == null) {
+            throw new TokenException(HttpStatus.FORBIDDEN, "REFRESH_SESSION_MISSING", "refresh session missing");
+        }
+        String newAccess = buildAccessToken(subRole, accessJti);
+        String newRefresh = buildRefreshToken(subRole.getSub(), refreshJti, session.getSid());
+
+        rotateSession(session, refreshJti, accessJti, newMeta);
+        saveAccessSessionMapping(accessJti, session.getSid());
+        return new MvcJwtAuthFilter.jwt_refresh_auths(newAccess, newRefresh, subRole.getRole());
     }
     public String saveAccess(String access){
         UUID exCode = UUID.randomUUID();
-        redisTemplate.opsForValue().set("accesToken"+exCode,access,15,TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set("Access:"+exCode,access,15,TimeUnit.MINUTES);
         return exCode.toString();
     }
     @SneakyThrows
@@ -128,53 +168,74 @@ public class TokensResolver {
             put("private_key",privateKey);
         }};
     }
-    public String getRefreshByJti(String jti){
-        String res = redisTemplate.opsForValue().get(generateSessionKey(jti));
-        if(Objects.isNull(res)){
+    public String getRefreshByJti(String accessJti){
+        if (!StringUtils.hasText(accessJti)) {
             return null;
-        }else return res;
+        }
+        String sid = redisTemplate.opsForValue().get(generateAccessSessionKey(accessJti));
+        if (!StringUtils.hasText(sid)) {
+            return null;
+        }
+        String res = redisTemplate.opsForValue().get(generateSessionKey(sid));
+        return res;
     }
-    private DataTransferService.Sub_Role CheckRefreshAndGetSub(String refreshtoken, FpSimilarityScore.ClientMeta newMeta)  {
-       try {
+
+    private RefreshSubject CheckRefreshAndGetSub(String refreshtoken, FpSimilarityScore.ClientMeta newMeta)  {
+        try {
             Claims claims = Jwts.parser().setSigningKey(REFRESH_SECRET).build().parseClaimsJws(refreshtoken).getBody();
             String sub = claims.getSubject();
-            Date expiration =claims.getExpiration();
-            String jti = claims.getId();
+            Date expiration = claims.getExpiration();
+            String refreshJti = claims.getId();
+            String sid = claims.get("sid", String.class);
+
+            if (!StringUtils.hasText(sid)) {
+                throw new TokenException(HttpStatus.FORBIDDEN, "REFRESH_TOKEN_INVALID", "Missing sid in refresh token");
+            }
+
             DataTransferService.User user = authGrpc.getUserBySub(sub);
             if (user == null){
                 log.error("User with this sub was not found");
-                redisTemplate.delete("RefreshToken:"+jti);
+                deleteSessionBySid(sid);
                 throw new TokenException(HttpStatus.NOT_FOUND,"REFRESH_TOKEN_DATA_UNSYNC-ED","Юзер с таким айди как в токене не найден  -->удаляю куку,запись в редисе,отправляю на авторизацию");
-
-
             }
-           String jsoned_refreshsession = redisTemplate.opsForValue().get(this.generateSessionKey(jti));
-           if (jsoned_refreshsession.isEmpty()){
-               log.info("Refresh was not found");
-               this.deleteAllSessionsByUser(sub);
-               throw new TokenException(HttpStatus.FORBIDDEN,"REFRESH_TOKEN_DATA_UNSYNC-ED","ТОКЕН не найден  на бекенде(возможно атака) -->удаляю куку,отправляю на авторизацию");
 
-           }
-           RefreshSession refreshSession = gson.fromJson(jsoned_refreshsession,RefreshSession.class);
-           if (expiration.before(new Date())){
+            String jsoned_refreshsession = redisTemplate.opsForValue().get(this.generateSessionKey(sid));
+            if (!StringUtils.hasText(jsoned_refreshsession)){
+                log.info("Refresh session was not found");
+                this.deleteAllSessionsByUser(sub);
+                throw new TokenException(HttpStatus.FORBIDDEN,"REFRESH_TOKEN_DATA_UNSYNC-ED","ТОКЕН не найден на бекенде(возможно атака) -->удаляю куку,отправляю на авторизацию");
+            }
+
+            RefreshSession refreshSession = gson.fromJson(jsoned_refreshsession, RefreshSession.class);
+            if (!Objects.equals(refreshJti, refreshSession.getRefreshJti())) {
+                log.warn("Refresh token reuse detected");
+                deleteSessionBySid(sid);
+                throw new TokenException(HttpStatus.FORBIDDEN, "REFRESH_TOKEN_REUSED", "Refresh token reuse detected");
+            }
+            if (expiration.before(new Date())){
                 log.warn("RefreshToken expired");
+                deleteSessionBySid(sid);
                 throw new TokenException(HttpStatus.FORBIDDEN,"REFRESH_TOKEN_EXPIRED","Срок действия токена истек --> удаляю куку,отправляю на авторизацию");
-           }
-           FpSimilarityScore.ClientMeta old_meta = refreshSession.meta;
+            }
+            FpSimilarityScore.ClientMeta old_meta = refreshSession.meta;
 
-           if (!mvcService.computeLikelihood(newMeta,old_meta,new FpSimilarityScore())){
-               log.info("fp error check");
-              return null;
-           }
-           this.deleteOneSession(jti,sub);
-        return DataTransferService.Sub_Role.newBuilder().setSub(sub).setRole(user.getRole()).build();
-       }catch (Exception e){
-           log.warn("refreshtoken parse processed unsucceesfully");
-           throw e;
-       }
+            if (!mvcService.computeLikelihood(newMeta,old_meta,new FpSimilarityScore())){
+                log.info("fp error check");
+                return null;
+            }
+
+            return new RefreshSubject(sub, user.getRole(), sid);
+        } catch (Exception e){
+            log.warn("refreshtoken parse processed unsucceesfully");
+            throw e;
+        }
     }
-    private String generateSessionKey(String jti){
-        return "RefreshToken:"+jti;
+
+    private String generateSessionKey(String sid){
+        return "RefreshSession:"+sid;
+    }
+    private String generateAccessSessionKey(String accessJti){
+        return "AccessSession:"+accessJti;
     }
     private String generateUserSessionsSetKey(String sub){
         return "user:"+sub;
@@ -183,25 +244,67 @@ public class TokensResolver {
 
     private void deleteAllSessionsByUser(String sub){
         Set<String> setOfRefreshTokensOfUser =redisTemplate.opsForSet().members(generateUserSessionsSetKey(sub));
-        if (setOfRefreshTokensOfUser.isEmpty()){
+        if (setOfRefreshTokensOfUser == null || setOfRefreshTokensOfUser.isEmpty()){
             log.warn("User doesnt have session at all");
             return;
         }
         List<String> allSessionKeys = new ArrayList<>(setOfRefreshTokensOfUser.stream().toList());
-        allSessionKeys.add(generateUserSessionsSetKey(sub)+sub);
+        for (String sessionKey : setOfRefreshTokensOfUser) {
+            String jsoned = redisTemplate.opsForValue().get(sessionKey);
+            if (StringUtils.hasText(jsoned)) {
+                RefreshSession session = gson.fromJson(jsoned, RefreshSession.class);
+                if (StringUtils.hasText(session.getAccessJti())) {
+                    redisTemplate.delete(generateAccessSessionKey(session.getAccessJti()));
+                }
+            }
+        }
+        allSessionKeys.add(generateUserSessionsSetKey(sub));
         redisTemplate.delete(allSessionKeys);
         log.info("All sessions by user were deleted");
     }
-    private void deleteOneSession(String jti,String sub){
-        String keyOfSession =  generateSessionKey(jti);
-        String userSessionsSetKey = generateUserSessionsSetKey(sub);
-        redisTemplate.delete(keyOfSession);
-        redisTemplate.opsForSet().remove(userSessionsSetKey,keyOfSession);
-        Long size = redisTemplate.opsForSet().size(userSessionsSetKey);
-        if  (size!=null && size == 0){
-            log.info("User Sessions Set is empty --> Deleting");
-            redisTemplate.delete(userSessionsSetKey);
+    private void deleteSessionBySid(String sid){
+        String keyOfSession =  generateSessionKey(sid);
+        String jsoned = redisTemplate.opsForValue().get(keyOfSession);
+        if (StringUtils.hasText(jsoned)) {
+            RefreshSession session = gson.fromJson(jsoned, RefreshSession.class);
+            if (StringUtils.hasText(session.getAccessJti())) {
+                redisTemplate.delete(generateAccessSessionKey(session.getAccessJti()));
+            }
+            redisTemplate.opsForSet().remove(generateUserSessionsSetKey(session.getSub()), keyOfSession);
         }
+        redisTemplate.delete(keyOfSession);
+    }
+
+    private void saveSession(RefreshSession refreshSession){
+        String sessionKey = generateSessionKey(refreshSession.getSid());
+        redisTemplate.opsForValue().set(sessionKey, gson.toJson(refreshSession), REFRESH_EXPIRE, TimeUnit.MILLISECONDS);
+        String userSetKey = generateUserSessionsSetKey(refreshSession.getSub());
+        redisTemplate.opsForSet().add(userSetKey, sessionKey);
+        redisTemplate.expire(userSetKey, REFRESH_EXPIRE, TimeUnit.MILLISECONDS);
+    }
+
+    private void saveAccessSessionMapping(String accessJti, String sid){
+        redisTemplate.opsForValue().set(generateAccessSessionKey(accessJti), sid, REFRESH_EXPIRE, TimeUnit.MILLISECONDS);
+    }
+
+    private RefreshSession getSessionBySid(String sid){
+        String jsoned = redisTemplate.opsForValue().get(generateSessionKey(sid));
+        if (!StringUtils.hasText(jsoned)) {
+            return null;
+        }
+        return gson.fromJson(jsoned, RefreshSession.class);
+    }
+
+    private void rotateSession(RefreshSession session, String newRefreshJti, String newAccessJti, FpSimilarityScore.ClientMeta newMeta){
+        if (StringUtils.hasText(session.getAccessJti())) {
+            redisTemplate.delete(generateAccessSessionKey(session.getAccessJti()));
+        }
+        session.setRefreshJti(newRefreshJti);
+        session.setAccessJti(newAccessJti);
+        session.setMeta(newMeta);
+        session.setLastSeenAt(System.currentTimeMillis());
+        session.setRotatedAt(System.currentTimeMillis());
+        saveSession(session);
     }
     public String hash(String fingerPrint){
         try {

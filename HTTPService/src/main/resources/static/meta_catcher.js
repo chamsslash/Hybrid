@@ -1,5 +1,11 @@
 // fingerprint.js
 
+/**
+ * Генерирует и сохраняет уникальный идентификатор пользователя (UUID),
+ * получает цифровой отпечаток браузера и метаданные клиента.
+ *
+ * @returns {Promise<object>} Объект, содержащий secureUUID, بصمة الإصبع и clientMeta.
+ */
 export async function getFingerprintData() {
     let secureUUID = localStorage.getItem("secureUUID");
     if (!secureUUID) {
@@ -7,7 +13,6 @@ export async function getFingerprintData() {
         localStorage.setItem("secureUUID", secureUUID);
     }
 
-    // Базовый набор характеристик на случай, если FingerprintJS или внешние сервисы недоступны.
     const fallbackComponents = {
         userAgent: navigator.userAgent,
         language: navigator.language,
@@ -22,17 +27,17 @@ export async function getFingerprintData() {
 
     let fingerprint = "unknown";
     let components = fallbackComponents;
-
     try {
         const fp = await FingerprintJS.load();
         const result = await fp.get();
         fingerprint = result.visitorId || fingerprint;
-        components = (result.components && result.components !== "undefined") ? result.components : fallbackComponents;
+        if (result.components && result.components !== "undefined") {
+            components = result.components;
+        }
     } catch (error) {
         console.warn("FingerprintJS недоступен, используем запасные данные:", error);
     }
 
-    // Значения по умолчанию, чтобы серверная логика не падала на null.
     let clientMeta = {
         ip: "0.0.0.0",
         country: "unknown",
@@ -40,7 +45,6 @@ export async function getFingerprintData() {
         asn: "unknown",
         org: "unknown"
     };
-
     try {
         const resp = await fetch('https://ip-api.com/json/');
         if (resp.ok) {

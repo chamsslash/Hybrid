@@ -48,7 +48,7 @@ public class ReactiveSecurityConfig {
                                 .pathMatchers("/register").permitAll()
                                 .pathMatchers("/login").permitAll()
                         // Например, .pathMatchers("/public/**").permitAll()
-//                            .anyExchange().authenticated() // Все остальные требуют аутентификации
+                                .anyExchange().authenticated() // Все остальные требуют аутентификации
                 )
 
                 // Обработка исключений, если после нашего фильтра аутентификации все еще нет
@@ -56,7 +56,7 @@ public class ReactiveSecurityConfig {
                         .authenticationEntryPoint((exchange, ex) -> {
 
                             exchange.getResponse().setStatusCode(HttpStatus.SEE_OTHER);
-                            exchange.getResponse().getHeaders().setLocation(URI.create("http://localhost:2009/welcome"));
+                            exchange.getResponse().getHeaders().setLocation(URI.create("/welcome"));
                             return exchange.getResponse().setComplete();
                         })
                 );
@@ -64,4 +64,3 @@ public class ReactiveSecurityConfig {
         return http.build();
     }
 }
-

@@ -6,10 +6,10 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,16 +25,18 @@ public class JwtCheckController {
     private final JwtKeyProvider jwtKeyProvider;
 
     @GetMapping("/jwtcheck")
-    public ResponseEntity<?> jwtCheckProcess(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+    public ResponseEntity<?> jwtCheckProcess(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @CookieValue(value = "access", required = false) String accessCookie) {
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("Запрос без заголовка Authorization или некорректный формат.");
-            return ResponseEntity.ok().build();
+        String token = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        } else if (StringUtils.hasText(accessCookie)) {
+            token = accessCookie;
         }
-
-        String token = authHeader.substring(7);
         if (!StringUtils.hasText(token)) {
-            log.warn("Токен в заголовке пустой.");
+            log.warn("Токен отсутствует в Authorization и cookie.");
             return ResponseEntity.ok().build();
         }
         try {
@@ -44,18 +46,10 @@ public class JwtCheckController {
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
-
             String userId = claims.getSubject();
             String jti = claims.getId();
             List<Map<String, String>> authoritiesMaps = claims.get("authorities", List.class);
-            String rolesJson;
-            try {
-                rolesJson = Jackson2ObjectMapperBuilder.json().build()
-                        .writeValueAsString(authoritiesMaps == null ? List.of() : authoritiesMaps);
-            } catch (Exception jsonEx) {
-                log.error("Не удалось сериализовать authorities: {}", jsonEx.getMessage());
-                rolesJson = "[]";
-            }
+            String rolesJson = authoritiesMaps == null ? "[]" : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(authoritiesMaps);
 
             return ResponseEntity.ok()
                     .header("X-User-ID", userId)

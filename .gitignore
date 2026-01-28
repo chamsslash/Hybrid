@@ -1,5 +1,8 @@
 .vscode
 .idea
+.beads
+.docs
+.docs/
 .beads/
 .bv/
 AGENTS.md
@@ -50,6 +53,7 @@ nbdist/
 
 # OS / misc
 .DS_Store
+.DSStore
 Thumbs.db
 Desktop.ini
 .Spotlight-V100

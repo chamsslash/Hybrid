@@ -29,7 +29,7 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET}
             scope:
               - profile
-            redirect-uri: "http://myapp.local/login/oauth2/code/google"
+            redirect-uri: "http://localhost/login/oauth2/code/google"
 #        registration:
 #          google:
 #            provider: google

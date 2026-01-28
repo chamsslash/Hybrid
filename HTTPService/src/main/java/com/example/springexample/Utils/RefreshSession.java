@@ -9,7 +9,12 @@ import java.util.Date;
 @Data
 public class RefreshSession {
     String sub;
+    String sid;
+    String refreshJti;
+    String accessJti;
     FpSimilarityScore.ClientMeta meta;
-
-
+    long createdAt;
+    long lastSeenAt;
+    long rotatedAt;
+    String status;
 }

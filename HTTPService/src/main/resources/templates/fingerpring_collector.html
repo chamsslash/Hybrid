@@ -44,16 +44,8 @@
 
 
 
-            // 4. УСПЕХ! Получаем JSON с новым Access Token-ом
-            console.log(resp.data.text)
-
-
-
-            if (!accessToken) {
-                throw new Error("Сервер не вернул Access Token.");
-            }
-            console.log("Новый Access Token получен и сохранен в sessionStorage.");
-            sessionStorage.setItem('accessToken', accessToken);
+            // 4. УСПЕХ! Куки уже выставлены сервером, просто редиректим дальше
+            console.log(response.data?.text || "Tokens refreshed");
             console.log(`Редирект на: ${returnUrl}`);
             window.location.href = returnUrl;
             // try {
@@ -72,8 +64,9 @@
             // }
 
         } catch (error) {
-            console.error("Не удалось обновить сессию:", error);}
+            console.error("Не удалось обновить сессию:", error);
             window.location.href = '/welcome';
+        }
 
 
 </script>

@@ -277,55 +277,32 @@ public class YandexGptService {
 
     }
     public Map<String,String> ParsePublic_PrivateKey() throws IOException {
-        String public_key = normalizePemFromEnv(System.getenv("YANDEX_PUBLIC_KEY_PEM"), "public");
-        String private_key = normalizePemFromEnv(System.getenv("YANDEX_PRIVATE_KEY_PEM"), "private");
-        String service_account_id = normalizeRequiredEnv(System.getenv("YANDEX_SERVICE_ACCOUNT_ID"), "service_account_id");
-        String key_id = normalizeRequiredEnv(System.getenv("YANDEX_KEY_ID"), "key_id");
+        // Read secrets strictly from environment; fail fast if missing.
+        String public_key = System.getenv("YANDEX_PUBLIC_KEY_PEM");
+        String private_key = System.getenv("YANDEX_PRIVATE_KEY_PEM");
+        String service_account_id = System.getenv("YANDEX_SERVICE_ACCOUNT_ID");
+        String key_id = System.getenv("YANDEX_KEY_ID");
 
-        PemObject privateKeyPem = readPemObject(private_key, "private");
-        PemObject publicKeyPem = readPemObject(public_key, "public");
+        if (public_key == null || private_key == null || service_account_id == null || key_id == null) {
+            throw new IllegalStateException("Yandex GPT secrets are not set in environment variables");
+        }
+        // Handle \n escaped PEM from .env
+        public_key = public_key.replace("\\n", "\n");
+        private_key = private_key.replace("\\n", "\n");
+        PemObject privateKeyPem;
+        PemObject publicKeyPem;
+        try (PemReader privateReader = new PemReader(new StringReader(private_key));
+             PemReader publicReader = new PemReader(new StringReader(public_key))) {
+
+            privateKeyPem = privateReader.readPemObject();
+            publicKeyPem = publicReader.readPemObject();
+        }
         return new HashMap<>() {{
             put("public_key", Base64.getEncoder().encodeToString(publicKeyPem.getContent()));
             put("private_key", Base64.getEncoder().encodeToString(privateKeyPem.getContent()));
             put("service_account_id", service_account_id);
             put("key_id", key_id);
         }};
-    }
-    private String normalizePemFromEnv(String raw, String label) {
-        if (raw == null) {
-            throw new IllegalStateException("Yandex GPT " + label + " key is not set in environment variables");
-        }
-        String cleaned = raw.trim();
-        if ((cleaned.startsWith("\"") && cleaned.endsWith("\"")) ||
-                (cleaned.startsWith("'") && cleaned.endsWith("'")) ||
-                (cleaned.startsWith("`") && cleaned.endsWith("`"))) {
-            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
-        }
-        // Handle \n escaped PEM from .env
-        cleaned = cleaned.replace("\\n", "\n").trim();
-        if (cleaned.isEmpty()) {
-            throw new IllegalStateException("Yandex GPT " + label + " key is empty after normalization");
-        }
-        return cleaned;
-    }
-
-    private String normalizeRequiredEnv(String raw, String label) {
-        if (raw == null || raw.trim().isEmpty()) {
-            throw new IllegalStateException("Yandex GPT " + label + " is not set in environment variables");
-        }
-        return raw.trim();
-    }
-
-    private PemObject readPemObject(String pem, String label) throws IOException {
-        try (PemReader reader = new PemReader(new StringReader(pem))) {
-            PemObject pemObject = reader.readPemObject();
-            if (pemObject == null) {
-                throw new IllegalStateException("Unable to parse " + label + " PEM: data is empty or malformed");
-            }
-            return pemObject;
-        } catch (IOException e) {
-            throw new IllegalStateException("Unable to parse " + label + " PEM: check escaping and quotes", e);
-        }
     }
 //    public String Clean(String pem) {
 //

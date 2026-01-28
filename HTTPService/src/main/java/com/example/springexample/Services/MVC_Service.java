@@ -83,17 +83,17 @@ public class MVC_Service {
     }
     @PostMapping("/exchangeTokens")
     public ResponseEntity<?> provideNewTokens(
-            @RequestParam(value = "oldJti") String oldJti,
             @RequestParam("FpComponents")String fpparts,
             @RequestHeader(value ="X-Fingerprint")String fingerprint,
             @RequestHeader(value = "X-Client-Meta")String clientMetaJson,
-            @RequestHeader(value = "X-SecureUUID")String secureUUID) {
+            @RequestHeader(value = "X-SecureUUID")String secureUUID,
+            @CookieValue(value = "refresh", required = false) String refreshToken) {
 
         // 1. Единая, чистая валидация входных данных
-        if (!StringUtils.hasText(oldJti)) {
+        if (!StringUtils.hasText(refreshToken)) {
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Отсутствует oldJti"));
+                    .body(Map.of("error", "Отсутствует refresh token"));
         }
         if (!StringUtils.hasText(fingerprint)) {
             // Возвращаем ошибку 400, а не редирект
@@ -101,7 +101,8 @@ public class MVC_Service {
                     .badRequest() // Статус 400 Bad Request
                     .body(Map.of("error", "Отсутствует обязательный заголовок X-Fingerprint."));
         }
-        ResponseCookie deleteCookie = ResponseCookie.from("acccess", "").maxAge(0).path("/").build();
+        ResponseCookie deleteAccess = ResponseCookie.from("access", "").maxAge(0).path("/").build();
+        ResponseCookie deleteRefresh = ResponseCookie.from("refresh", "").maxAge(0).path("/").build();
         MvcJwtAuthFilter.jwt_refresh_auths newTokens;
         try {
             FpSimilarityScore FpUtils = new FpSimilarityScore();
@@ -117,11 +118,11 @@ public class MVC_Service {
             FpSimilarityScore.ClientMeta newMeta = gson.fromJson(jsonObject, FpSimilarityScore.ClientMeta.class);
 
             try {
-                newTokens = tokensResolver.genPairOfToken(oldJti,newMeta);
+                newTokens = tokensResolver.rotateTokens(refreshToken,newMeta);
 
             }catch (TokenException e){
                 log.error("Error:",e);
-                return  ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("redirectUrl","http://localhost:2009/welcome"));
+                return  ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("redirectUrl","/welcome"));
             }
 
             // 3. Формируем новую HttpOnly cookie
@@ -132,7 +133,6 @@ public class MVC_Service {
 //                    .maxAge(Duration.ofDays(7))
 //                    .sameSite("Strict")
 //                    .build();
-            String code= tokensResolver.saveAccess(newTokens.jwt());
             ResponseCookie rc= ResponseCookie.from("access",newTokens.jwt())
                     .httpOnly(true)
 //                .secure(true)
@@ -140,10 +140,19 @@ public class MVC_Service {
                     .path("/")
                     .maxAge(Duration.ofMinutes(10))
                     .build();
+            ResponseCookie refreshCookie = ResponseCookie.from("refresh", newTokens.refresh())
+                    .httpOnly(true)
+//                .secure(true)
+                    .sameSite("Strict")
+                    .path("/")
+                    .maxAge(Duration.ofDays(7))
+                    .build();
 
 
-            return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE,rc.toString()).
-            body(Map.of("text", "Successfully established access cookie"));
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE,rc.toString())
+                    .header(HttpHeaders.SET_COOKIE,refreshCookie.toString())
+                    .body(Map.of("text", "Successfully established access cookie"));
 
         } catch (TokenException e) { // Ловим КОНКРЕТНОЕ кастомное исключение
             log.warn("Попытка обновить токен с невалидными данными: {}", e.getMessage());
@@ -153,7 +162,8 @@ public class MVC_Service {
 
 
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .header(HttpHeaders.SET_COOKIE, deleteCookie.toString())
+                    .header(HttpHeaders.SET_COOKIE, deleteAccess.toString())
+                    .header(HttpHeaders.SET_COOKIE, deleteRefresh.toString())
                     .body(Map.of("error", "Сессия недействительна. Пожалуйста, войдите снова."));
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -217,13 +227,13 @@ public class MVC_Service {
             if (!computeLikelihood(newMeta,oldMeta,FpUtils)){
                 log.info("fp error check");
                 return ResponseEntity.status(HttpStatus.SEE_OTHER)
-                        .header(HttpHeaders.LOCATION,"http://localhost:2009/welcome").build();
+                        .header(HttpHeaders.LOCATION,"/welcome").build();
             }
             DataTransferService.Sub_Role subRole = authGrpc.exchangeOneTimeToken(token);
 
 
 
-            MvcJwtAuthFilter.jwt_refresh_auths tokens = tokensResolver.genPairOfToken(gson.toJson(subRole),newMeta);
+            MvcJwtAuthFilter.jwt_refresh_auths tokens = tokensResolver.genPairOfToken(subRole,newMeta);
 //            String bindingToken = tokensResolver.getBindingToken(subRole.getSub());
             ResponseCookie rc= ResponseCookie.from("access",tokens.jwt())
                     .httpOnly(true)
@@ -232,20 +242,26 @@ public class MVC_Service {
                     .path("/")
                     .maxAge(Duration.ofMinutes(10))
                     .build();
-//            Map<String, String> responseBody = Map.of("accessToken", tokens.get("JwtToken"));
-            String code= tokensResolver.saveAccess(tokens.jwt());
+            ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
+                    .httpOnly(true)
+//                .secure(true)
+                    .sameSite("Strict")
+                    .path("/")
+                    .maxAge(Duration.ofDays(7))
+                    .build();
             Map<String, String> responseBody = Map.of(
-                        "redirectUri","http://localhost:2009/reactive/chatlist"
+                        "redirectUri","/reactive/chatlist"
             );
             // 4. Собираем финальный ответ
             return ResponseEntity.status(HttpStatus.OK)
                     .header(HttpHeaders.SET_COOKIE, rc.toString())
+                    .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                     .body(responseBody);
 
 
         }catch (Exception e){
             log.error("verify exception",e);
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).header(HttpHeaders.LOCATION,"http://localhost:2009/welcome").build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).header(HttpHeaders.LOCATION,"/welcome").build();
 
 
         }
@@ -330,4 +346,3 @@ public class MVC_Service {
     }
 
 }
-

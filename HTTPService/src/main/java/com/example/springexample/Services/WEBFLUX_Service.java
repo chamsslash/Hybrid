@@ -119,13 +119,11 @@ public class WEBFLUX_Service {
                             .flatMap(authResponse -> Mono.fromCallable(() -> {
                                 try {
                                     return tokensResolver.genPairOfToken(
-                                            gson.toJson(
-                                                    DataTransferService.Sub_Role.newBuilder()
-                                                            .setRole(authResponse.getRole())
-                                                            .setSub(authResponse.getSub())
-                                                            .build()
-                                            ),newMeta.get()
-
+                                            DataTransferService.Sub_Role.newBuilder()
+                                                    .setRole(authResponse.getRole())
+                                                    .setSub(authResponse.getSub())
+                                                    .build(),
+                                            newMeta.get()
                                     );
                                 } catch (IOException e) {
                                     throw new RuntimeException(e);
@@ -194,12 +192,11 @@ public class WEBFLUX_Service {
 
                                 try {
                                     MvcJwtAuthFilter.jwt_refresh_auths tokens = tokensResolver.genPairOfToken(
-                                            gson.toJson(
-                                                    DataTransferService.Sub_Role.newBuilder()
-                                                            .setRole(authResponse.getRole())
-                                                            .setSub(authResponse.getSub())
-                                                            .build()
-                                            ), newMeta);
+                                            DataTransferService.Sub_Role.newBuilder()
+                                                    .setRole(authResponse.getRole())
+                                                    .setSub(authResponse.getSub())
+                                                    .build(),
+                                            newMeta);
 
                                     return ResultSet(tokens);
                                 } catch (IOException e) {
@@ -230,13 +227,20 @@ public class WEBFLUX_Service {
                 .path("/")
                 .maxAge(Duration.ofMinutes(10))
                 .build();
-         tokensResolver.saveAccess(tokens.jwt());
+        ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
+                .httpOnly(true)
+//                .secure(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(Duration.ofDays(7))
+                .build();
         Map<String, String> responseBody = Map.of(
-                "redirectUri","http://localhost:2009/reactive/chatlist"
+                "redirectUri","/reactive/chatlist"
         );
 
         return ServerResponse.ok()
                 .header(HttpHeaders.SET_COOKIE, rc.toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .bodyValue(responseBody);
     }
 
@@ -384,7 +388,7 @@ public class WEBFLUX_Service {
                 // Срабатывает, только если authMono изначально пуст.
                 .switchIfEmpty(Mono.defer(() -> {
                     log.warn("===> [X] Аутентификация отсутствует. Редирект на страницу входа.");
-                    return ServerResponse.temporaryRedirect(URI.create("http://localhost:2009/welcome")).build();
+                    return ServerResponse.temporaryRedirect(URI.create("/welcome")).build();
                 }))
                 // ШАГ 5: ЕДИНЫЙ глобальный обработчик ошибок для всей цепочки.
                 // Перехватит любые ошибки (от gRPC, рендеринга и т.д.), которые не были обработаны ранее.
@@ -485,11 +489,11 @@ public class WEBFLUX_Service {
                             // Обработка ошибки парсинга ID пользователя
                             .onErrorResume(NumberFormatException.class, e -> {
                                 log.warn("===> [X] Имя principal невалидно: '{}'. Редирект.", principal.getName());
-                                return ServerResponse.temporaryRedirect(URI.create("http://localhost:2010/oauth2/authorize")).build();
+                                return ServerResponse.temporaryRedirect(URI.create("/startauth")).build();
                             });
                 })
                 // Обработка пустого SecurityContext
-                .switchIfEmpty(ServerResponse.temporaryRedirect(URI.create("http://localhost:2010/oauth2/authorize")).build())
+                .switchIfEmpty(ServerResponse.temporaryRedirect(URI.create("/startauth")).build())
                 // Глобальный обработчик всех остальных ошибок
                 .onErrorResume(e -> {
                     log.error("===> [X] Непредвиденная глобальная ошибка в цепочке renderChatPage", e);

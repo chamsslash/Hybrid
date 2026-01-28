@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -21,10 +20,6 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -63,15 +58,13 @@ public class ReactiveHybridAuthFilter implements WebFilter {
         }
         log.info("Запрос по фильтру прошел");
 
-        String auths = request.getHeaders().getFirst("X-Authorities");
-        String userId = request.getHeaders().getFirst("X-User-ID");
-        if (StringUtils.hasText(auths) && StringUtils.hasText(userId)) {
-            List<SimpleGrantedAuthority> authorities = parseAuthorities(auths);
-            if (!authorities.isEmpty()) {
-                Authentication auth = new UsernamePasswordAuthenticationToken(userId, null, authorities);
-                return chain.filter(exchange)
-                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
-            }
+        String headerUserId = request.getHeaders().getFirst("X-User-ID");
+        String headerAuths = request.getHeaders().getFirst("X-Authorities");
+        if (StringUtils.hasText(headerUserId) && StringUtils.hasText(headerAuths)) {
+            List<SimpleGrantedAuthority> authorities = parseAuthorities(headerAuths);
+            Authentication auth = createAuth(headerUserId, authorities);
+            return chain.filter(exchange)
+                    .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
         }
 
         String jti = request.getHeaders().getFirst("X-Jti");
@@ -90,57 +83,35 @@ public class ReactiveHybridAuthFilter implements WebFilter {
         return chain.filter(exchange);
     }
 
-    private List<SimpleGrantedAuthority> parseAuthorities(String raw) {
+    /**
+     * Создает объект Authentication.
+     */
+    private Authentication createAuth(String sub, List<SimpleGrantedAuthority> authorities) {
+        return new UsernamePasswordAuthenticationToken(sub, null, authorities);
+    }
+
+    private List<SimpleGrantedAuthority> parseAuthorities(String headerAuths) {
         try {
-            List<?> parsed = gson.fromJson(raw, List.class);
-            if (parsed == null) {
+            List<Object> raw = gson.fromJson(headerAuths, List.class);
+            if (raw == null) {
                 return List.of();
             }
-            List<String> roles = new ArrayList<>();
-            for (Object entry : parsed) {
-                if (entry instanceof String s && StringUtils.hasText(s)) {
-                    roles.add(s);
-                    continue;
-                }
-                if (entry instanceof Map<?, ?> map) {
-                    Object val = map.get("authority");
-                    if (val instanceof String s && StringUtils.hasText(s)) {
-                        roles.add(s);
+            List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+            for (Object entry : raw) {
+                if (entry instanceof Map) {
+                    Object authority = ((Map<?, ?>) entry).get("authority");
+                    if (authority != null) {
+                        authorities.add(new SimpleGrantedAuthority(authority.toString()));
+                        continue;
                     }
                 }
+                authorities.add(new SimpleGrantedAuthority(entry.toString()));
             }
-            return roles.stream()
-                    .map(SimpleGrantedAuthority::new)
-                    .collect(Collectors.toList());
+            return authorities;
         } catch (Exception e) {
             log.warn("Не удалось распарсить X-Authorities: {}", e.getMessage());
             return List.of();
         }
     }
 
-    /**
-     * Выполняет редирект на страницу сбора фингерпринта.
-     */
-    private Mono<Void> redirectToFingerprint(ServerWebExchange exchange) {
-        String originalUrl = exchange.getRequest().getURI().toString();
-        String collectorUrl;
-        try {
-            collectorUrl = "/collect-fingerprint?return_url=" + URLEncoder.encode(originalUrl, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            // В случае ошибки кодирования, редиректим без return_url
-            collectorUrl = "/collect-fingerprint";
-        }
-        log.debug("JWT невалиден, но есть Refresh. Редирект на {}", collectorUrl);
-        return sendRedirect(exchange, collectorUrl);
-    }
-
-    /**
-     * Устанавливает редирект в ответе.
-     */
-    private Mono<Void> sendRedirect(ServerWebExchange exchange, String location) {
-        ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.SEE_OTHER);
-        response.getHeaders().setLocation(URI.create(location));
-        return response.setComplete();
-    }
 }

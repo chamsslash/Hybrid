@@ -1,5 +1,6 @@
 # Hybrid Platform
 
+Минималистичная микросервисная платформа.
 
 ## Что внутри
 - AuthService (OAuth + база пользователей)
@@ -16,10 +17,7 @@
 - `httpservice.security.refreshSecret`
 - `image.repository`/`image.tag` для сервисов (если не local)
 
-2) добавь домен в `/etc/hosts` для ingress‑controller (nginx):
-```
-127.0.0.1 myapp.local
-```
+2) для локального docker‑compose используется `http://localhost` (доп. hosts не нужен).
 
 ## Ноты
 - Secrets пока храним в открытую (values).

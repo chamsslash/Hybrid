@@ -217,10 +217,10 @@ public class FpSimilarityScore {
 
 
             String initialASN = initialMeta.asn.split(" ")[0];
-            String secASN =initialMeta.asn.split(" ")[0];
+            String secASN = secondaryMeta.asn.split(" ")[0];
             String[] orgasnpart1= initialMeta.asn.split(" ");
             String asOrg1 = String.join(" ", Arrays.copyOfRange(orgasnpart1, 1, orgasnpart1.length));
-            String[] orgasnpart2= initialMeta.asn.split(" ");
+            String[] orgasnpart2= secondaryMeta.asn.split(" ");
             String asOrg2 = String.join(" ", Arrays.copyOfRange(orgasnpart2, 1, orgasnpart2.length));
             if (initialASN != null && secASN != null) {
                 String ptrNorm = normalize(initialMeta.ptr);

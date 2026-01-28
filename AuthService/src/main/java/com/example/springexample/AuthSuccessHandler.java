@@ -33,7 +33,7 @@ public class AuthSuccessHandler  implements AuthenticationSuccessHandler {
         String onetimecode= String.valueOf(UUID.randomUUID());
         if (!sub.isEmpty() && !state.isEmpty()){
             redisTemplate.opsForValue().set("UserOneTimeCodeFastCheck" + onetimecode,sub,300, TimeUnit.SECONDS);
-            String redirectUrl = "http://localhost:2009/authcallback"
+            String redirectUrl = "/authcallback"
                     + "?state="+state+"&code=" + URLEncoder.encode(String.valueOf(onetimecode),StandardCharsets.UTF_8);
             response.sendRedirect(redirectUrl);
             return;
