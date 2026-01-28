@@ -1,25 +1,32 @@
-# Hybrid Platform
+# Hybrid Platform (k8s branch)
 
-Минималистичная микросервисная платформа.
+Kubernetes‑версия (ветка `main/dev`).
 
 ## Что внутри
 - AuthService (OAuth + база пользователей)
 - HTTPService (основной HTTP API + WebSocket)
-- JwtProxy (JWT прокси)
 - MessegerParody (DB + gRPC + обработка картинок)
+- Helm (umbrella chart + подчарты сервисов)
 - Kafka (KRaft), Postgres, Redis, Prometheus, Grafana
 
 ## Быстрый старт (k8s + Helm)
-
-1) В `Helm/values.yaml` замени на свои значения:
+1) В `Helm/values.yaml` укажи секреты:
 - `authservice.google.clientId`
 - `authservice.google.clientSecret`
 - `httpservice.security.refreshSecret`
-- `image.repository`/`image.tag` для сервисов (если не local)
 
-2) для локального docker‑compose используется `http://localhost` (доп. hosts не нужен).
+2) Установить:
+```bash
+helm upgrade --install hybrid ./Helm
+```
+
+## Security flow
+Полный флоу access/refresh + fingerprint:
+- `docs/refresh-flow.md`
+
+Ключевая идея: ingress валидирует access через `/jwtcheck` и выставляет `X-User-ID / X-Authorities / X-Jti`,
+backend доверяет только этим заголовкам.
 
 ## Ноты
-- Secrets пока храним в открытую (values).
-- Ingress только для HTTP.
+- Secrets сейчас хранятся в values (временно).
 - gRPC доступен внутри кластера по сервисам.
