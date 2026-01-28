@@ -143,6 +143,8 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti"
+    nginx.ingress.kubernetes.io/auth-signin: "$scheme://$host/collect-fingerprint"
+    nginx.ingress.kubernetes.io/auth-signin-redirect-param: "return_url"
     nginx.ingress.kubernetes.io/auth-snippet: |
       set $auth_header $http_authorization;
       if ($auth_header = "") { set $auth_header "Bearer $cookie_access"; }

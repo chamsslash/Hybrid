@@ -1,5 +1,28 @@
 // fingerprint.js
 
+const FP_CACHE_KEY = "fp_cache";
+const FP_TTL_MS = 24 * 60 * 60 * 1000;
+
+function loadFpCache() {
+    const raw = localStorage.getItem(FP_CACHE_KEY);
+    if (!raw) {
+        return null;
+    }
+    try {
+        const data = JSON.parse(raw);
+        if (!data || !data.ts || (Date.now() - data.ts) > FP_TTL_MS) {
+            return null;
+        }
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+function saveFpCache(data) {
+    localStorage.setItem(FP_CACHE_KEY, JSON.stringify({ ...data, ts: Date.now() }));
+}
+
 /**
  * Генерирует и сохраняет уникальный идентификатор пользователя (UUID),
  * получает цифровой отпечаток браузера и метаданные клиента.
@@ -7,6 +30,11 @@
  * @returns {Promise<object>} Объект, содержащий secureUUID, بصمة الإصبع и clientMeta.
  */
 export async function getFingerprintData() {
+    const cached = loadFpCache();
+    if (cached) {
+        return cached;
+    }
+
     let secureUUID = localStorage.getItem("secureUUID");
     if (!secureUUID) {
         secureUUID = crypto.randomUUID();
@@ -63,10 +91,12 @@ export async function getFingerprintData() {
         console.warn("Не удалось получить clientMeta, продолжаем без неё:", error);
     }
 
-    return {
+    const payload = {
         secureUUID,
         fingerprint,
         components,
         clientMeta
     };
+    saveFpCache(payload);
+    return payload;
 }

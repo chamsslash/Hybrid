@@ -6,6 +6,7 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,7 +38,7 @@ public class JwtCheckController {
         }
         if (!StringUtils.hasText(token)) {
             log.warn("Токен отсутствует в Authorization и cookie.");
-            return ResponseEntity.ok().build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         try {
             PublicKey publicKey = jwtKeyProvider.getPublicKey();
@@ -60,13 +61,13 @@ public class JwtCheckController {
         } catch (ExpiredJwtException e) {
             String jti = e.getClaims().getId();
             log.warn("JWT токен истек. JTI: {}", jti);
-            return ResponseEntity.ok()
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .header("X-Jti", jti)
                     .build();
 
         } catch (Exception e) {
             log.error("Ошибка валидации JWT: {}", e.getMessage());
-            return ResponseEntity.ok().build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
     }
 }
