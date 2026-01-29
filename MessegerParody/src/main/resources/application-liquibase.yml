@@ -1,0 +1,9 @@
+spring:
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  main:
+    web-application-type: none
+  kafka:
+    listener:
+      auto-startup: false
