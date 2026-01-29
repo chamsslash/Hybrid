@@ -1,0 +1,49 @@
+{{- if .Values.liquibaseJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: messegerparody-liquibase
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.liquibaseJob.backoffLimit | default 1 }}
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: liquibase
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
+          command:
+            - java
+            - -jar
+            - app.jar
+            - --spring.profiles.active=liquibase
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "{{ .Values.env.kafkaBootstrap }}"
+            - name: SPRING_DATASOURCE_URL
+              value: "{{ .Values.env.datasourceUrl }}"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "{{ .Values.env.datasourceUsername }}"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "{{ .Values.env.datasourcePassword }}"
+            - name: DB_HOST
+              value: "{{ .Values.env.dbHost }}"
+            - name: DB_PORT
+              value: "{{ .Values.env.dbPort }}"
+            - name: DB_NAME
+              value: "{{ .Values.env.dbName }}"
+            - name: DB_USER
+              value: "{{ .Values.env.dbUser }}"
+            - name: DB_PASSWORD
+              value: "{{ .Values.env.dbPassword }}"
+            - name: SPRING_REDIS_HOST
+              value: "{{ .Values.env.redisHost }}"
+            - name: SPRING_REDIS_PORT
+              value: "{{ .Values.env.redisPort }}"
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              value: "{{ .Values.env.kafkaConsumerGroup }}"
+{{- end }}

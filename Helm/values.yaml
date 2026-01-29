@@ -181,6 +181,9 @@ messegerparody:
     repository: messegerparody
     tag: latest
     pullPolicy: IfNotPresent
+  liquibaseJob:
+    enabled: true
+    backoffLimit: 1
 
   env:
     kafkaBootstrap: kafka:9092
