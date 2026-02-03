@@ -184,6 +184,7 @@ messegerparody:
   liquibaseJob:
     enabled: true
     backoffLimit: 1
+    waitImage: postgres:15
 
   env:
     kafkaBootstrap: kafka:9092

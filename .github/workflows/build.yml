@@ -56,8 +56,7 @@ jobs:
             --set httpservice.image.tag=latest \
             --set httpservice.security.refreshSecret=local-refresh-secret \
             --set messegerparody.image.repository=messegerparody \
-            --set messegerparody.image.tag=latest \
-            --set messegerparody.liquibaseJob.enabled=false
+            --set messegerparody.image.tag=latest
 
       - name: Wait for workloads
         run: |
