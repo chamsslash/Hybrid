@@ -4,7 +4,7 @@ kind: Job
 metadata:
   name: messegerparody-liquibase
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
@@ -12,6 +12,29 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ .Values.liquibaseJob.waitImage | default "postgres:15" }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}"; do
+                echo "Waiting for postgres at ${DB_HOST}:${DB_PORT}..."
+                sleep 2
+              done
+          env:
+            - name: DB_HOST
+              value: "{{ .Values.env.dbHost }}"
+            - name: DB_PORT
+              value: "{{ .Values.env.dbPort }}"
+            - name: DB_NAME
+              value: "{{ .Values.env.dbName }}"
+            - name: DB_USER
+              value: "{{ .Values.env.dbUser }}"
+            - name: PGPASSWORD
+              value: "{{ .Values.env.dbPassword }}"
       containers:
         - name: liquibase
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
