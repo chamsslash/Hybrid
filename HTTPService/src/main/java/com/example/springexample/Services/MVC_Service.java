@@ -101,6 +101,7 @@ public class MVC_Service {
                     .badRequest() // Статус 400 Bad Request
                     .body(Map.of("error", "Отсутствует обязательный заголовок X-Fingerprint."));
         }
+        // Backward-compat: clear legacy access cookie (we no longer use access-in-cookie).
         ResponseCookie deleteAccess = ResponseCookie.from("access", "").maxAge(0).path("/").build();
         ResponseCookie deleteRefresh = ResponseCookie.from("refresh", "").maxAge(0).path("/").build();
         MvcJwtAuthFilter.jwt_refresh_auths newTokens;
@@ -133,13 +134,6 @@ public class MVC_Service {
 //                    .maxAge(Duration.ofDays(7))
 //                    .sameSite("Strict")
 //                    .build();
-            ResponseCookie rc= ResponseCookie.from("access",newTokens.jwt())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofMinutes(10))
-                    .build();
             ResponseCookie refreshCookie = ResponseCookie.from("refresh", newTokens.refresh())
                     .httpOnly(true)
 //                .secure(true)
@@ -150,9 +144,11 @@ public class MVC_Service {
 
 
             return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE,rc.toString())
                     .header(HttpHeaders.SET_COOKIE,refreshCookie.toString())
-                    .body(Map.of("text", "Successfully established access cookie"));
+                    .body(Map.of(
+                            "accessToken", newTokens.jwt(),
+                            "tokenType", "Bearer"
+                    ));
 
         } catch (TokenException e) { // Ловим КОНКРЕТНОЕ кастомное исключение
             log.warn("Попытка обновить токен с невалидными данными: {}", e.getMessage());
@@ -235,13 +231,6 @@ public class MVC_Service {
 
             MvcJwtAuthFilter.jwt_refresh_auths tokens = tokensResolver.genPairOfToken(subRole,newMeta);
 //            String bindingToken = tokensResolver.getBindingToken(subRole.getSub());
-            ResponseCookie rc= ResponseCookie.from("access",tokens.jwt())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofMinutes(10))
-                    .build();
             ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
                     .httpOnly(true)
 //                .secure(true)
@@ -250,11 +239,12 @@ public class MVC_Service {
                     .maxAge(Duration.ofDays(7))
                     .build();
             Map<String, String> responseBody = Map.of(
-                        "redirectUri","/reactive/chatlist"
+                    "redirectUri", "/reactive/chatlist",
+                    "accessToken", tokens.jwt(),
+                    "tokenType", "Bearer"
             );
             // 4. Собираем финальный ответ
             return ResponseEntity.status(HttpStatus.OK)
-                    .header(HttpHeaders.SET_COOKIE, rc.toString())
                     .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                     .body(responseBody);
 

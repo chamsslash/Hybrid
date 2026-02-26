@@ -6,7 +6,6 @@ import {setAccessToken} from "/inmemory.js";
 (async () => {
     try {
         console.log("[callback.js] Запуск IIFE");
-        console.log("[callback.js] CSRF-токен и заголовок получены:", csrfHeader, csrfToken);
 
         // 2. Парсим параметры из URL
         const params = new URLSearchParams(window.location.search);
@@ -39,7 +38,8 @@ import {setAccessToken} from "/inmemory.js";
             {               // 3. ✨ ПРАВИЛЬНЫЙ ОБЪЕКТ КОНФИГУРАЦИИ ✨
                 headers: {  // У него должно быть свойство "headers"
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRF-TOKEN': document.cookie.split('; ').find(row => row.startsWith("XSRF-TOKEN"+ '='))?.split('=')[1],                    'X-Fingerprint': meta.fingerprint,
+                    'X-CSRF-TOKEN': document.cookie.split('; ').find(row => row.startsWith("XSRF-TOKEN"+ '='))?.split('=')[1],
+                    'X-Fingerprint': meta.fingerprint,
                     "X-SecureUUID": meta.secureUUID,
                     "X-Client-Meta": JSON.stringify(meta.clientMeta)
                 }, withCredentials: true
@@ -50,6 +50,9 @@ import {setAccessToken} from "/inmemory.js";
         // 7. Проверяем редирект
         try {
             const responseBody = response.data;
+            if (responseBody?.accessToken) {
+                setAccessToken(responseBody.accessToken);
+            }
             const redirectUri = responseBody.redirectUri;
             if (  redirectUri) {
 

@@ -1,5 +1,6 @@
 import {getFingerprintData} from "/meta_catcher.js";
 import api from "./axios.js";
+import { setAccessToken } from "/inmemory.js";
 
 document.addEventListener('DOMContentLoaded', function () {
     const registerForm = document.getElementById('register-form');
@@ -56,6 +57,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // ШАГ 6: Обрабатываем ответ
             if (response.data.redirectUri) {
+                if (response.data.accessToken) {
+                    setAccessToken(response.data.accessToken);
+                }
                 window.location.href = response.data.redirectUri;
                 return;
             }

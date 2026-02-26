@@ -1,5 +1,6 @@
 import api from  './axios.js';
 import {getFingerprintData} from "/meta_catcher.js";
+import { setAccessToken } from "/inmemory.js";
 document.addEventListener('DOMContentLoaded', async () => {
 
     // --- ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ---
@@ -78,6 +79,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 );
                 if (response.data.redirectUri) {
+                    if (response.data.accessToken) {
+                        setAccessToken(response.data.accessToken);
+                    }
                     window.location.href =  response.data.redirectUri
                 } else {
                     const errorText = await response.text();

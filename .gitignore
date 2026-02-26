@@ -1,9 +1,7 @@
 .vscode
 .idea
-.beads
 .docs
 .docs/
-.beads/
 .bv/
 AGENTS.md
 ai_docs
@@ -61,3 +59,10 @@ Desktop.ini
 .Spotlight-V100
 .Trashes
 *.log
+
+# Beads issue tracking (git-native JSONL)
+.beads/*
+!.beads/README.md
+!.beads/config.yaml
+!.beads/issues.jsonl
+!.beads/interactions.jsonl

@@ -12,6 +12,7 @@
 <script type="module" src="/axios.js" th:attr="nonce=${nonce}"></script>
 <script type="module" th:inline="javascript" th:attr="nonce=${nonce}">
     const {getFingerprintData} = await import("/meta_catcher.js")
+    const {setAccessToken} = await import("/inmemory.js")
     import api from  '/axios.js';     // Получаем URL для возврата из data-атрибута
     const container = document.getElementById("data-container");
     const returnUrl = container.dataset.returnUrl || '/dashboard'; // Указываем страницу по умолчанию
@@ -41,11 +42,12 @@
             );
 
             // 3. Проверяем ответ от сервера
-
-
+            if (response.data?.accessToken) {
+                setAccessToken(response.data.accessToken);
+            }
 
             // 4. УСПЕХ! Куки уже выставлены сервером, просто редиректим дальше
-            console.log(response.data?.text || "Tokens refreshed");
+            console.log("Tokens refreshed");
             console.log(`Редирект на: ${returnUrl}`);
             window.location.href = returnUrl;
             // try {

@@ -220,13 +220,6 @@ public class WEBFLUX_Service {
 
 
     public Mono<ServerResponse> ResultSet( MvcJwtAuthFilter.jwt_refresh_auths tokens) {
-        ResponseCookie rc= ResponseCookie.from("access",tokens.jwt())
-                .httpOnly(true)
-//                .secure(true)
-                .sameSite("Strict")
-                .path("/")
-                .maxAge(Duration.ofMinutes(10))
-                .build();
         ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
                 .httpOnly(true)
 //                .secure(true)
@@ -234,12 +227,13 @@ public class WEBFLUX_Service {
                 .path("/")
                 .maxAge(Duration.ofDays(7))
                 .build();
-        Map<String, String> responseBody = Map.of(
-                "redirectUri","/reactive/chatlist"
+        Map<String, Object> responseBody = Map.of(
+                "redirectUri", "/reactive/chatlist",
+                "accessToken", tokens.jwt(),
+                "tokenType", "Bearer"
         );
 
         return ServerResponse.ok()
-                .header(HttpHeaders.SET_COOKIE, rc.toString())
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .bodyValue(responseBody);
     }

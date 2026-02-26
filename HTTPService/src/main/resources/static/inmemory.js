@@ -49,10 +49,4 @@ export function clearAccessToken() {
  */
 export function isAuthenticated() {
     return inMemoryAccessToken !== null;
-}/**
- * auth.js
- * Модуль для управления Access Token (JWT) в памяти приложения.
- * Он использует замыкание для создания "приватной" переменной,
- * доступ к которой возможен только через экспортируемые функции.
- */
-
+}
