@@ -128,6 +128,27 @@ spec:
                 name: httpservice
                 port:
                   number: 8080
+          - path: /callback.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /inmemory.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /auth.js
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
           - path: /actuator/prometheus
             pathType: Prefix
             backend:
