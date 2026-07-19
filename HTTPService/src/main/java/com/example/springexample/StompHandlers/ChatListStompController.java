@@ -40,7 +40,11 @@ public class ChatListStompController {
 
         try {
             long author_id = notificationDTO.getAuthorId();
-            String author_message_of_notification = "You" + notificationDTO.getText().split("has been")[1];
+            String text = notificationDTO.getText();
+            // text вида "<X> has been ..."; для автора заменяем субъект на "You".
+            // Если маркера нет — не роняем обработку (раньше [1] кидал ArrayIndexOutOfBounds).
+            String[] parts = text == null ? new String[0] : text.split("has been", 2);
+            String author_message_of_notification = parts.length > 1 ? "You has been" + parts[1] : text;
             template.convertAndSend("/private/chatlist/notify/" + author_id, author_message_of_notification);
         }catch (Exception e){
             log.error("Error in sending notification to author in chatlist ", e);
