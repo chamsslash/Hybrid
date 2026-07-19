@@ -325,7 +325,8 @@ public class MVC_Service {
         Mono<String> securitypredict= gptService.aiSecurePredict(prompt);
         boolean conclusion;
         try {
-            double res = securitypredict.map(doub->Double.valueOf((doub)+checkresult)/2).block();
+            // probability приходит строкой "0".."100"; среднее между эвристикой и AI-оценкой
+            double res = securitypredict.map(doub -> (Double.parseDouble(doub.trim()) + checkresult) / 2).block();
             return res>=60;
         } catch (Exception e) {
             log.error("Ai security predict failed",e);
