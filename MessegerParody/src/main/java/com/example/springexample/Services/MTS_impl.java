@@ -138,7 +138,12 @@ public class MTS_impl
 
             responseObserver.onCompleted();
         } catch (Exception e) {
-            log.error(e.getMessage());
+            log.error("transferMessage failed", e);
+            responseObserver.onError(
+                Status.INTERNAL.withDescription(
+                    "transferMessage failed: " + e.getMessage()
+                ).asRuntimeException()
+            );
         }
     }
 
@@ -223,47 +228,43 @@ public class MTS_impl
                 )
             );
 
-            Message message = reactiveparser.toMessage(
-                messageRepBase.findTopByChatIdOrderByTimestampDesc(id)
-            );
+            // В пустом чате newest == null; раньше NPE перехватывался catch-ом и fallback был недостижим
+            var newest = messageRepBase.findTopByChatIdOrderByTimestampDesc(id);
+            if (newest == null) {
+                log.info("No messages found, sending empty preview");
+                responseObserver.onNext(
+                    DataTransferService.Message.newBuilder()
+                        .setChatId(chatOpt.getId())
+                        .setChatName(chatOpt.getTitle())
+                        .build()
+                );
+                responseObserver.onCompleted();
+                return;
+            }
+
+            Message message = reactiveparser.toMessage(newest);
             User userOpt = userRepBase
                 .findById(message.getUser_id().getId())
                 .orElseGet(() -> {
                     log.error(
                         "user of message isnt dound in get newest message in chat"
                     );
-                    responseObserver.onError(
-                        new Throwable(
-                            "user of message isnt dound in get newest message in chat"
-                        )
-                    );
                     return new User();
                 });
-            if (message != null) {
-                DataTransferService.Message response =
-                    DataTransferService.Message.newBuilder()
-                        .setUserName(userOpt.getName())
-                        .setChatName(chatOpt.getTitle())
-                        .setText(message.getText())
-                        .setId(message.getId())
-                        .setTimestamp(message.getTime_stamp())
-                        .setChatId(chatOpt.getId())
-                        .setUserId(userOpt.getId())
-                        .setImageUrl(userOpt.getImageUrl())
-                        .build();
+            DataTransferService.Message response =
+                DataTransferService.Message.newBuilder()
+                    .setUserName(userOpt.getName())
+                    .setChatName(chatOpt.getTitle())
+                    .setText(message.getText())
+                    .setId(message.getId())
+                    .setTimestamp(message.getTime_stamp())
+                    .setChatId(chatOpt.getId())
+                    .setUserId(userOpt.getId())
+                    .setImageUrl(userOpt.getImageUrl())
+                    .build();
 
-                log.info("First message found, sending full response");
-                responseObserver.onNext(response);
-            } else {
-                log.info("No messages found, sending empty preview");
-                DataTransferService.Message fallback =
-                    DataTransferService.Message.newBuilder()
-                        .setChatId(chatOpt.getId())
-                        .setChatName(chatOpt.getTitle())
-                        .build();
-                responseObserver.onNext(fallback);
-            }
-
+            log.info("First message found, sending full response");
+            responseObserver.onNext(response);
             responseObserver.onCompleted();
         } catch (Exception e) {
             responseObserver.onError(
