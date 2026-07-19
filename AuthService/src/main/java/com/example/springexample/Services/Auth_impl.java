@@ -4,7 +4,6 @@ import com.example.grpc.AuthTransferServiceGrpc;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.CustomOAuth2User;
 import com.example.springexample.JPA_Entities.User;
-import com.example.springexample.JWT_Service;
 import com.example.springexample.Repositories.Auth_rep;
 import com.example.springexample.Utils.MyPasswordEncoder;
 import com.google.gson.Gson;
@@ -27,7 +26,6 @@ import java.util.stream.Collectors;
 public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBase {
 
     // Внедрение зависимостей через final поля и конструктор (Lombok @RequiredArgsConstructor)
-    private final JWT_Service jwtService;
     private final Auth_rep auth_rep;
     private final RedisTemplate<String, String> redisTemplate;
     private final Oauth2Utils oauth2Utils;
@@ -233,15 +231,16 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
 
         auth_rep.findByGoogleSub(sub)
                 .ifPresentOrElse(
-                        user -> responseObserver.onNext(DataTransferService.Sub_Role.newBuilder()
-                                .setSub(sub)
-                                .setRole(user.getUser_role())
-                                .build()),
+                        user -> {
+                            responseObserver.onNext(DataTransferService.Sub_Role.newBuilder()
+                                    .setSub(sub)
+                                    .setRole(user.getUser_role())
+                                    .build());
+                            responseObserver.onCompleted();
+                        },
                         () -> responseObserver.onError(Status.NOT_FOUND
                                 .withDescription("Auth Error: user with sub " + sub + " does not exist")
                                 .asRuntimeException())
                 );
-        // `ifPresentOrElse` не вызывает onCompleted, нужно сделать это явно
-        responseObserver.onCompleted();
     }
 }
