@@ -29,7 +29,7 @@ import java.util.List;
 
 @Slf4j
 @Controller
-public class СhatBoxStompController {
+public class ChatBoxStompController {
     private final KafkaProducer kafkaProducer;
     private final Gson gson = new Gson();
     @Autowired
@@ -42,7 +42,7 @@ public class СhatBoxStompController {
     ReactiveGrpcClient reactiveGrpcClient;
     @Autowired
     AuthGrpc authGrpc;
-    public СhatBoxStompController(KafkaProducer kafkaProducer) {
+    public ChatBoxStompController(KafkaProducer kafkaProducer) {
         this.kafkaProducer = kafkaProducer;
     }
 

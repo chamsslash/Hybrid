@@ -1,7 +1,7 @@
 package com.example.springexample;
 
 import com.example.springexample.StompHandlers.ChatListStompController;
-import com.example.springexample.StompHandlers.СhatBoxStompController;
+import com.example.springexample.StompHandlers.ChatBoxStompController;
 
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 public class KafkaConsumer {
 
     @Autowired
-    private СhatBoxStompController chatBoxStompController;
+    private ChatBoxStompController chatBoxStompController;
     @Autowired
     private ChatListStompController chatListStompController;
     @Autowired
