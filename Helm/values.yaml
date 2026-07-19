@@ -11,13 +11,15 @@ infra:
 ingress:
   host: myapp.local
 
-# Kafka (KRaft)
+# Kafka (KRaft) — multi-arch apache image (arm64 + amd64)
 kafka:
-  image: moeenz/docker-kafka-kraft
+  image: apache/kafka:3.9.0
   replicas: 1
   brokerId: 1
   hostName: kafka
-  createTopics: topic-a,topic-b,topic-c
+  # Приложение использует топики Images/Events/Messages; при autoCreate они создаются на лету,
+  # а Events/Messages также объявлены NewTopic-бином в AuthService.
+  createTopics: Images,Events,Messages
   partitionsPerTopic: 3
   autoCreateTopics: true
 
