@@ -71,3 +71,4 @@ Desktop.ini
 HTTPService/grafana/
 HTTPService/redis/
 *.rdb
+.build-out/
