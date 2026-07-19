@@ -82,27 +82,41 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
 
         String auths = request.getHeader("X-Authorities");
         String userId = request.getHeader("X-User-ID");
-        if(  auths!=null &&userId!=null && !userId.isEmpty() && !auths.isEmpty()){
-            List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-            List<String>authsList =  gson.fromJson(auths,List.class);
-            authsList.stream().map(auth->{
-                return authorities.add(new SimpleGrantedAuthority(auth));
-            });
-            if(!userId.isEmpty() && userId!=null ){
-                Authentication auth = new UsernamePasswordAuthenticationToken(userId, null, authorities);
-                SecurityContextHolder.getContext().setAuthentication(auth);
-                filterChain.doFilter(request, response);
-                return;
-            }
+        if (StringUtils.hasText(userId) && StringUtils.hasText(auths)) {
+            List<SimpleGrantedAuthority> authorities = parseAuthorities(auths);
+            Authentication auth = new UsernamePasswordAuthenticationToken(userId, null, authorities);
+            SecurityContextHolder.getContext().setAuthentication(auth);
         }
-
-
 
         filterChain.doFilter(request, response);
     }
 
-
-
+    // X-Authorities приходит либо как [{"authority":"USER"}], либо как ["USER"]
+    List<SimpleGrantedAuthority> parseAuthorities(String auths) {
+        try {
+            List<?> raw = gson.fromJson(auths, List.class);
+            if (raw == null) {
+                return List.of();
+            }
+            List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+            for (Object entry : raw) {
+                if (entry instanceof Map) {
+                    Object authority = ((Map<?, ?>) entry).get("authority");
+                    if (authority != null) {
+                        authorities.add(new SimpleGrantedAuthority(authority.toString()));
+                        continue;
+                    }
+                }
+                if (entry != null) {
+                    authorities.add(new SimpleGrantedAuthority(entry.toString()));
+                }
+            }
+            return authorities;
+        } catch (Exception e) {
+            log.warn("Не удалось распарсить X-Authorities: {}", e.getMessage());
+            return List.of();
+        }
+    }
 
 
 
