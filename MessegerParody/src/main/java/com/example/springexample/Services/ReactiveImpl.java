@@ -104,22 +104,18 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                 newChatEntity.setTitle(newChat.getTitle());
                                 newChatEntity.setImageUrl(newChat.getImageUrl());
 
-                                return reactiveChatRepository.save(newChatEntity).flatMap(savedchat -> {
-                                    return reactiveChatRepository.save(newChatEntity).flatMap(savedChat -> {
-                                        List<Mono<r2dbc_user_Chat>> bindings = users.stream()
-                                                .map(usr -> {
-                                                    r2dbc_user_Chat uc = new r2dbc_user_Chat();
-                                                    uc.setUserId(usr.getId());
-                                                    uc.setChatId(savedChat.getId());
-                                                    return reactiveUserChatRepository.save(uc);
-                                                })
-                                                .toList();
+                                return reactiveChatRepository.save(newChatEntity).flatMap(savedChat -> {
+                                    List<Mono<r2dbc_user_Chat>> bindings = users.stream()
+                                            .map(usr -> {
+                                                r2dbc_user_Chat uc = new r2dbc_user_Chat();
+                                                uc.setUserId(usr.getId());
+                                                uc.setChatId(savedChat.getId());
+                                                return reactiveUserChatRepository.save(uc);
+                                            })
+                                            .toList();
 
-                                        return Flux.merge(bindings)
-                                                .then(Mono.just(savedChat)); // вернуть chat дальше по цепочке
-                                    });
-
-
+                                    return Flux.merge(bindings)
+                                            .then(Mono.just(savedChat)); // вернуть chat дальше по цепочке
                                 }).map(saved -> DataTransferService.ChatResponse.newBuilder()
                                         .setMessage("Chat has been created")
                                         .setStatus("200")
@@ -167,7 +163,7 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
         long id = Long.parseLong(request.getUser(0).getId());
         return customReactiveRepository.findAllOrderedChatsByUserId(id)
                 .map(chat -> DataTransferService.ChatData.newBuilder()
-                        .setChatId(id)
+                        .setChatId(chat.getId())
                         .setTitle(chat.getTitle())
                         .setImageUrl(chat.getImageUrl())
                         .build())
