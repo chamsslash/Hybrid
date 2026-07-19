@@ -16,9 +16,11 @@ public class KafkaConfig {
     @Bean
     public KafkaAdmin.NewTopics newTopic() {
 
+        // replication factor 1: деплой запускает одного брокера, RF>брокеров ломает создание топиков
         return new KafkaAdmin.NewTopics(
-                new NewTopic("Messages", 5, (short) 2),
-                new NewTopic("Events", 2, (short) 2)
+                new NewTopic("Messages", 5, (short) 1),
+                new NewTopic("Events", 2, (short) 1),
+                new NewTopic("Images", 3, (short) 1)
         );
     }
 
