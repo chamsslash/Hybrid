@@ -66,3 +66,8 @@ Desktop.ini
 !.beads/config.yaml
 !.beads/issues.jsonl
 !.beads/interactions.jsonl
+
+# Local runtime data (grafana/redis state from compose era)
+HTTPService/grafana/
+HTTPService/redis/
+*.rdb
