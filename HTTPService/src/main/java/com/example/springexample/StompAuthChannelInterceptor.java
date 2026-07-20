@@ -51,12 +51,12 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                             "SUBSCRIBE requires authenticated session");
                 }
                 String destination = accessor.getDestination();
-                if (StringUtils.hasText(destination) && destination.startsWith("/private/")) {
+                if (isPerUserDestination(destination)) {
                     String userId = accessor.getUser().getName();
                     if (!destination.endsWith("/" + userId)) {
-                        log.warn("SUBSCRIBE to foreign private destination {} by user {}", destination, userId);
+                        log.warn("SUBSCRIBE to foreign per-user destination {} by user {}", destination, userId);
                         throw new org.springframework.security.access.AccessDeniedException(
-                                "Cannot subscribe to another user's private destination");
+                                "Cannot subscribe to another user's destination");
                     }
                 }
             }
@@ -69,5 +69,32 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             default -> { /* остальные команды не требуют проверок */ }
         }
         return message;
+    }
+
+    /**
+     * Пер-юзерные STOMP-назначения оканчиваются на "/{userId}" и должны совпадать
+     * с аутентифицированным пользователем. Кроме всего /private/** сюда входят
+     * chatlist-каналы на /mutual, адресованные конкретному userId, — иначе любой
+     * аутентифицированный клиент мог бы подписаться на чужой userId.
+     * Общие каналы (/mutual/.../typing_statuses_channel, image-каналы, чат-скоуп
+     * по chat_id) под эти префиксы не попадают и остаются широковещательными.
+     */
+    private static final String[] PER_USER_PREFIXES = {
+            "/private/",
+            "/mutual/chatlist/change_chatpreview/",
+            "/mutual/chatlist/list_update/",
+            "/mutual/chatlist/notify/"
+    };
+
+    private static boolean isPerUserDestination(String destination) {
+        if (!StringUtils.hasText(destination)) {
+            return false;
+        }
+        for (String prefix : PER_USER_PREFIXES) {
+            if (destination.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
