@@ -7,28 +7,30 @@
 </head>
 <body>
 
-<div class="post-feed">
-    <h2 style="text-align: center;">Регистрация</h2>
+<div class="post-feed" style="max-width: 440px;">
+    <div class="list-head">
+        <h1 class="title"><small>TEBEGRAM</small>Регистрация</h1>
+    </div>
 
     <form id="register-form" class="add-comment">
         <label>
-            Имя пользователя:
-            <input type="text" name="username" placeholder="Логин" required>
+            Имя пользователя
+            <input type="text" name="username" placeholder="Придумайте логин" required>
         </label>
 
         <label>
-            Аватар:
+            Аватар
             <input type="file" name="userimage" accept="image/*">
         </label>
 
         <input type="hidden" name="_csrf" th:value="${_csrf.token}" />
 
         <label>
-            Пароль:
-            <input type="password" name="password" placeholder="Пароль" required>
+            Пароль
+            <input type="password" name="password" placeholder="Придумайте пароль" required>
         </label>
 
-        <button type="submit">Зарегистрироваться</button>
+        <button type="submit">Создать аккаунт</button>
     </form>
 
 
