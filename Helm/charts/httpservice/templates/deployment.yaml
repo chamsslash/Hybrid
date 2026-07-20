@@ -28,25 +28,35 @@ spec:
             - name: SPRING_DATASOURCE_USERNAME
               value: "{{ .Values.env.datasourceUsername }}"
             - name: SPRING_DATASOURCE_PASSWORD
-              value: "{{ .Values.env.datasourcePassword }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
             - name: SPRING_REDIS_HOST
               value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
               value: "{{ .Values.env.redisPort }}"
             - name: REFRESH_SECRET
-              value: "{{ .Values.env.refreshSecret | default .Values.security.refreshSecret }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: REFRESH_SECRET
             - name: JWT_PUBLIC_KEY_PEM
               value: |-
 {{ .Values.env.jwtPublicKey | nindent 16 }}
             - name: JWT_PRIVATE_KEY_PEM
-              value: |-
-{{ .Values.env.jwtPrivateKey | nindent 16 }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: JWT_PRIVATE_KEY_PEM
             - name: YANDEX_PUBLIC_KEY_PEM
               value: |-
 {{ .Values.env.yandexPublicKey | nindent 16 }}
             - name: YANDEX_PRIVATE_KEY_PEM
-              value: |-
-{{ .Values.env.yandexPrivateKey | nindent 16 }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: YANDEX_PRIVATE_KEY_PEM
             - name: YANDEX_SERVICE_ACCOUNT_ID
               value: "{{ .Values.env.yandexServiceAccountId }}"
             - name: YANDEX_KEY_ID

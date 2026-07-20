@@ -10,15 +10,58 @@ Kubernetes‑версия (ветка `main/dev`).
 - Kafka (KRaft), Postgres, Redis, Prometheus, Grafana
 
 ## Быстрый старт (k8s + Helm)
-1) В `Helm/values.yaml` укажи секреты:
-- `authservice.google.clientId`
-- `authservice.google.clientSecret`
-- `httpservice.security.refreshSecret`
 
-2) Установить:
+Локальный запуск в kind делает всё сам (собирает образы, генерирует одноразовые
+ключи, поднимает chart):
 ```bash
-helm upgrade --install hybrid ./Helm
+./deploy-kind.sh
 ```
+
+Ручная установка — передай секреты в момент деплоя (в `values.yaml` их больше нет):
+```bash
+helm upgrade --install hybrid ./Helm \
+  --set secrets.dbPassword=... \
+  --set secrets.grafanaAdminPassword=... \
+  --set secrets.googleClientSecret=... \
+  --set secrets.refreshSecret=... \
+  --set-file secrets.jwtPrivateKeyPem=./jwt-private.pem \
+  --set-file secrets.yandexPrivateKeyPem=./yandex-sa.pem
+```
+
+## Providing secrets at deploy time
+
+Секреты **не** хранятся в `Helm/values.yaml` (только пустые плейсхолдеры).
+Chart `Helm/templates/secrets.yaml` собирает k8s Secret `<release>-app-secrets`
+из значений `secrets.*`, а все Deployment'ы читают их через
+`env.valueFrom.secretKeyRef`.
+
+Значения секрета и куда они попадают:
+
+| `secrets.*` value          | Secret key                | Env var(s)                                                              |
+|----------------------------|---------------------------|------------------------------------------------------------------------|
+| `dbPassword`               | `DB_PASSWORD`             | `SPRING_DATASOURCE_PASSWORD`, `DB_PASSWORD`, `PGPASSWORD`, `POSTGRES_PASSWORD` |
+| `grafanaAdminPassword`     | `GRAFANA_ADMIN_PASSWORD`  | `GF_SECURITY_ADMIN_PASSWORD`                                            |
+| `googleClientSecret`       | `GOOGLE_CLIENT_SECRET`    | `GOOGLE_CLIENT_SECRET`                                                  |
+| `refreshSecret`            | `REFRESH_SECRET`          | `REFRESH_SECRET`                                                        |
+| `jwtPrivateKeyPem`         | `JWT_PRIVATE_KEY_PEM`     | `JWT_PRIVATE_KEY_PEM`                                                   |
+| `yandexPrivateKeyPem`      | `YANDEX_PRIVATE_KEY_PEM`  | `YANDEX_PRIVATE_KEY_PEM`                                                |
+
+Публичные ключи (`*.env.jwtPublicKey`, `*.env.yandexPublicKey`) секретами не
+являются и остаются в values как обычная конфигурация — но должны
+соответствовать приватным ключам из Secret.
+
+Способы передать значения:
+- **Локально / CI:** `--set` (строки) и `--set-file` (PEM-файлы), см. выше.
+- **Внешний менеджер секретов** (External Secrets Operator, Sealed Secrets и т.п.):
+  создай Secret заранее и отключи встроенный:
+  ```bash
+  helm upgrade --install hybrid ./Helm \
+    --set secrets.create=false \
+    --set global.appSecretName=<имя-внешнего-secret>
+  ```
+  Внешний Secret должен содержать те же ключи, что в таблице выше.
+
+Никогда не коммить реальные значения секретов в `values.yaml` или в скрипты.
 
 ## Security flow
 Полный флоу access/refresh + fingerprint:
@@ -28,5 +71,5 @@ helm upgrade --install hybrid ./Helm
 backend доверяет только этим заголовкам.
 
 ## Ноты
-- Secrets сейчас хранятся в values (временно).
+- Secrets вынесены из `values.yaml` в k8s Secret (см. "Providing secrets at deploy time").
 - gRPC доступен внутри кластера по сервисам.

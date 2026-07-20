@@ -28,7 +28,10 @@ spec:
             - name: SPRING_DATASOURCE_USERNAME
               value: "{{ .Values.env.datasourceUsername }}"
             - name: SPRING_DATASOURCE_PASSWORD
-              value: "{{ .Values.env.datasourcePassword }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
             - name: DB_HOST
               value: "{{ .Values.env.dbHost }}"
             - name: DB_PORT
@@ -38,7 +41,10 @@ spec:
             - name: DB_USER
               value: "{{ .Values.env.dbUser }}"
             - name: DB_PASSWORD
-              value: "{{ .Values.env.dbPassword }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
             - name: SPRING_REDIS_HOST
               value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
@@ -46,7 +52,10 @@ spec:
             - name: GOOGLE_CLIENT_ID
               value: "{{ .Values.google.clientId }}"
             - name: GOOGLE_CLIENT_SECRET
-              value: "{{ .Values.google.clientSecret }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: GOOGLE_CLIENT_SECRET
             - name: JWT_PUBLIC_KEY_PEM
               value: |-
 {{ .Values.env.jwtPublicKey | nindent 16 }}

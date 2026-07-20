@@ -37,7 +37,21 @@ kubectl -n ingress-nginx patch configmap ingress-nginx-controller --type merge -
 kubectl -n ingress-nginx rollout restart deployment ingress-nginx-controller
 kubectl wait -n ingress-nginx --for=condition=available deployment/ingress-nginx-controller --timeout=180s
 
+echo "▶ generate throwaway signing keys (LOCAL DEV ONLY — never reuse in prod)"
+# Secrets are NOT stored in values.yaml. For local kind we mint fresh, disposable
+# key pairs at deploy time and inject them via --set-file. The matching public
+# keys override the placeholders in values.yaml so signing/verification agree.
+KEYDIR="$(mktemp -d)"
+trap 'rm -rf "$KEYDIR"' EXIT
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEYDIR/jwt-priv.pem" 2>/dev/null
+openssl rsa -in "$KEYDIR/jwt-priv.pem" -pubout -out "$KEYDIR/jwt-pub.pem" 2>/dev/null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEYDIR/yandex-priv.pem" 2>/dev/null
+openssl rsa -in "$KEYDIR/yandex-priv.pem" -pubout -out "$KEYDIR/yandex-pub.pem" 2>/dev/null
+
 echo "▶ helm deploy"
+# LOCAL DEV credentials. In real environments provide these from a secret
+# manager (e.g. External Secrets Operator) via secrets.create=false +
+# global.appSecretName, and do NOT pass plaintext on the command line.
 helm upgrade --install hybrid ./Helm \
   --namespace "$NS" \
   --create-namespace \
@@ -46,7 +60,16 @@ helm upgrade --install hybrid ./Helm \
   --set httpservice.image.repository=httpservice \
   --set httpservice.image.tag=latest \
   --set messegerparody.image.repository=messegerparody \
-  --set messegerparody.image.tag=latest
+  --set messegerparody.image.tag=latest \
+  --set secrets.dbPassword=postgres123 \
+  --set secrets.grafanaAdminPassword=admin123 \
+  --set secrets.googleClientSecret=local-google-client-secret \
+  --set secrets.refreshSecret=local-refresh-secret \
+  --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
+  --set-file secrets.yandexPrivateKeyPem="$KEYDIR/yandex-priv.pem" \
+  --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
+  --set-file httpservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
+  --set-file httpservice.env.yandexPublicKey="$KEYDIR/yandex-pub.pem"
 
 echo "▶ wait for workloads"
 kubectl wait -n "$NS" --for=condition=Available deployment --all --timeout=300s
