@@ -83,8 +83,19 @@
 - Браузер **не прикладывает** `Authorization` при обычной навигации по ссылкам (`window.location.href = ...`).
 - Поэтому HTML страницы должны быть **public shell**, а данные должны грузиться через API (например, `/api/*`) с `Authorization`.
 
-## 11) Быстрый чеклист
+## 11) WebSocket / STOMP аутентификация
+- SockJS/WebSocket‑хендшейк браузера **не несёт** `Authorization`‑заголовок, поэтому ingress **не** проверяет WS через `auth_request`. Хендшейк‑эндпоинты публичны.
+- Аутентификация переехала на уровень приложения: клиент передаёт `Authorization: Bearer <access>` в **STOMP CONNECT**‑заголовках (`chatlist.js`, `index.js`).
+- Сервер (`StompAuthChannelInterceptor` + `AccessTokenVerifier`) валидирует access‑JWT по `JWT_PUBLIC_KEY_PEM` на CONNECT и:
+  - отклоняет CONNECT без валидного токена;
+  - требует аутентифицированную сессию на SUBSCRIBE/SEND;
+  - для **пер‑юзерных** назначений (все `/private/**`, а также `/mutual/chatlist/change_chatpreview/{id}`, `/mutual/chatlist/list_update/{id}`, `/mutual/chatlist/notify/{id}`) требует, чтобы хвост `/{userId}` совпадал с аутентифицированным пользователем.
+  - общие каналы (typing‑статусы, image‑каналы, чат‑скоуп по `chat_id`) остаются широковещательными.
+- Access‑токен валидируется один раз на CONNECT; при истечении токена нужен реконнект с новым access.
+
+## 12) Быстрый чеклист
 - Логин: `refresh` cookie + `accessToken` в JSON.
 - Любой API запрос: `Authorization: Bearer <access>`.
 - 401: refresh (`/exchangeTokens`) → новый `accessToken` → retry 1 раз.
 - Нет refresh или FP mismatch: `/welcome` (login).
+- WebSocket: `Authorization: Bearer <access>` в STOMP CONNECT; пер‑юзерные подписки только на свой `userId`.
