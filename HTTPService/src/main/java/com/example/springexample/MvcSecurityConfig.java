@@ -77,6 +77,7 @@ public class MvcSecurityConfig  {
                                 new AntPathRequestMatcher("/verifylogin"),
                                 new AntPathRequestMatcher("/welcome"),
                                 new AntPathRequestMatcher("/registerpage"),
+                                new AntPathRequestMatcher("/createchatpage"),
                                 new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/reactive/**"),
                                 new AntPathRequestMatcher("/authcallback"),
@@ -88,12 +89,19 @@ public class MvcSecurityConfig  {
                 )
                 .addFilterBefore(mvcJwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex
+                        // SPA-API отдаёт голый 401 — клиент сам делает refresh+retry (beads 59)
+                        .defaultAuthenticationEntryPointFor(
+                                new org.springframework.security.web.authentication.HttpStatusEntryPoint(
+                                        org.springframework.http.HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**"))
                         .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/welcome"))
                 )
 
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
                         .csrfTokenRequestHandler(attributeHandler)
+                        // Bearer-API не подвержен CSRF (нет cookie-аутентификации)
+                        .ignoringRequestMatchers(new AntPathRequestMatcher("/api/**"))
                 );
 
         return http.build();

@@ -322,176 +322,39 @@ public class WEBFLUX_Service {
 
 
 
+    /**
+     * SPA-шелл списка чатов (beads 57): страница публична, данные подтягивает JS
+     * через /api/chatlist с Authorization-заголовком.
+     */
     public Mono<ServerResponse> getChatList(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        log.info("===> [1] Метод getChatList вызван.");
-
-        // ШАГ 1: Получаем контекст и НЕМЕДЛЕННО КЭШИРУЕМ его, чтобы избежать повторных подписок.
-        Mono<Authentication> authMono = ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .cache(); // <--- САМОЕ ВАЖНОЕ ИЗМЕНЕНИЕ
-
-        return authMono
-                .flatMap(authentication -> {
-                    // ШАГ 2: Извлекаем ID пользователя как СТРОКУ, чтобы избежать NumberFormatException.
-                    String principalName = authentication.getName();
-                    log.info("===> [2] Principal '{}' найден. Начинаю сборку модели.", principalName);
-
-                    // ШАГ 3: Вся gRPC и логика сборки модели находится внутри этого flatMap.
-                    // Ошибки здесь будут перехвачены ниже в onErrorResume.
-                    Mono<Map<String, Object>> modelMono = Mono.fromCallable(() -> {
-                                // Эта часть теперь просто для логической группировки, так как парсинг не нужен
-                                log.info("===> [4] Пользователь {} найден. Начинаю gRPC...", principalName);
-                                return principalName;
-                            })
-                            .flatMap(userId -> {
-                                DataTransferService.ChatData chatDataRequest = DataTransferService.ChatData.newBuilder()
-                                        // Используем userId (String) напрямую, без парсинга в Long
-                                        .addUser(DataTransferService.User.newBuilder().setId(userId).build())
-                                        .build();
-
-                                return reactiveGrpcClient.reactiveGetAllChatsById(chatDataRequest)
-                                        .doOnError(e -> log.error("===> [X] Ошибка при получении списка чатов", e))
-                                        .flatMapMany(list -> Flux.fromIterable(list.getChatdataListList()))
-                                        .flatMap(chat -> reactiveGrpcClient.reactiveGetNewestMessage(chat)
-                                                .onErrorResume(err -> {
-                                                    log.warn("===> [X] Ошибка при получении сообщения для чата {}: {}", chat.getChatId(), err.getMessage());
-                                                    return Mono.just(new ShortChatObject()); // Возвращаем пустой объект или маркер
-                                                }))
-                                        .collectList()
-                                        .map(previews -> {
-                                            Map<String, Object> model = new HashMap<>();
-                                            model.put("pathPrefix", "/reactive");
-                                            model.put("chats", previews);
-                                            model.put("user_id", userId);
-                                            log.info("===> [5] Данные для модели собраны.");
-                                            return model;
-                                        });
-                            });
-
-                    return modelMono.flatMap(model -> {
-                        log.info("===> [6] Начинаю рендеринг шаблона 'chats_list'.");
-                        return ParseWithThymeLeaf(model, "chats_list", templateEngine)
-                                .flatMap(htmlContent -> {
-                                    log.info("===> [7] Рендеринг завершен. Отдаю успешный ответ.");
-                                    return ServerResponse.ok()
-                                            .contentType(MediaType.TEXT_HTML)
-                                            .bodyValue(htmlContent);
-                                });
-                    });
-                })
-                // Срабатывает, только если authMono изначально пуст.
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("===> [X] Аутентификация отсутствует. Редирект на страницу входа.");
-                    return ServerResponse.temporaryRedirect(URI.create("/welcome")).build();
-                }))
-                // ШАГ 5: ЕДИНЫЙ глобальный обработчик ошибок для всей цепочки.
-                // Перехватит любые ошибки (от gRPC, рендеринга и т.д.), которые не были обработаны ранее.
+        Map<String, Object> model = new HashMap<>();
+        model.put("pathPrefix", "/reactive");
+        return ParseWithThymeLeaf(model, "chats_list", templateEngine)
+                .flatMap(htmlContent -> ServerResponse.ok()
+                        .contentType(MediaType.TEXT_HTML)
+                        .bodyValue(htmlContent))
                 .onErrorResume(e -> {
-                    log.error("===> [X] Непредвиденная глобальная ошибка в цепочке getChatList", e);
+                    log.error("chats_list shell render failed", e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .contentType(MediaType.TEXT_PLAIN)
                             .bodyValue("Произошла внутренняя ошибка: " + e.getMessage());
                 });
     }
 
+    /**
+     * SPA-шелл страницы чата (beads 57): страница публична, id/title JS читает
+     * из query-параметров и грузит данные через /api/chat с Authorization.
+     */
     public Mono<ServerResponse> renderChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        log.info("===> [1] Метод renderChatPage вызван.");
-
-        // 1. Получаем параметры запроса
-        long chatId = Long.parseLong(request.queryParam("id").orElseThrow(() -> new IllegalArgumentException("Query param 'id' is required")));
-        String title = request.queryParam("title").orElse("Unknown Chat");
-
-        // 2. Начинаем цепочку с получения контекста безопасности (как в примере)
-        return ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .cast(Principal.class)
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("===> [X] SecurityContext пуст. Сигнал для перенаправления на авторизацию.");
-                    return Mono.empty();
-                }))
-                .flatMap(principal -> {
-                    // 3. Получаем ID пользователя и начинаем собирать данные
-                    return Mono.fromCallable(principal::getName)
-                            .doOnNext(userId -> log.info("===> [4] Пользователь {} найден. Начинаю параллельные gRPC запросы...", userId))
-                            .flatMap(userId -> {
-                                // 4. Подготавливаем все независимые gRPC вызовы
-                                DataTransferService.ChatData chatData = DataTransferService.ChatData.newBuilder()
-                                        .setChatId(chatId).setTitle(title).build();
-
-                                Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId);
-                                Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
-                                Mono<List<String>> chatMembersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData);
-                                Mono<String> chatImageUrlMono = reactiveGrpcClient.reactiveGetImageUrl(chatId);
-                                Mono<String> userImageUrlMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId));
-
-                                // 5. Выполняем их параллельно с помощью Mono.zip
-                                return Mono.zip(
-                                                usernameMono,
-                                                chatResponseMono,
-                                                chatMembersMono,
-                                                chatImageUrlMono,
-                                                userImageUrlMono
-                                        )
-                                        .flatMap(tuple -> {
-                                            // 6. Распаковываем результаты первого этапа
-                                            String username = tuple.getT1();
-                                            String rawChatResponse = tuple.getT2();
-                                            List<String> chatMembers = tuple.getT3();
-                                            String chatImageUrl = tuple.getT4();
-                                            String userImageUrl = tuple.getT5();
-
-                                            JsonObject chatResponseJson = JsonParser.parseString(rawChatResponse).getAsJsonObject();
-                                            Mono<List<MessageEvent>> messagesMono;
-
-                                            if ("500".equals(chatResponseJson.get("status").getAsString())) {
-                                                String errorMessage = chatResponseJson.get("message").getAsString();
-                                                MessageEvent me = new MessageEvent();
-                                                me.setText(errorMessage);
-                                                messagesMono = Mono.just(Collections.singletonList(me));
-                                            } else {
-                                                messagesMono = reactiveGrpcClient.reactiveGetAllMessages(chatData);
-                                            }
-
-                                            // 8. Объединяем результаты первого этапа с результатом второго
-                                            return messagesMono.map(messages -> {
-                                                // 9. Собираем финальную модель для Thymeleaf
-                                                Map<String, Object> model = new HashMap<>();
-                                                model.put("username", username);
-                                                model.put("title", title);
-                                                model.put("user_id", userId);
-                                                model.put("chat_id", chatId);
-                                                model.put("usernames", chatMembers);
-                                                model.put("messages", messages);
-                                                model.put("chat_image_url", chatImageUrl);
-                                                model.put("image_url", userImageUrl);
-                                                log.info("===> [5] Данные для модели страницы чата собраны.");
-                                                return model;
-                                            });
-                                        })
-                                        .flatMap(model -> {
-                                            log.info("===> [6] Начинаю рендеринг шаблона 'index' в строку.");
-                                            // 10. Вызываем ВАШ кастомный метод рендеринга
-                                            return ParseWithThymeLeaf(model, "index", templateEngine)
-                                                    .flatMap(htmlContent -> {
-                                                        log.info("===> [7] Рендеринг в строку завершен. Отдаю ServerResponse с bodyValue.");
-                                                        return ServerResponse.ok()
-                                                                .contentType(MediaType.TEXT_HTML)
-                                                                .bodyValue(htmlContent);
-                                                    });
-                                        });
-                            })
-                            // Обработка ошибки парсинга ID пользователя
-                            .onErrorResume(NumberFormatException.class, e -> {
-                                log.warn("===> [X] Имя principal невалидно: '{}'. Редирект.", principal.getName());
-                                return ServerResponse.temporaryRedirect(URI.create("/startauth")).build();
-                            });
-                })
-                // Обработка пустого SecurityContext
-                .switchIfEmpty(ServerResponse.temporaryRedirect(URI.create("/startauth")).build())
-                // Глобальный обработчик всех остальных ошибок
+        Map<String, Object> model = new HashMap<>();
+        return ParseWithThymeLeaf(model, "index", templateEngine)
+                .flatMap(htmlContent -> ServerResponse.ok()
+                        .contentType(MediaType.TEXT_HTML)
+                        .bodyValue(htmlContent))
                 .onErrorResume(e -> {
-                    log.error("===> [X] Непредвиденная глобальная ошибка в цепочке renderChatPage", e);
-                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN).bodyValue("Internal Server Error: " + e.getMessage());
+                    log.error("chat shell render failed", e);
+                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
+                            .bodyValue("Internal Server Error: " + e.getMessage());
                 });
     }
 
