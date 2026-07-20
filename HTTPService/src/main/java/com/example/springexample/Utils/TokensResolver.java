@@ -8,6 +8,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import javax.crypto.SecretKey;
 
 @Component
 @Slf4j
@@ -52,6 +55,14 @@ public class TokensResolver {
     private long ACCESS_EXPIRE;
     private  final Gson gson = new Gson();
     private final RedisTemplate<String,String> redisTemplate;
+
+    // Refresh tokens use HMAC-SHA512. The legacy signWith(SignatureAlgorithm.HS512, String)
+    // treated REFRESH_SECRET as a Base64-encoded key, so we derive the SecretKey from the
+    // Base64-decoded bytes here and use this single method for BOTH signing and verification
+    // to keep previously issued refresh tokens valid.
+    private SecretKey refreshKey() {
+        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(REFRESH_SECRET));
+    }
     private String buildAccessToken(DataTransferService.Sub_Role subRole, String accessJti, String sid) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         Date now = new Date();
         Date validity = new Date(now.getTime() + ACCESS_EXPIRE);
@@ -64,7 +75,7 @@ public class TokensResolver {
                 .setIssuedAt(now)
                 .setExpiration(validity)
                 .setIssuer("Hybrid-Http-Service")
-                .signWith(SignatureAlgorithm.RS512, (PrivateKey) loadKeys().get("private_key"))
+                .signWith((PrivateKey) loadKeys().get("private_key"), Jwts.SIG.RS512)
                 .compact();
     }
 
@@ -79,7 +90,7 @@ public class TokensResolver {
                 .setIssuedAt(now)
                 .setExpiration(validity)
                 .setIssuer("Hybrid-Http-Service")
-                .signWith(SignatureAlgorithm.HS512, REFRESH_SECRET)
+                .signWith(refreshKey(), Jwts.SIG.HS512)
                 .compact();
     }
 
@@ -169,7 +180,7 @@ public class TokensResolver {
     }
     private RefreshSubject CheckRefreshAndGetSub(String refreshtoken, FpSimilarityScore.ClientMeta newMeta)  {
         try {
-            Claims claims = Jwts.parser().setSigningKey(REFRESH_SECRET).build().parseClaimsJws(refreshtoken).getBody();
+            Claims claims = Jwts.parser().verifyWith(refreshKey()).build().parseSignedClaims(refreshtoken).getPayload();
             String sub = claims.getSubject();
             Date expiration = claims.getExpiration();
             String refreshJti = claims.getId();

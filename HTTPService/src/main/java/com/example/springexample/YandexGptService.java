@@ -4,7 +4,6 @@ import com.example.springexample.Metrics.AiRequestMetric;
 import com.example.springexample.Utils.FpSimilarityScore;
 import com.google.gson.*;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.jcajce.provider.asymmetric.RSA;
 import org.bouncycastle.util.io.pem.PemObject;
@@ -265,7 +264,7 @@ public class YandexGptService {
                    .setIssuer(service_acc_id)
                    .setAudience("https://iam.api.cloud.yandex.net/iam/v1/tokens")
                    .setIssuedAt(Date.from(Instant.now()))
-                   .setExpiration(Date.from(Instant.now().plusSeconds(3600))).signWith(RSAprivateKey, SignatureAlgorithm.PS256).compact();
+                   .setExpiration(Date.from(Instant.now().plusSeconds(3600))).signWith(RSAprivateKey, Jwts.SIG.PS256).compact();
             return jwt;
         }catch (Exception e){
             log.error(e.getMessage());

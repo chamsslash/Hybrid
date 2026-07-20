@@ -231,7 +231,6 @@
             <scope>provided</scope>
         </dependency>
 
-
         <!-- Аннотации -->
         <dependency>
             <groupId>javax.annotation</groupId>
