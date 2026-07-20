@@ -1,21 +1,33 @@
 import { clearAccessToken, getAccessToken, setAccessToken } from "/inmemory.js";
 import { getFingerprintData } from "/meta_catcher.js";
 
+function readXsrfCookie() {
+    const raw = document.cookie.split('; ').find(row => row.startsWith('XSRF-TOKEN='));
+    return raw ? decodeURIComponent(raw.split('=')[1]) : null;
+}
+
 async function requestFreshAccessToken() {
     const meta = await getFingerprintData();
 
     const formData = new URLSearchParams();
     formData.append("FpComponents", JSON.stringify(meta.components));
 
+    const headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Fingerprint": meta.fingerprint,
+        "X-Client-Meta": JSON.stringify(meta.clientMeta),
+        "X-SecureUUID": meta.secureUUID,
+    };
+    // CookieCsrfTokenRepository требует эхо XSRF-cookie в заголовке
+    const xsrf = readXsrfCookie();
+    if (xsrf) {
+        headers["X-XSRF-TOKEN"] = xsrf;
+    }
+
     const resp = await fetch("/exchangeTokens", {
         method: "POST",
         credentials: "same-origin",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Fingerprint": meta.fingerprint,
-            "X-Client-Meta": JSON.stringify(meta.clientMeta),
-            "X-SecureUUID": meta.secureUUID,
-        },
+        headers,
         body: formData,
     });
 

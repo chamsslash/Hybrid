@@ -1,4 +1,11 @@
 {{- if .Values.infra.ingress }}
+# SPA-модель (beads 59):
+# - Всё, кроме данных, публично: HTML-шеллы, статика, SockJS-хендшейки.
+#   WebSocket аутентифицируется на уровне STOMP CONNECT (access-токен),
+#   т.к. хендшейк браузера не несёт Authorization-заголовок.
+# - Данные (/api/*) и мутации защищены auth_request -> AuthService /jwtcheck
+#   по Authorization: Bearer. Без auth-signin: API отдаёт голый 401,
+#   SPA сама делает refresh+retry.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -23,133 +30,7 @@ spec:
                 name: authservice
                 port:
                   number: 8081
-          - path: /authcallback
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /reactive/login
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /reactive/register
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /collect-fingerprint
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /exchangeTokens
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /welcome
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /registerpage
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /static/
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /css/
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /js/
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /images/
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /axios.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /welcome.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /register.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /meta_catcher.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /callback.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /inmemory.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /auth.js
-            pathType: Prefix
-            backend:
-              service:
-                name: httpservice
-                port:
-                  number: 8080
-          - path: /actuator/prometheus
+          - path: /
             pathType: Prefix
             backend:
               service:
@@ -164,15 +45,27 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti, X-Sid"
-    nginx.ingress.kubernetes.io/auth-signin: "$scheme://$host/collect-fingerprint"
-    nginx.ingress.kubernetes.io/auth-signin-redirect-param: "return_url"
 spec:
   ingressClassName: nginx
   rules:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /AiAssist
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /reactive/createchat
             pathType: Prefix
             backend:
               service:

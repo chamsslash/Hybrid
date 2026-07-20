@@ -12,7 +12,6 @@
 
     <form id="chatForm" class="add-comment" enctype="multipart/form-data">
 
-        <input type="hidden" name="_csrf" th:value="${_csrf.token}" />
         <input type="text" name="title" placeholder="Название чата" required>
 
         <!-- Поле для выбора файла -->
@@ -23,13 +22,14 @@
             <!-- Сюда будут добавляться блоки пользователей -->
         </div>
 
-        <button type="button" onclick="addUserField()">+ Добавить пользователя</button>
+        <button type="button" id="addUserBtn">+ Добавить пользователя</button>
         <br><br>
         <button type="submit">Отправить</button>
     </form>
 
     <p id="result" style="margin-top: 10px; font-weight: bold;"></p>
 </div>
-<script src="../static/chatcreate.js" th:attr="nonce=${nonce}"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/chatcreate.js" th:attr="nonce=${nonce}"></script>
 </body>
 </html>
