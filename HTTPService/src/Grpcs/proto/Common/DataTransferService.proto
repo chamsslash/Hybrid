@@ -64,11 +64,6 @@ message ListOfChats{
   repeated ChatData chatdata_list=1;
 }
 
-service MessageTransferService {
-
-  rpc transferMessage(Message) returns (Message);
-  rpc transferAllMessages(ChatData) returns (ListOfMessages);
-}
 message UserListResponse {
   repeated UserDataRequest users = 1;
 }

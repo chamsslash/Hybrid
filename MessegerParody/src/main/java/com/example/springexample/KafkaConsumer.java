@@ -1,7 +1,6 @@
 package com.example.springexample;
 
-import com.example.grpc.DataTransferService.DriveUrl;
-import com.example.springexample.Services.MTS_impl;
+import com.example.springexample.Services.ImageUrlPersistenceService;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +14,7 @@ import org.springframework.stereotype.Service;
 public class KafkaConsumer {
 
     @Autowired
-    private MTS_impl mts_impl;
+    private ImageUrlPersistenceService imageUrlPersistenceService;
 
     private final Gson gson = new Gson();
 
@@ -27,12 +26,10 @@ public class KafkaConsumer {
         if (!"image".equals(json.get("type").getAsString())) return;
         if (!"userimage".equals(json.get("TargetType").getAsString())) return;
 
-        DriveUrl dUrl = DriveUrl.newBuilder()
-            .setUrl(json.get("Base64Image").getAsString())
-            .setChatId(json.get("Target").getAsString())
-            .setType("userimage")
-            .build();
-
-        mts_impl.transferimageUrltoDB(dUrl);
+        imageUrlPersistenceService.persistImageUrl(
+            "userimage",
+            json.get("Target").getAsString(),
+            json.get("Base64Image").getAsString()
+        );
     }
 }

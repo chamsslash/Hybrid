@@ -49,8 +49,6 @@ public class WEBFLUX_Service {
     @Autowired
     ParsingDataService dataParser;
     @Autowired
-    private gRPC_Client grpc;
-    @Autowired
     YandexGptService yandexGptService;
     @Autowired
     AuthGrpc authGrpc;

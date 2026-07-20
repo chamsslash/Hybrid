@@ -72,13 +72,6 @@ message DriveUrl{
   string  chat_id =2;
   string  type = 3;
 }
-service MessageTransferService {
-  rpc getnewest(ChatData) returns (Message);
-  rpc transferMessage(Message) returns (Message);
-  rpc transferAllMessages(ChatData) returns (ListOfMessages);
-  rpc transferimageUrltoDB(DriveUrl) returns (DriveUrl);
-}
-
 service AuthTransferService {
   rpc register(UserDataRequest) returns (AuthResponse);
   rpc login(UserDataRequest) returns (AuthResponse);
