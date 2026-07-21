@@ -30,21 +30,21 @@ public class ImageUrlPersistenceService {
         this.reactiveChatRepository = reactiveChatRepository;
     }
 
-    public void persistImageUrl(String type, String targetId, String url) {
+    public void persistImageUrl(String type, String targetId, String objectKey) {
         try {
             if ("userimage".equals(type)) {
                 Optional<User> userOptional = userRepBase.findById(
                     Long.parseLong(targetId)
                 );
                 userOptional.ifPresent(user -> {
-                    user.setImageUrl(url);
+                    user.setImageUrl(objectKey);
                     userRepBase.save(user);
                 });
             } else if ("chatimage".equals(type)) {
                 r2dbc_chat updatedChat = reactiveChatRepository
                     .findById(Long.parseLong(targetId))
                     .map(chat -> {
-                        chat.setImageUrl(url);
+                        chat.setImageUrl(objectKey);
                         return chat;
                     })
                     .flatMap(reactiveChatRepository::save)

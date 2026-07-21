@@ -23,13 +23,13 @@ public class KafkaConsumer {
     public void listenOauthImage(String event) {
         JsonObject json = gson.fromJson(event, JsonObject.class);
 
-        if (!"image".equals(json.get("type").getAsString())) return;
-        if (!"userimage".equals(json.get("TargetType").getAsString())) return;
+        // Contract (topic "Images"):
+        // { "targetType": "userimage"|"chatimage", "targetId": "<id>", "objectKey": "<key>" }
+        String targetType = json.get("targetType").getAsString();
+        String targetId = json.get("targetId").getAsString();
+        String objectKey = json.get("objectKey").getAsString();
 
-        imageUrlPersistenceService.persistImageUrl(
-            "userimage",
-            json.get("Target").getAsString(),
-            json.get("Base64Image").getAsString()
-        );
+        // Persist the short MinIO object key for BOTH image types.
+        imageUrlPersistenceService.persistImageUrl(targetType, targetId, objectKey);
     }
 }
