@@ -64,9 +64,13 @@ redis:
 # Credentials come from the app Secret (secrets.minio* -> MINIO_* keys); NOT here.
 minio:
   enabled: true
-  # TODO(human): pin to a specific RELEASE.* tag before any non-dev use.
-  image: minio/minio:latest
-  mcImage: minio/mc:latest
+  # Pinned to the latest stable RELEASE tags published on Docker Hub as of 2026-07-21
+  # (minio/minio: source release RELEASE.2025-10-15T17-29-55Z exists on GitHub but was
+  # never pushed as a Docker Hub image tag, so RELEASE.2025-09-07T16-13-09Z is the
+  # newest pullable server image; minio/mc: RELEASE.2025-08-13T08-35-41Z is both the
+  # latest GitHub release and the latest Docker Hub tag).
+  image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  mcImage: minio/mc:RELEASE.2025-08-13T08-35-41Z
   console:
     enabled: true      # exposes the web console on port 9001 (Service + container)
   persistence:
