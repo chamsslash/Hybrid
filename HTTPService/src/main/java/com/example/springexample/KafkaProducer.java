@@ -13,4 +13,12 @@ public class KafkaProducer {
 
     }
 
+    /**
+     * Публикует событие картинки в топик "Images" (beads 6s0).
+     * Тело — контракт { targetType, targetId, objectKey } без Base64.
+     */
+    public void sendImage(String message) {
+        this.kafkaTemplate.send("Images", message);
+    }
+
 }

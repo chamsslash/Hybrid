@@ -45,6 +45,8 @@ public class WEBFLUX_Service {
     @Autowired
     private KafkaProducer kafkaProducer;
     @Autowired
+    private ImageStorageService imageStorageService;
+    @Autowired
    private MyPasswordEncoder passwordEncoder;
     @Autowired
     ParsingDataService dataParser;
@@ -111,7 +113,7 @@ public class WEBFLUX_Service {
                                 if (authResponse.getStatus().equals("666")){
                                     return Mono.error(new InternalError(authResponse.getMessage()));
                                 }
-                                return Upload_image(regData.imagePart(), authResponse.getSub())
+                                return Upload_image(regData.imagePart(), authResponse.getSub(), "userimage")
                                         .then(Mono.just(authResponse));
                             })
                             .flatMap(authResponse -> Mono.fromCallable(() -> {
@@ -276,7 +278,7 @@ public class WEBFLUX_Service {
                                                         .flatMap(resp -> {
                                                             JsonObject jsonObj = JsonParser.parseString(resp).getAsJsonObject();
                                                             if ("pending".equals(jsonObj.get("image_id").getAsString())) {
-                                                                return Upload_image(file, jsonObj.get("id").getAsString())
+                                                                return Upload_image(file, jsonObj.get("id").getAsString(), "chatimage")
                                                                         .thenReturn(jsonObj);
                                                             } else {
                                                                 return Mono.just(jsonObj);
@@ -422,35 +424,37 @@ public class WEBFLUX_Service {
 
 
 
-    public Mono<Void> Upload_image(FilePart file, String chatId) {
+    /**
+     * Грузит файл в MinIO по ключу &lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;
+     * и публикует событие { targetType, targetId, objectKey } в топик "Images".
+     * targetType — параметр: регистрация → "userimage", создание чата → "chatimage".
+     */
+    public Mono<Void> Upload_image(FilePart file, String targetId, String targetType) {
 
         // Используем DataBufferUtils.join для безопасного объединения всех частей файла
         Mono<DataBuffer> joinedBuffers = DataBufferUtils.join(file.content());
 
         return joinedBuffers
                 .flatMap(dataBuffer -> {
-                    return Mono.fromRunnable(() -> {
-                                byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                                dataBuffer.read(bytes);
-                                DataBufferUtils.release(dataBuffer);
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
 
-                                String B64string = Base64.getEncoder().encodeToString(bytes);
-                                String filename = file.filename();
-                                String extension = filename.contains(".") ?
-                                        filename.substring(filename.lastIndexOf(".") + 1) : "jpg";
+                    String filename = file.filename();
+                    String extension = (filename != null && filename.contains(".")) ?
+                            filename.substring(filename.lastIndexOf(".") + 1) : "jpg";
+                    String contentType = Objects.toString(file.headers().getContentType(), "application/octet-stream");
+                    String objectKey = targetType + "/" + targetId + "/" + UUID.randomUUID() + "." + extension;
+
+                    return imageStorageService.putObject(objectKey, bytes, contentType)
+                            .then(Mono.fromRunnable(() -> {
                                 JsonObject buildObj = new JsonObject();
-                                buildObj.addProperty("Base64Image", B64string);
-                                buildObj.addProperty("type", "image");
-                                buildObj.addProperty("ImageName", UUID.randomUUID().toString());
-                                buildObj.addProperty("MimeType", Objects.toString(file.headers().getContentType(), "application/octet-stream"));
-                                buildObj.addProperty("Extension", extension);
-                                buildObj.addProperty("Target", chatId);
-                                buildObj.addProperty("TargetType", "chatimage");
-
-                                // Отправляем в Kafka
-                                kafkaProducer.send(buildObj.toString());
-                            })
-                            .subscribeOn(Schedulers.boundedElastic()) // Выполняем на потоке для блокирующих операций
-                            .then(); // Преобразуем в Mono<Void> после завершения
-                });}
+                                buildObj.addProperty("targetType", targetType);
+                                buildObj.addProperty("targetId", targetId);
+                                buildObj.addProperty("objectKey", objectKey);
+                                kafkaProducer.sendImage(buildObj.toString());
+                            }));
+                })
+                .then();
+    }
 }

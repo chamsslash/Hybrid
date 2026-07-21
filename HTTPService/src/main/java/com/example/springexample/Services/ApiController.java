@@ -7,15 +7,20 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +37,27 @@ import java.util.Map;
 public class ApiController {
 
     private final ReactiveGrpcClient reactiveGrpcClient;
+    private final ImageStorageService imageStorageService;
+
+    /**
+     * Прокси-отдача картинок из MinIO (beads 6s0). Ключ может содержать слэши
+     * (&lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;), поэтому используется {*key}.
+     */
+    @GetMapping("/images/{*key}")
+    public Mono<ResponseEntity<byte[]>> image(@PathVariable("key") String key) {
+        String objectKey = key.startsWith("/") ? key.substring(1) : key;
+        return imageStorageService.getObject(objectKey)
+                .map(obj -> ResponseEntity.ok()
+                        .contentType(obj.contentType() != null
+                                ? MediaType.parseMediaType(obj.contentType())
+                                : MediaType.APPLICATION_OCTET_STREAM)
+                        .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePrivate())
+                        .body(obj.data()))
+                .onErrorResume(e -> {
+                    log.warn("image fetch failed for {}: {}", objectKey, e.getMessage());
+                    return Mono.just(ResponseEntity.notFound().build());
+                });
+    }
 
     @GetMapping("/me")
     public Mono<Map<String, Object>> me(Authentication auth) {
