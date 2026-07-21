@@ -20,6 +20,10 @@ secrets:
   refreshSecret: ""         # -> REFRESH_SECRET (httpservice)
   jwtPrivateKeyPem: ""      # -> JWT_PRIVATE_KEY_PEM (httpservice); supply via --set-file
   yandexPrivateKeyPem: ""   # -> YANDEX_PRIVATE_KEY_PEM (httpservice); supply via --set-file
+  minioRootUser: ""         # -> MINIO_ROOT_USER (minio server root identity)
+  minioRootPassword: ""     # -> MINIO_ROOT_PASSWORD (minio server root credential)
+  minioAccessKey: ""        # -> MINIO_ACCESS_KEY (application S3 access key; httpservice)
+  minioSecretKey: ""        # -> MINIO_SECRET_KEY (application S3 secret key; httpservice)
 
 # Global toggles
 infra:
@@ -54,6 +58,26 @@ postgres:
 
 redis:
   image: redis:7
+
+# MinIO — S3-compatible object storage for the image pipeline (bucket "images").
+# Single-node Deployment + PVC for the local/dev stand (no MinIO Operator).
+# Credentials come from the app Secret (secrets.minio* -> MINIO_* keys); NOT here.
+minio:
+  enabled: true
+  # TODO(human): pin to a specific RELEASE.* tag before any non-dev use.
+  image: minio/minio:latest
+  mcImage: minio/mc:latest
+  console:
+    enabled: true      # exposes the web console on port 9001 (Service + container)
+  persistence:
+    size: 5Gi          # PVC size for /data
+  bucket: images       # bucket the app reads/writes (-> MINIO_BUCKET)
+  endpoint: http://minio:9000  # in-cluster S3 endpoint (-> MINIO_ENDPOINT)
+  provision:
+    # post-install/upgrade Job (minio/mc): creates the bucket + a dedicated app
+    # user (MINIO_ACCESS_KEY/MINIO_SECRET_KEY) with readwrite policy.
+    enabled: true
+    backoffLimit: 6
 
 prometheus:
   image: prom/prometheus:latest
@@ -114,6 +138,9 @@ httpservice:
     # datasourcePassword comes from the app Secret (secrets.dbPassword)
     redisHost: redis
     redisPort: "6379"
+    # MinIO endpoint/bucket are plain config; access/secret keys come from the app Secret.
+    minioEndpoint: http://minio:9000  # -> MINIO_ENDPOINT
+    minioBucket: images               # -> MINIO_BUCKET
     # refreshSecret / jwtPrivateKey / yandexPrivateKey come from the app Secret.
     # Public keys below are not secret and stay as plain config.
     jwtPublicKey: |

@@ -65,6 +65,10 @@ helm upgrade --install hybrid ./Helm \
   --set secrets.grafanaAdminPassword=admin123 \
   --set secrets.googleClientSecret=local-google-client-secret \
   --set secrets.refreshSecret=local-refresh-secret \
+  --set secrets.minioRootUser=minioadmin \
+  --set secrets.minioRootPassword=minioadmin123 \
+  --set secrets.minioAccessKey=hybrid-app \
+  --set secrets.minioSecretKey=hybrid-app-secret123 \
   --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
   --set-file secrets.yandexPrivateKeyPem="$KEYDIR/yandex-priv.pem" \
   --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \

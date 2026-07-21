@@ -61,3 +61,17 @@ spec:
               value: "{{ .Values.env.yandexServiceAccountId }}"
             - name: YANDEX_KEY_ID
               value: "{{ .Values.env.yandexKeyId }}"
+            - name: MINIO_ENDPOINT
+              value: "{{ .Values.env.minioEndpoint }}"
+            - name: MINIO_BUCKET
+              value: "{{ .Values.env.minioBucket }}"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: MINIO_SECRET_KEY
