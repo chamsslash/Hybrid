@@ -1,0 +1,44 @@
+databaseChangeLog:
+  # Нормализация legacy image_url: раньше в колонку писался сырой Base64
+  # (не влезал в VARCHAR / бился). Теперь колонка хранит короткий object key
+  # MinIO, поэтому обнуляем старые Base64-подобные значения. Колонка остаётся
+  # VARCHAR и не расширяется. UPDATE идемпотентен: повторный прогон не найдёт
+  # уже обнулённых строк.
+  - changeSet:
+      id: messenger-002-normalize-legacy-image-url-users
+      author: claude
+      preConditions:
+        - onFail: MARK_RAN
+        - columnExists:
+            tableName: users
+            columnName: image_url
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            stripComments: true
+            sql: |
+              UPDATE users
+              SET image_url = NULL
+              WHERE image_url IS NOT NULL
+                AND (length(image_url) > 255
+                     OR image_url ~ '^[A-Za-z0-9+/=]{200,}$');
+  - changeSet:
+      id: messenger-002-normalize-legacy-image-url-chat
+      author: claude
+      preConditions:
+        - onFail: MARK_RAN
+        - columnExists:
+            tableName: chat
+            columnName: image_url
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            stripComments: true
+            sql: |
+              UPDATE chat
+              SET image_url = NULL
+              WHERE image_url IS NOT NULL
+                AND (length(image_url) > 255
+                     OR image_url ~ '^[A-Za-z0-9+/=]{200,}$');
