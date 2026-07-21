@@ -17,6 +17,22 @@ Kubernetes‑версия (ветка `main/dev`).
 ./deploy-kind.sh
 ```
 
+### Локальный запуск: свои креды вместо дефолтных
+
+`deploy-kind.sh` source'ит gitignored `.env` (если он есть) и подставляет
+значения из него в `helm --set`. Без `.env` скрипт всё равно работает — падает
+на встроенные local-dev дефолты (`postgres123`, `admin123` и т.п., см. сам
+скрипт) и печатает предупреждение.
+
+```bash
+cp .env.example .env
+# заполни .env реальными (для тебя) значениями
+./deploy-kind.sh
+```
+
+`.env` в `.gitignore` — не коммить его. `.env.example` — committed шаблон,
+без реальных секретов.
+
 Ручная установка — передай секреты в момент деплоя (в `values.yaml` их больше нет):
 ```bash
 helm upgrade --install hybrid ./Helm \

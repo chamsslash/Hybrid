@@ -4,6 +4,28 @@ set -e
 CLUSTER=hybrid
 NS=hybrid-platform
 
+if [ -f .env ]; then
+  echo "▶ loading local secrets from .env"
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+else
+  echo "⚠ no .env found — falling back to built-in local-dev defaults (see .env.example)." >&2
+fi
+
+# Local-dev fallback defaults. Only used for variables .env didn't set — these
+# are throwaway kind-only credentials, never reuse them anywhere real.
+: "${DB_PASSWORD:=postgres123}"
+: "${GRAFANA_ADMIN_PASSWORD:=admin123}"
+: "${GOOGLE_CLIENT_ID:=local-google-client-id}"
+: "${GOOGLE_CLIENT_SECRET:=local-google-client-secret}"
+: "${REFRESH_SECRET:=local-refresh-secret}"
+: "${MINIO_ROOT_USER:=minioadmin}"
+: "${MINIO_ROOT_PASSWORD:=minioadmin123}"
+: "${MINIO_ACCESS_KEY:=hybrid-app}"
+: "${MINIO_SECRET_KEY:=hybrid-app-secret123}"
+
 echo "▶ create kind cluster"
 cat <<'EOF' >/tmp/kind-hybrid-config.yaml
 kind: Cluster
@@ -49,7 +71,8 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEYDIR/yande
 openssl rsa -in "$KEYDIR/yandex-priv.pem" -pubout -out "$KEYDIR/yandex-pub.pem" 2>/dev/null
 
 echo "▶ helm deploy"
-# LOCAL DEV credentials. In real environments provide these from a secret
+# LOCAL DEV credentials, sourced from .env (see .env.example) with built-in
+# fallback defaults above. In real environments provide these from a secret
 # manager (e.g. External Secrets Operator) via secrets.create=false +
 # global.appSecretName, and do NOT pass plaintext on the command line.
 helm upgrade --install hybrid ./Helm \
@@ -61,14 +84,15 @@ helm upgrade --install hybrid ./Helm \
   --set httpservice.image.tag=latest \
   --set messegerparody.image.repository=messegerparody \
   --set messegerparody.image.tag=latest \
-  --set secrets.dbPassword=postgres123 \
-  --set secrets.grafanaAdminPassword=admin123 \
-  --set secrets.googleClientSecret=local-google-client-secret \
-  --set secrets.refreshSecret=local-refresh-secret \
-  --set secrets.minioRootUser=minioadmin \
-  --set secrets.minioRootPassword=minioadmin123 \
-  --set secrets.minioAccessKey=hybrid-app \
-  --set secrets.minioSecretKey=hybrid-app-secret123 \
+  --set secrets.dbPassword="$DB_PASSWORD" \
+  --set secrets.grafanaAdminPassword="$GRAFANA_ADMIN_PASSWORD" \
+  --set authservice.google.clientId="$GOOGLE_CLIENT_ID" \
+  --set secrets.googleClientSecret="$GOOGLE_CLIENT_SECRET" \
+  --set secrets.refreshSecret="$REFRESH_SECRET" \
+  --set secrets.minioRootUser="$MINIO_ROOT_USER" \
+  --set secrets.minioRootPassword="$MINIO_ROOT_PASSWORD" \
+  --set secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
+  --set secrets.minioSecretKey="$MINIO_SECRET_KEY" \
   --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
   --set-file secrets.yandexPrivateKeyPem="$KEYDIR/yandex-priv.pem" \
   --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
