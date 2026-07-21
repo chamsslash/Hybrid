@@ -18,9 +18,11 @@ let stompClient = null;
 let typingTimeout;
 const pendingImages = new Set();
 
-function avatarHtml(imageUrl, size = 'w1000') {
-    return imageUrl && imageUrl !== 'pending'
-        ? `<img src="https://drive.google.com/thumbnail?id=${imageUrl}&sz=${size}" alt="chat avatar" class="chat-avatar">`
+// key — MinIO objectKey (напр. userimage/42/uuid.png); байты отдаёт GET /api/images/{key}.
+// Эндпоинт принимает слэши как есть — кодировать ключ не нужно.
+function avatarHtml(key) {
+    return key && key !== 'pending'
+        ? `<img src="/api/images/${key}" alt="chat avatar" class="chat-avatar">`
         : `<img src="/images/rofl-cat.jpg" alt="chat avatar" class="chat-avatar">`;
 }
 
@@ -136,8 +138,9 @@ function sendChatMessage() {
 function updateImage(msg, prefix) {
     const message = JSON.parse(msg.body);
     const target = document.getElementById(`${prefix}${message.targetId}`);
-    if (target && message.image_url && message.image_url !== 'pending') {
-        target.innerHTML = policy.createHTML(avatarHtml(message.image_url));
+    // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
+    if (target && message.objectKey && message.objectKey !== 'pending') {
+        target.innerHTML = policy.createHTML(avatarHtml(message.objectKey));
         pendingImages.delete(String(message.targetId));
         if (pendingImages.size === 0) {
             const globalSpinner = document.getElementById('global-spinner');

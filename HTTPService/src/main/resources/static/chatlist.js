@@ -44,8 +44,9 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
                  <p class="no-message" id="preview-${chat_id}">Нет сообщений</p>
            </div>`;
 
+    // image_url — MinIO objectKey; байты отдаёт GET /api/images/{key} (слэши не кодируем).
     const avatarImg = image_url && image_url !== 'pending'
-        ? `<img src="https://drive.google.com/thumbnail?id=${image_url}&sz=w100" alt="chat avatar" class="chat-avatar">`
+        ? `<img src="/api/images/${image_url}" alt="chat avatar" class="chat-avatar">`
         : `<img src="/images/rofl-cat.jpg" alt="chat avatar" class="chat-avatar">`;
 
     chatPart.innerHTML = policy.createHTML(`
@@ -141,7 +142,7 @@ function connectStomp(token) {
             if (timestampElement) timestampElement.textContent = data.timestamp;
             if (imageContainer && data.image_url && data.image_url !== 'pending') {
                 imageContainer.innerHTML = policy.createHTML(`
-                    <img src="https://drive.google.com/thumbnail?id=${data.image_url}&sz=w100"
+                    <img src="/api/images/${data.image_url}"
                          alt="chat avatar" class="chat-avatar">`);
             }
         });
@@ -179,9 +180,10 @@ function connectStomp(token) {
         imagesStomp.subscribe(`/mutual/chat_list/image_chat_channel`, (msg) => {
             const message = JSON.parse(msg.body);
             const target = document.getElementById(`chat-img-${message.targetId}`);
-            if (target && message.image_url && message.image_url !== 'pending') {
+            // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
+            if (target && message.objectKey && message.objectKey !== 'pending') {
                 target.innerHTML = policy.createHTML(`
-                    <img src="https://drive.google.com/thumbnail?id=${message.image_url}&sz=w100"
+                    <img src="/api/images/${message.objectKey}"
                          class="chat-avatar" alt="chat">`);
             }
         });
