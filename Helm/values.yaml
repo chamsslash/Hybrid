@@ -113,6 +113,9 @@ authservice:
     dbName: hybrid_db
     dbUser: postgres
     kafkaConsumerGroup: messegerparody-consumer
+    # MinIO endpoint/bucket are plain config; access/secret keys come from the app Secret.
+    minioEndpoint: http://minio:9000  # -> MINIO_ENDPOINT
+    minioBucket: images               # -> MINIO_BUCKET
     jwtPublicKey: |
       -----BEGIN PUBLIC KEY-----
       MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkxWruRf9t3Bdp/7gqc7t
