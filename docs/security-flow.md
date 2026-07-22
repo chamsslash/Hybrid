@@ -1,25 +1,22 @@
 # Security Flow (SPA: Access In Memory + Refresh Cookie + Fingerprint)
 
-Этот документ описывает **целевой** security‑флоу для SPA, который используется и в `main/dev` (k8s), и в `local` (docker‑compose).
+Этот документ описывает **текущий** security‑флоу для SPA (k8s/Helm/kind — единственный режим деплоя, docker‑compose-режима в проекте больше нет).
 
 ## 1) Общая идея
 - **Access JWT** короткий и используется для авторизации, но **не хранится в cookie**.
   - SPA хранит access **только в памяти (JS)** и отправляет его в `Authorization: Bearer <access>`.
 - **Refresh JWT** длинный и используется только для обновления access, хранится в **HttpOnly cookie**.
 - **Refresh‑сессия** хранится в Redis и привязана к fingerprint‑метаданным.
-- **Единственная точка доверия** — ingress/nginx: он валидирует access и выставляет заголовки.
-- Backend **не валидирует JWT**, а доверяет `X-User-ID`, `X-Authorities`, `X-Jti`, `X-Sid`.
+- **Единственная точка доверия для обычных HTTP API** — ingress/nginx: он валидирует access и выставляет заголовки; backend **не валидирует JWT сам**, а доверяет `X-User-ID`, `X-Authorities`, `X-Jti`, `X-Sid`.
+  - **Исключение — WebSocket/STOMP** (раздел 11): SockJS‑хендшейк не несёт HTTP-заголовков, поэтому ingress не может его проверить через `auth_request`. Для этого пути backend **сам** валидирует access‑JWT (`AccessTokenVerifier`), в отличие от остальных HTTP API.
 
 ## 2) Где происходит проверка
-### k8s
 - Ingress делает `auth_request` в `AuthService /jwtcheck`.
 - auth_request передает `Authorization: Bearer <access>` в `jwtcheck` (cookie `access` больше не используется).
 - Ingress:
   - **сбрасывает входящие** `X-User-ID`, `X-Authorities`, `X-Jti`;
   - **выставляет свои** после auth_request.
-
-### local (docker-compose)
-- То же самое делает `nginx/nginx.conf`.
+- Дополнительный defense-in-depth на уровне приложения: `MvcSecurityConfig` отдаёт голый **401** (не редирект на `/welcome`) для неаутентифицированных запросов к `/api/**`, если они всё же дошли до Spring — это нужно, чтобы SPA (fetch/XHR) видела 401 и запускала refresh, а не получала HTML-редирект.
 
 ## 3) Что кладем в токены
 ### Access JWT (короткий)

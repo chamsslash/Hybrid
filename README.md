@@ -81,7 +81,7 @@ Chart `Helm/templates/secrets.yaml` собирает k8s Secret `<release>-app-s
 
 ## Security flow
 Полный флоу access/refresh + fingerprint:
-- `docs/refresh-flow.md`
+- `docs/security-flow.md`
 
 Ключевая идея: ingress валидирует access через `/jwtcheck` и выставляет `X-User-ID / X-Authorities / X-Jti`,
 backend доверяет только этим заголовкам.
