@@ -51,6 +51,10 @@ nbdist/
 # VS Code
 .vscode/
 
+# Claude Code local session/tool artifacts (settings.local.json, agent worktrees) —
+# nothing here is meant to be shared; project-level instructions live in CLAUDE.md.
+.claude/
+
 # OS / misc
 .DS_Store
 .DSStore
