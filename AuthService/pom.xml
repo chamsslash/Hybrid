@@ -121,6 +121,13 @@
             <version>3.0.10</version>
         </dependency>
 
+        <!-- MinIO S3-совместимый объектный сторедж для аватарок Google-юзеров (beads lyo) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
+        </dependency>
+
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>

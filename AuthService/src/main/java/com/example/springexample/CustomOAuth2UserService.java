@@ -2,6 +2,7 @@ package com.example.springexample;
 
 import com.example.springexample.JPA_Entities.User;
 import com.example.springexample.Repositories.Auth_rep;
+import com.example.springexample.Services.ImageStorageService;
 import com.google.gson.JsonObject;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -33,9 +34,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
 
     private final Auth_rep auth_rep;
+    private final ImageStorageService imageStorageService;
 
-    public CustomOAuth2UserService(Auth_rep authRep) {
+    public CustomOAuth2UserService(Auth_rep authRep, ImageStorageService imageStorageService) {
         this.auth_rep = authRep;
+        this.imageStorageService = imageStorageService;
     }
 
     @Transactional
@@ -93,21 +96,25 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         return oAuth2User;
     }
 
-    public void Upload_image(String b64, String chatId) throws IOException {
-        JsonObject buildObj = new JsonObject();
+    /**
+     * Загружает аватарку нового Google-юзера в MinIO и публикует событие в топик
+     * {@code Images} по общему контракту пайплайна картинок (beads lyo):
+     * {@code { "targetType": "userimage", "targetId": <userId>, "objectKey": <key> }}.
+     * Сначала кладёт байты в MinIO, и только после успешной загрузки шлёт в Kafka
+     * ссылку на objectKey (без Base64) — так консюмеры (MessegerParody / HTTPService)
+     * получают ровно те три lowercase-поля, которые ожидают.
+     */
+    public void Upload_image(String b64, String userId) throws IOException {
+        byte[] bytes = Base64.getDecoder().decode(b64);
+        String key = "userimage/" + userId + "/" + UUID.randomUUID() + ".jpg";
 
-        try {
-            buildObj.addProperty("Base64Image", b64);
-            buildObj.addProperty("type", "image");
-            buildObj.addProperty("ImageName", UUID.randomUUID().toString());
-            buildObj.addProperty("MimeType", "image/jpeg");
-            buildObj.addProperty("Extension", "jpg");
-            buildObj.addProperty("Target", chatId);
-            buildObj.addProperty("TargetType", "userimage");
-            kafkaProducer.send(buildObj.toString(), "Images");
-        } catch (Exception e) {
-            throw e;
-        }
+        imageStorageService.putObject(key, bytes, "image/jpeg");
+
+        JsonObject buildObj = new JsonObject();
+        buildObj.addProperty("targetType", "userimage");
+        buildObj.addProperty("targetId", userId);
+        buildObj.addProperty("objectKey", key);
+        kafkaProducer.send(buildObj.toString(), "Images");
     }
 
     @Async
