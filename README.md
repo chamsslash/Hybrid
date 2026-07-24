@@ -7,7 +7,10 @@ Kubernetes‑версия (ветка `main/dev`).
 - HTTPService (основной HTTP API + WebSocket)
 - MessegerParody (DB + gRPC + обработка картинок)
 - Helm (umbrella chart + подчарты сервисов)
-- Kafka (KRaft), Postgres, Redis, Prometheus, Grafana
+- Kafka (KRaft), Postgres, Redis, MinIO (объектное хранилище картинок), Prometheus, Grafana
+
+Точка входа в архитектуру (сервисы, потоки данных, деплой): [`docs/OVERVIEW.md`](docs/OVERVIEW.md).
+Доки по сервисам: [`AuthService`](docs/AuthService.md) · [`HTTPService`](docs/HTTPService.md) · [`MessegerParody`](docs/MessegerParody.md).
 
 ## Быстрый старт (k8s + Helm)
 
