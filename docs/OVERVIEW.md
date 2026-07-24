@@ -11,11 +11,13 @@
 - **`AuthService/`** — Google OAuth-логин (Spring Security OAuth2 Client), выдача
   одноразового кода авторизации (Redis `UserOneTimeCodeFastCheck*`), эндпоинт `/jwtcheck`,
   который ingress вызывает через `auth_request` для проверки access-JWT на каждый защищённый
-  запрос. Подробности: [`docs/AuthService.md`](AuthService.md).
+  запрос. При первом логине Google-юзера сам грузит его аватарку в MinIO и публикует событие
+  в Kafka-топик `Images` (см. Image-flow ниже). Подробности:
+  [`docs/AuthService.md`](AuthService.md).
 - **`HTTPService/`** — основной пользовательский сервис: HTTP API (`/api/*`), SPA-шеллы,
   STOMP/WebSocket, обмен одноразового кода на access/refresh-JWT (`/authcallback`,
-  `/exchangeTokens`), загрузка картинок в MinIO, AI-ассист (Yandex GPT). Единственный клиент
-  MinIO в системе. Подробности: [`docs/HTTPService.md`](HTTPService.md).
+  `/exchangeTokens`), загрузка картинок в MinIO, AI-ассист (Yandex GPT). Подробности:
+  [`docs/HTTPService.md`](HTTPService.md).
 - **`MessegerParody/`** — владелец БД (Postgres, Liquibase-миграции), gRPC-сервер
   `ReactiveTransferService` (чаты/сообщения/пользователи), Kafka-консюмер топика `Images`
   (персистит `objectKey` картинок в БД). Подробности:
@@ -33,7 +35,10 @@
   (AuthService, HTTPService) и OAuth one-time-code (AuthService).
 - **MinIO** (`Helm/templates/minio.yaml`) — S3-совместимое хранилище картинок, бакет
   `images`; отдельная post-install/upgrade Job (`minio/mc`) создаёт бакет и выделенного
-  app-пользователя (не root-креды). Единственный потребитель — HTTPService.
+  app-пользователя (не root-креды). Потребители — HTTPService (весь пользовательский
+  image-flow) и AuthService (аватарки Google-юзеров при логине), оба получают
+  `MINIO_ENDPOINT`/`MINIO_BUCKET`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` из одного и того же
+  Secret.
 - **Prometheus / Grafana** (`Helm/templates/prometheus.yaml`, `grafana.yaml`) — метрики и
   дашборды, оба переключаемы через `infra.prometheus`/`infra.grafana` в `values.yaml`.
 
@@ -94,25 +99,32 @@ kind-кластер; секреты — либо из gitignored `.env` (см. `
 
 ### Image-flow
 
-1. `HTTPService` принимает файл (регистрация профиля → `targetType=userimage`, создание чата
-   → `targetType=chatimage`), кладёт его в MinIO через `ImageStorageService.putObject` по
-   ключу `<targetType>/<targetId>/<uuid>.<ext>` в бакете `images`
-   (`WEBFLUX_Service.Upload_image`).
-2. Публикует в топик Kafka `Images` контракт `{targetType, targetId, objectKey}` (без
-   Base64 — тело картинки остаётся в MinIO).
-3. Два независимых консюмера топика `Images`:
-   - `MessegerParody` (`KafkaConsumer.listenOauthImage`) — персистит `objectKey` в БД через
-     `ImageUrlPersistenceService`.
-   - `HTTPService` (`KafkaConsumer.listenImagesEvents`) — форвардит событие в STOMP
-     (`ChatBoxStompController`/`ChatListStompController`) для live-обновления UI без reload.
-4. Отдача картинки клиенту — `GET /api/images/{key}` (`ApiController.image`, ключ с слэшами
-   через `{*key}`), стримит байты из MinIO с кэш-заголовком `max-age=30d`.
+Единый контракт события в топике `Images` — `{targetType, targetId, objectKey}` (без
+Base64: тело картинки всегда лежит в MinIO, в Kafka идёт только ссылка на объект). У этого
+контракта два независимых продюсера:
 
-Отдельно: `AuthService` при OAuth-логине сам публикует в топик `Images` legacy-контракт с
-Base64-телом аватара (`CustomOAuth2UserService.Upload_image`, поля
-`Base64Image`/`ImageName`/`Target`/`TargetType`, без `objectKey`) — это не тот же контракт,
-что описан выше, и не проходит через MinIO. Стоит перепроверить актуальность этого пути перед
-тем как на него полагаться.
+1. `HTTPService` — пользовательская загрузка картинки (регистрация профиля →
+   `targetType=userimage`, создание чата → `targetType=chatimage`): кладёт файл в MinIO через
+   `ImageStorageService.putObject` по ключу `<targetType>/<targetId>/<uuid>.<ext>` в бакете
+   `images` (`WEBFLUX_Service.Upload_image`), затем публикует событие.
+2. `AuthService` — аватарка нового Google-юзера при первом OAuth-логине: скачивает картинку по
+   `picture`-URL из Google-профиля, конвертирует в JPEG, кладёт в MinIO по ключу
+   `userimage/<userId>/<uuid>.jpg` через свой (собственный, минимальный) `ImageStorageService`
+   и публикует событие с `targetType=userimage`
+   (`CustomOAuth2UserService.Upload_image`). Использует тот же `MinioConfig`/бакет `images`, что
+   и HTTPService — оба сервиса читают одни и те же `MINIO_*` переменные из общего Secret.
+
+Оба продюсера пишут в один и тот же топик один и тот же формат события, поэтому у него два
+независимых консюмера:
+
+- `MessegerParody` (`KafkaConsumer.listenOauthImage`) — персистит `objectKey` в БД через
+  `ImageUrlPersistenceService`.
+- `HTTPService` (`KafkaConsumer.listenImagesEvents`) — форвардит событие в STOMP
+  (`ChatBoxStompController`/`ChatListStompController`) для live-обновления UI без reload.
+
+Отдача картинки клиенту — `GET /api/images/{key}` (`ApiController.image`, ключ с слэшами через
+`{*key}`), стримит байты из MinIO с кэш-заголовком `max-age=30d`. Этот путь есть только в
+HTTPService — AuthService картинки клиентам не отдаёт, только загружает при логине.
 
 ## Стек
 
@@ -132,8 +144,11 @@ Base64-телом аватара (`CustomOAuth2UserService.Upload_image`, пол
   k8s Job (`Helm/charts/messegerparody/templates/liquibase-job.yaml`) перед стартом сервиса.
 - **Redis** — refresh-сессии и fingerprint-метаданные (`RefreshSession:<sid>`, `user:<sub>`),
   OAuth one-time-code, короткий контекст чата для AI-ассиста.
-- **MinIO** — S3-совместимое хранилище картинок, доступ только из `HTTPService`
-  (`MinioConfig`, `ImageStorageService`), бакет и креды приложения приходят из k8s Secret.
+- **MinIO** — S3-совместимое хранилище картинок. Доступ из двух сервисов, каждый со своим
+  бином `MinioClient` и своей копией `ImageStorageService` (общего модуля нет): `HTTPService`
+  — полный пользовательский image-flow, `AuthService` — только загрузка Google-аватарки при
+  логине. Endpoint, бакет и креды приходят из одного и того же k8s Secret через `MINIO_*`
+  переменные окружения в обоих Deployment.
 
 ## Дальше
 
