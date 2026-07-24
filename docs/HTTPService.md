@@ -22,6 +22,58 @@
 - STOMP CONNECT — отдельный путь: SockJS-хендшейк не несёт HTTP-заголовков, поэтому ingress `auth_request` его не видит. `StompAuthChannelInterceptor` сам валидирует access-токен на команде `CONNECT` через `AccessTokenVerifier` (проверяет подпись по `JWT_PUBLIC_KEY_PEM`, кладёт `Authentication` в `accessor.setUser(...)`). Тот же интерцептор на `SUBSCRIBE` не даёт подписаться на чужой per-user канал (`/private/**`, `/mutual/chatlist/{change_chatpreview,list_update,notify}/**`).
 - STOMP-эндпоинты (SockJS) регистрируются в `StompConfig`: `/ChatMessagesConn`, `/MutualChatNotificationConn`, `/GeneralChatDataUpdateConn`, `/MutualChatListNotificationConn`, `/ChatChangesHandleConn`, `/MutualImagesConn`, `/StatusUserConn`.
 
+### Диаграмма STOMP-аутентификации
+
+```mermaid
+sequenceDiagram
+    participant User as Браузер (SPA)
+    participant SockJS as SockJS/WebSocket
+    participant Interceptor as StompAuthChannelInterceptor
+    participant Verifier as AccessTokenVerifier
+    participant Service as HTTPService<br/>обработчик
+    
+    rect rgb(200, 220, 255)
+        Note over User,SockJS: SockJS хендшейк (публичный, без auth)
+        User->>SockJS: GET /ChatMessagesConn/...
+        SockJS-->>User: 101 Upgrade<br/>(WebSocket)
+    end
+    
+    rect rgb(220, 200, 255)
+        Note over User,Verifier: STOMP CONNECT с access-токеном
+        User->>Interceptor: STOMP CONNECT<br/>Authorization: Bearer access
+        Interceptor->>Verifier: verify(authHeader)
+        Verifier->>Verifier: parse JWT<br/>validate signature (JWT_PUBLIC_KEY_PEM)
+        Verifier->>Verifier: check claims<br/>(exp, token_use=access, etc)
+        Verifier-->>Interceptor: Authentication (if valid)<br/>null (if invalid)
+        alt Token valid
+            Interceptor->>Interceptor: accessor.setUser(auth)
+            Interceptor-->>Service: proceed (CONNECT accepted)
+        else Token invalid/missing
+            Interceptor-->>User: AccessDeniedException<br/>(CONNECT rejected)
+        end
+    end
+    
+    rect rgb(200, 255, 200)
+        Note over User,Service: SUBSCRIBE с проверкой per‑user каналов
+        User->>Interceptor: STOMP SUBSCRIBE<br/>destination=/private/notifications/userId
+        alt User matches per‑user destination
+            Interceptor->>Interceptor: destination.endsWith(userId)?
+            Interceptor-->>Service: proceed (SUBSCRIBE allowed)
+        else User tries to subscribe to another user
+            Interceptor-->>User: AccessDeniedException<br/>(foreign per‑user channel)
+        end
+    end
+    
+    rect rgb(255, 240, 200)
+        Note over User,Service: SEND сообщение в подписанный канал
+        User->>Interceptor: STOMP SEND<br/>destination=/chat/send/123
+        Interceptor->>Interceptor: check accessor.getUser()<br/>(authenticated?)
+        Interceptor-->>Service: proceed (SEND allowed)
+        Service->>Service: handle message<br/>broadcast to subscribers
+        Service-->>User: RECEIPT + broadcast
+    end
+```
+
 ## MinIO-пайплайн картинок
 
 Загрузка (регистрация с аватаром, создание чата с картинкой) идёт через `WEBFLUX_Service.Upload_image(FilePart file, String targetId, String targetType)`:

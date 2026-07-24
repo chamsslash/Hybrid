@@ -52,6 +52,67 @@ Docker-compose и nginx как отдельно поднимаемый reverse-p
 входная точка HTTP-трафика это k8s `Ingress` (`nginx-ingress` controller,
 `Helm/templates/http-ingress.yaml`):
 
+### Граф сервисов и инфраструктуры
+
+```mermaid
+graph LR
+    Client["Браузер<br/>(SPA)"]
+    Ingress["nginx-ingress<br/>контроллер"]
+    AuthSvc["AuthService<br/>:8081"]
+    HTTPSvc["HTTPService<br/>:8080"]
+    MsgSvc["MessegerParody<br/>:5000"]
+    
+    Kafka["Kafka<br/>(KRaft)"]
+    Redis["Redis"]
+    Postgres["Postgres<br/>hybrid_db"]
+    MinIO["MinIO<br/>bucket: images"]
+    
+    subgraph "k8s Ingress"
+        Ingress
+    end
+    
+    subgraph "Сервисы"
+        AuthSvc
+        HTTPSvc
+        MsgSvc
+    end
+    
+    subgraph "Инфраструктура"
+        Kafka
+        Redis
+        Postgres
+        MinIO
+    end
+    
+    Client -->|"HTTP/HTTPS"| Ingress
+    Ingress -->|"/startauth,<br/>/login/oauth2"| AuthSvc
+    Ingress -->|"/api, /<br/>/AiAssist"| HTTPSvc
+    
+    AuthSvc -->|"auth_request<br/>/jwtcheck"| AuthSvc
+    AuthSvc -->|"gRPC<br/>AuthTransferService"| HTTPSvc
+    AuthSvc -->|"Publish Images<br/>контракт"| Kafka
+    AuthSvc -->|"Redis<br/>one-time-code"| Redis
+    AuthSvc -->|"PUT object<br/>userimage"| MinIO
+    
+    HTTPSvc -->|"gRPC<br/>ReactiveTransferService"| MsgSvc
+    HTTPSvc -->|"Publish Images,<br/>Messages"| Kafka
+    HTTPSvc -->|"Subscribe Events,<br/>Images"| Kafka
+    HTTPSvc -->|"Session,<br/>Chat context"| Redis
+    HTTPSvc -->|"PUT/GET object"| MinIO
+    
+    MsgSvc -->|"Schema,<br/>Queries"| Postgres
+    MsgSvc -->|"Subscribe Images<br/>контракт"| Kafka
+    
+    style Ingress fill:#f9f,stroke:#333
+    style AuthSvc fill:#bbf,stroke:#333
+    style HTTPSvc fill:#bbf,stroke:#333
+    style MsgSvc fill:#bbf,stroke:#333
+    style Kafka fill:#fbb,stroke:#333
+    style Redis fill:#bfb,stroke:#333
+    style Postgres fill:#bfb,stroke:#333
+    style MinIO fill:#bfb,stroke:#333
+```
+
 - `http-public` — публичные пути без `auth_request`: `/startauth`, `/login/oauth2/code/google`
   (оба на `authservice:8081`) и `/` (SPA-шеллы, статика, SockJS-хендшейки — на
   `httpservice:8080`).
@@ -102,6 +163,52 @@ kind-кластер; секреты — либо из gitignored `.env` (см. `
 Единый контракт события в топике `Images` — `{targetType, targetId, objectKey}` (без
 Base64: тело картинки всегда лежит в MinIO, в Kafka идёт только ссылка на объект). У этого
 контракта два независимых продюсера:
+
+#### Диаграмма потока картинок
+
+```mermaid
+sequenceDiagram
+    participant User as Пользователь
+    participant HTTPSvc as HTTPService
+    participant MinIO
+    participant Kafka as Kafka: Images
+    participant MsgSvc as MessegerParody
+    participant STOMP as STOMP (live)
+    
+    rect rgb(200, 220, 255)
+        Note over HTTPSvc,STOMP: Пользовательская загрузка (регистрация, создание чата)
+        User->>HTTPSvc: POST /reactive/upload<br/>(targetType, file)
+        HTTPSvc->>MinIO: putObject(key, bytes)<br/>key=targetType/targetId/uuid.ext
+        MinIO-->>HTTPSvc: success
+        HTTPSvc->>Kafka: publish({targetType,<br/>targetId, objectKey})
+    end
+    
+    rect rgb(220, 200, 255)
+        Note over HTTPSvc,MsgSvc: Google OAuth: первый логин новоего юзера
+        HTTPSvc->>HTTPSvc: CustomOAuth2UserService
+        HTTPSvc->>MinIO: putObject(key, jpeg)<br/>userimage/userId/uuid.jpg
+        MinIO-->>HTTPSvc: success
+        HTTPSvc->>Kafka: publish({targetType=userimage,<br/>targetId=userId, objectKey})
+    end
+    
+    rect rgb(200, 255, 200)
+        Note over MsgSvc,STOMP: Два независимых консюмера
+        Kafka->>MsgSvc: listenOauthImage()
+        MsgSvc->>MsgSvc: ImageUrlPersistenceService<br/>(персист objectKey в БД)
+        
+        Kafka->>HTTPSvc: listenImagesEvents()
+        HTTPSvc->>STOMP: форвард в каналы<br/>(/mutual/chat/image_*)
+        STOMP->>User: live-update UI
+    end
+    
+    rect rgb(255, 240, 200)
+        Note over User,MinIO: Отдача картинки клиенту
+        User->>HTTPSvc: GET /api/images/{key}
+        HTTPSvc->>MinIO: getObject(key)
+        MinIO-->>HTTPSvc: byte[]
+        HTTPSvc-->>User: byte[] + Cache-Control
+    end
+```
 
 1. `HTTPService` — пользовательская загрузка картинки (регистрация профиля →
    `targetType=userimage`, создание чата → `targetType=chatimage`): кладёт файл в MinIO через

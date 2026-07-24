@@ -41,6 +41,55 @@
    - `refresh` как **HttpOnly cookie**
    - `accessToken` в **JSON** (клиент кладет его в память)
 
+### Диаграмма auth‑flow
+
+```mermaid
+sequenceDiagram
+    participant User as Браузер (SPA)
+    participant Ingress as Ingress/nginx
+    participant AuthSvc as AuthService
+    participant HTTPSvc as HTTPService
+    participant Redis
+    participant Google as Google OAuth
+    
+    rect rgb(200, 220, 255)
+        Note over User,Google: OAuth‑логин
+        User->>Ingress: GET /startauth
+        Ingress->>AuthSvc: /startauth
+        AuthSvc->>Google: redirect /o/oauth2/v2/auth
+        Google->>User: OAuth login form
+        User->>Google: login + consent
+        Google->>AuthSvc: POST code + state
+    end
+    
+    rect rgb(220, 200, 255)
+        Note over AuthSvc,Redis: AuthService: обмен code на токен
+        AuthSvc->>Google: code → access_token
+        Google-->>AuthSvc: access_token + profile
+        AuthSvc->>Redis: SET UserOneTimeCodeFastCheck*<br/>(one‑time code)
+        Redis-->>AuthSvc: ok
+        AuthSvc->>User: redirect /authcallback?code=...
+    end
+    
+    rect rgb(200, 255, 200)
+        Note over HTTPSvc,Redis: HTTPService: обмен кода на JWT
+        User->>Ingress: POST /authcallback?code=...
+        Ingress->>HTTPSvc: /authcallback
+        HTTPSvc->>HTTPSvc: TokensResolver.exchangeCode()<br/>verify code in Redis
+        HTTPSvc->>HTTPSvc: generate accessJti,<br/>refreshJti, sid
+        HTTPSvc->>HTTPSvc: sign JWT (RS512)
+        HTTPSvc->>Redis: SET RefreshSession:sid<br/>(meta, createdAt, etc)
+        Redis-->>HTTPSvc: ok
+        HTTPSvc->>User: response:<br/>- cookie: refresh (HttpOnly)<br/>- JSON: {accessToken, ...}
+    end
+    
+    rect rgb(255, 240, 200)
+        Note over User,HTTPSvc: SPA: сохранение токенов
+        User->>User: localStorage.setItem(accessToken)
+        User->>HTTPSvc: API запросы готовы<br/>Authorization: Bearer accessToken
+    end
+```
+
 ## 6) Проверка запросов (API)
 1) SPA делает запросы к backend и прикладывает `Authorization: Bearer <access>`.
 2) Ingress/nginx делает `auth_request` → `/jwtcheck`.
@@ -65,6 +114,64 @@
    - новый `refresh` cookie
    - новый `accessToken` в JSON
 6) Если refresh‑cookie отсутствует или сессия невалидна → 401/403, удаление refresh cookie и ре‑логин.
+
+### Диаграмма refresh‑flow (ротация токенов)
+
+```mermaid
+sequenceDiagram
+    participant User as Браузер (SPA)
+    participant Ingress as Ingress/nginx
+    participant AuthSvc as AuthService
+    participant HTTPSvc as HTTPService
+    participant Redis
+    
+    rect rgb(200, 220, 255)
+        Note over User,HTTPSvc: Access токен истекает или нужен fresh
+        User->>Ingress: GET /api/...?<br/>Authorization: Bearer access (expired)
+        Ingress->>AuthSvc: auth_request /jwtcheck<br/>(expires check)
+        AuthSvc-->>Ingress: 401 (expired)
+        Ingress-->>User: 401 Unauthorized
+    end
+    
+    rect rgb(220, 200, 255)
+        Note over User,Redis: SPA запускает refresh
+        User->>User: catch 401,<br/>getFingerprintData() (cached or fresh)
+        User->>HTTPSvc: POST /exchangeTokens<br/>- cookie: refresh (HttpOnly)<br/>- body: {fingerprint meta}
+    end
+    
+    rect rgb(200, 255, 200)
+        Note over HTTPSvc,Redis: HTTPService: валидация и ротация
+        HTTPSvc->>HTTPSvc: parse refresh JWT
+        HTTPSvc->>Redis: GET RefreshSession:sid<br/>validate refreshJti
+        Redis-->>HTTPSvc: session data + meta
+        HTTPSvc->>HTTPSvc: compare fingerprint meta<br/>(match or 403)
+        HTTPSvc->>HTTPSvc: generate new:<br/>accessJti, refreshJti
+        HTTPSvc->>HTTPSvc: sign JWT (RS512)
+        HTTPSvc->>Redis: UPDATE RefreshSession:sid<br/>(rotatedAt, new Jti)
+        Redis-->>HTTPSvc: ok
+        HTTPSvc-->>User: response:<br/>- new cookie: refresh<br/>- JSON: {accessToken, ...}
+    end
+    
+    rect rgb(255, 240, 200)
+        Note over User,HTTPSvc: SPA: retry с новым access
+        User->>User: localStorage.setItem(newAccessToken)
+        User->>Ingress: GET /api/...?<br/>Authorization: Bearer access (fresh)
+        Ingress->>AuthSvc: auth_request /jwtcheck<br/>(valid)
+        AuthSvc-->>Ingress: 200 + headers
+        Ingress->>HTTPSvc: GET /api/...
+        HTTPSvc-->>Ingress: 200 + data
+        Ingress-->>User: 200 + data
+    end
+    
+    rect rgb(200, 200, 255)
+        Note over User,Redis: Защита: reuse старого refresh
+        User->>HTTPSvc: POST /exchangeTokens<br/>(old refresh, already rotated)
+        HTTPSvc->>Redis: GET RefreshSession:sid
+        HTTPSvc->>HTTPSvc: compare refreshJti<br/>(mismatch!)
+        HTTPSvc->>Redis: DELETE RefreshSession (revoke)
+        HTTPSvc-->>User: 403 Forbidden<br/>(reuse detected)
+    end
+```
 
 ## 8) Ошибки и защита
 - **Refresh reuse** (старый refresh после ротации) → 403 и удаление сессии.
