@@ -60,6 +60,11 @@ artifactId — `DatabaseModule` (исторический, не переимен
 `service AuthTransferService` — это контракт AuthService, MessegerParody его не
 реализует, только переиспользует общие message-типы.
 
+Имя сообщения `DriveUrl` (и его неиспользуемое поле `type`) — тоже наследие
+эпохи Google Drive, как и артефакт `DatabaseModule`: `getimageurl` и
+`getUserImageurl` кладут в него `url` (короткий MinIO object key, не сам URL)
+и `chat_id`, поле `type` в `ReactiveImpl` нигде не выставляется.
+
 ## Kafka
 
 - **Consumer**, `KafkaConsumer.java`: слушает **только** топик `Images`
@@ -78,7 +83,7 @@ artifactId — `DatabaseModule` (исторический, не переимен
 - **Producer**, `KafkaProducer.java`: тонкая обёртка `send(String event)` над
   `KafkaTemplate`, публикует в топик `Images`. Судя по коду сервиса, реально не
   вызывается ни из одного места в MessegerParody — producer существует как
-  API, но activного вызывающего кода в этом сервисе нет (событие в `Images`
+  API, но активного вызывающего кода в этом сервисе нет (событие в `Images`
   публикует HTTPService после загрузки в MinIO).
 
 ## Liquibase-миграции
@@ -89,8 +94,12 @@ Master-changelog: `src/main/resources/db/changelog/db.changelog-master.yaml`,
 1. `changes/001-init.yaml` — создание таблиц `chat`, `message`, `user_chat`
    (FK на `chat`/`users`), с `preConditions: onFail: MARK_RAN` по
    `tableExists`, то есть идемпотентно на уже существующей схеме. Таблица
-   `users` этим changelog'ом не создаётся — её схема считается заданной вне
-   этого модуля (см. AuthService/общую БД).
+   `users` этим changelog'ом не создаётся и в репозитории вообще нет
+   Liquibase-миграции, которая бы её создавала: строку заводит Hibernate
+   через `spring.jpa.hibernate.ddl-auto: update` в AuthService (JPA-сущность
+   `AuthService/.../JPA_Entities/User.java`, `@Table(name = "users")`). FK на
+   `users` из `message`/`user_chat` в MessegerParody полагаются на то, что
+   AuthService к моменту прогона джобы уже создал таблицу.
 2. `changes/002-normalize-legacy-image-url.yaml` — разовая нормализация
    legacy-данных: раньше в колонку `image_url` (и `users`, и `chat`) писался
    сырой Base64, а не короткий MinIO object key. Changeset обнуляет значения
