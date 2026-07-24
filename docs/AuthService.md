@@ -9,8 +9,8 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
 
 - **OAuth-логин через Google** (`spring-security-oauth2-client`, authorization code flow):
   принимает fingerprint браузера на `/startauth`, редиректит на Google, обрабатывает callback
-  на `/login/oauth2/code/google`, при первом входе создаёт `User` в Postgres и асинхронно тянет
-  аватар из Google в Kafka.
+  на `/login/oauth2/code/google`, при первом входе создаёт `User` в Postgres и асинхронно
+  загружает аватар из Google в MinIO, публикуя ссылку на объект в Kafka.
 - **Мост к HTTPService для завершения логина**: после успеха у Google не отдаёт JWT напрямую —
   кладёт `sub` пользователя в Redis под одноразовый код (TTL 5 минут) и редиректит браузер на
   `/authcallback` (эндпоинт уже в `HTTPService`). Тот забирает `sub`/`role` через gRPC
@@ -28,9 +28,16 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
   пользователя), плюс legacy `login`/`register` по паре имя/bcrypt-пароль — этот путь по-прежнему
   вызывается из `HTTPService` (`WEBFLUX_Service`) в обход Google OAuth.
 - **Kafka — только продюсер**: объявляет топики `Messages`/`Events`/`Images` (RF=1) через
-  `KafkaAdmin.NewTopics` и публикует в `Images` аватар нового пользователя (Base64,
-  `TargetType=userimage`) — этот ивент вычитывает `MessegerParody`. В коде сервиса нет ни одного
-  `@KafkaListener` — сам он ничего не консьюмит.
+  `KafkaAdmin.NewTopics`. В `Images` публикует не байты, а ссылку на объект: при первом логине
+  `CustomOAuth2UserService.Upload_image` сперва кладёт аватар в MinIO
+  (`ImageStorageService.putObject`, ключ `userimage/<userId>/<uuid>.jpg`) и только после успешной
+  записи шлёт `{"targetType":"userimage","targetId":<userId>,"objectKey":<key>}` — общий
+  lowercase-контракт пайплайна картинок, тот же, что публикует `HTTPService` (см.
+  `docs/HTTPService.md`, раздел «MinIO-пайплайн картинок»). Этот ивент вычитывает
+  `MessegerParody` (`ImageUrlPersistenceService.persistImageUrl`), которая и прописывает
+  `objectKey` в поле `imageUrl` — в общей с AuthService Postgres (`hybrid_db`). Сам AuthService
+  своё поле `User.imageUrl` после загрузки не трогает: оно остаётся `"pending"` до этой записи
+  извне. В коде сервиса нет ни одного `@KafkaListener` — сам он ничего не консьюмит.
 
 ## Ключевые компоненты
 
@@ -39,7 +46,9 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
 | `Main.java` | Точка входа Spring Boot; сканирует `JPA_Entities`/`Repositories` по явным пакетам. |
 | `SecurityConfiguration` | `SecurityFilterChain`: STATELESS-сессии, CSRF выключен, `permitAll` только на `/startauth` и `/jwtcheck`, остальное — `authenticated`; подключает `oauth2Login` с кастомными success-handler'ом, authorized-client-сервисом и resolver'ом стейта. |
 | `HttpService` | `POST /startauth` — принимает fingerprint/meta клиента, хэширует «подозрительные» поля, сохраняет привязку к state в Redis, подменяет URI запроса под `/oauth2/authorization/google` и возвращает фронту ссылку для редиректа на Google. |
-| `CustomOAuth2UserService` | Override `DefaultOAuth2UserService.loadUser`: находит/создаёт `User` по имени из Google-профиля; при первом логине асинхронно скачивает аватар и публикует его в Kafka (`Images`). |
+| `CustomOAuth2UserService` | Override `DefaultOAuth2UserService.loadUser`: находит/создаёт `User` по имени из Google-профиля; при первом логине (`imageUrl` ещё `null`/`"pending"`) асинхронно скачивает аватар с Google (`GetImageAndConvertToB64`, `@Async`, виртуальный поток), затем `Upload_image` кладёт байты в MinIO через `ImageStorageService.putObject` и публикует в Kafka (`Images`) `{targetType, targetId, objectKey}` — без Base64, только ссылка на объект. |
+| `MinioConfig` | Бин `MinioClient`: эндпоинт и креды из `MINIO_ENDPOINT`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` (дефолты в коде — `http://minio:9000`/`minioadmin`/`minioadmin`, в кластере переопределены Helm'ом). |
+| `ImageStorageService` (`Services/`) | Тонкая обёртка над `MinioClient.putObject`: перед записью идемпотентно создаёт бакет (`ensureBucket`, имя из `MINIO_BUCKET`, дефолт `images`). Сервис синхронный (AuthService — блокирующий Spring MVC, не WebFlux) — в отличие от одноимённого класса в `HTTPService`, который уводит блокирующие вызовы MinIO SDK на `Schedulers.boundedElastic()`. Умеет только `putObject`; отдачи картинок (`getObject`) здесь нет — наружу их отдаёт `HTTPService` (`GET /api/images/{*key}`). |
 | `AuthSuccessHandler` | Хендлер успешного `oauth2Login`: кладёт `sub` в Redis под одноразовый код (`UserOneTimeCodeFastCheck...`, TTL 300s) и редиректит браузер на `/authcallback?state=...&code=...` (сам этот путь уже обслуживает `HTTPService`). |
 | `JwtCheckController` | `/jwtcheck` — читает токен из `Authorization: Bearer` либо cookie `access`, проверяет подпись публичным ключом и наличие `RefreshSession:<sid>` в Redis, отдаёт identity-заголовки или 401. |
 | `JwtKeyProvider` | Парсит `JWT_PUBLIC_KEY_PEM` (env) в `PublicKey` при старте. Только верификация — приватного ключа в этом сервисе нет и быть не должно. |
@@ -64,8 +73,14 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
   (`TokensResolver`, приватный ключ там же) — подробности в `docs/security-flow.md`.
 - **gRPC `AuthTransferService`** (порт 9092) потребляется `HTTPService` (логин/регистрация,
   lookup юзеров, обмен кода/токенов) и `MessegerParody` (lookup юзеров/чатов).
-- **Kafka**: продюсер в топик `Images` (аватар нового пользователя, вычитывается
-  `MessegerParody`); топик-админ для `Messages`/`Events`/`Images`.
+- **Kafka**: продюсер в топик `Images` — после успешной загрузки аватара в MinIO публикует
+  `{targetType:"userimage", targetId, objectKey}`; вычитывает `MessegerParody`
+  (`ImageUrlPersistenceService`), которая и прописывает `objectKey` обратно в `User.imageUrl` в
+  общей Postgres. Плюс топик-админ для `Messages`/`Events`/`Images`.
+- **MinIO**: `ImageStorageService.putObject` пишет байты аватара в бакет `images`
+  (`MINIO_BUCKET`) по ключу `userimage/<userId>/<uuid>.jpg`. Тот же бакет и тот же
+  контракт использует `HTTPService` для аватаров при регистрации и картинок чатов —
+  общий S3-совместимый сторедж на весь стек (см. `docs/HTTPService.md`).
 
 ## Конфигурация и секреты
 
@@ -82,6 +97,9 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
 | `spring.data.redis.url` | Захардкожено в `application.yml` (`redis://redis:6379/0`) | Redis для `RefreshSession:*`, одноразовых кодов, OAuth2 authorization requests/clients. Не параметризовано env, хотя Helm-деплоймент дополнительно прокидывает `SPRING_REDIS_HOST`/`SPRING_REDIS_PORT` — они не используются текущим биндингом. |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Helm value `authservice.env.kafkaBootstrap` | `spring.kafka.bootstrap-servers`. |
 | `SPRING_KAFKA_CONSUMER_GROUP_ID` | Helm value `authservice.env.kafkaConsumerGroup` | пробрасывается деплойментом, но в коде сервиса нет `@KafkaListener` — сейчас не влияет на поведение (сервис только продюсер). |
+| `MINIO_ENDPOINT` | Helm value `authservice.env.minioEndpoint` (не секрет) | S3-совместимый эндпоинт MinIO для `MinioConfig` (`http://minio:9000` в кластере; тот же дефолт зашит в коде). |
+| `MINIO_BUCKET` | Helm value `authservice.env.minioBucket` (не секрет, дефолт `images`) | бакет для аватарок, читает `ImageStorageService`; создаётся идемпотентно при первой записи. |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | Helm Secret (`secrets.minioAccessKey`/`secrets.minioSecretKey`) | креды приложения к MinIO (не root-креды сервера); тот же Secret использует `HTTPService`. |
 | `grpc.server.port` | Захардкожено в `application.yml` (`9092`) | порт gRPC-сервера `AuthTransferService`. |
 
 Заметный нюанс: `redirect-uri` для Google OAuth захардкожен в `application.yml` как
