@@ -22,8 +22,9 @@ fi
 : "${GOOGLE_CLIENT_SECRET:=local-google-client-secret}"
 # TokensResolver.refreshKey() requires REFRESH_SECRET to be valid Base64 (it's
 # decoded into HMAC key bytes) — a plain string default breaks token issuance
-# with "Illegal base64 character" the moment anyone actually logs in/registers.
-: "${REFRESH_SECRET:=$(openssl rand -base64 64)}"
+# with "Illegal base64 character". `openssl base64` line-wraps at 64 chars, so
+# strip newlines too — an embedded '\n' is just as invalid as the old plain string.
+: "${REFRESH_SECRET:=$(openssl rand -base64 64 | tr -d '\n')}"
 : "${MINIO_ROOT_USER:=minioadmin}"
 : "${MINIO_ROOT_PASSWORD:=minioadmin123}"
 : "${MINIO_ACCESS_KEY:=hybrid-app}"
