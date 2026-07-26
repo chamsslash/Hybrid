@@ -84,11 +84,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                     window.location.href =  response.data.redirectUri
                 } else {
-                    const errorText = await response.text();
-                    throw new Error(errorText || "Неверные учетные данные.");
+                    const errorText = response.data;
+                    throw new Error((typeof errorText === "string" ? errorText : errorText?.message) || "Неверные учетные данные.");
                 }
             } catch (error) {
-                handleError(error.message);
+                handleError(error.response?.data || error.message);
             }
         });
     }
