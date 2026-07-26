@@ -6,6 +6,7 @@ import com.example.grpc.DataTransferService;
 
 
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import com.example.springexample.Utils.AuthResponseException;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,16 +29,17 @@ public class AuthGrpc {
         grpcRequestsMetric.increment();
         try{
             DataTransferService.AuthResponse authResponse1 = authTransferServiceBlockingStub.login(userData);
-            if (authResponse1.getStatus().equals("404")){
-                log.error("User does not exists");
-                return null;
-
-            }
             if (authResponse1 != null && authResponse1.getStatus().equals("200")) {
                 log.warn(authResponse1.toString());
                 return  authResponse1;
-            }log.info("wrong answer from auth");
-            return null;
+            }
+            if (authResponse1 != null && authResponse1.getStatus().equals("404")){
+                log.error("User does not exists");
+            }
+            log.info("wrong answer from auth");
+            throw new AuthResponseException(authResponse1.getStatus(), authResponse1.getMessage());
+        } catch (AuthResponseException e) {
+            throw e;
         } catch (RuntimeException e) {
             log.info("passwordmissmatch error");
             return null;
@@ -52,10 +54,11 @@ public class AuthGrpc {
         }
         if (authResponse.getStatus().equals("404")){
             log.error("Cannot register user error");
-            return null;
-
-        }log.info("wrong answer from auth");
-        return null;
+        }
+        log.info("wrong answer from auth");
+        throw new AuthResponseException(authResponse.getStatus(), authResponse.getMessage());
+    } catch (AuthResponseException e) {
+        throw e;
     } catch (RuntimeException e) {
         log.info("passwordmissmatch error",e);
         return null;
