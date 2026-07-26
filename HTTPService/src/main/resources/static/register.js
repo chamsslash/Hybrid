@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         } catch (error) {
             console.error("Ошибка при отправке формы:", error);
-            responseDiv.textContent = "Ошибка запроса: " + (error.response?.data?.message || error.message);
+            responseDiv.textContent = "Ошибка запроса: " + (error.response?.data || error.message);
             responseDiv.style.opacity = "1";
         }
     });

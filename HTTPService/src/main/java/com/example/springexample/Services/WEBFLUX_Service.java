@@ -106,16 +106,8 @@ public class WEBFLUX_Service {
                                 return authGrpc.authRegister(grpcRequest);
                             })
                             .subscribeOn(Schedulers.boundedElastic())
-                            .flatMap(authResponse -> {
-                                if (!"200".equals(authResponse.getStatus())) {
-                                    return Mono.error(new RuntimeException("Ошибка регистрации от сервиса: " + authResponse.getMessage()));
-                                }
-                                if (authResponse.getStatus().equals("666")){
-                                    return Mono.error(new InternalError(authResponse.getMessage()));
-                                }
-                                return Upload_image(regData.imagePart(), authResponse.getSub(), "userimage")
-                                        .then(Mono.just(authResponse));
-                            })
+                            .flatMap(authResponse -> Upload_image(regData.imagePart(), authResponse.getSub(), "userimage")
+                                    .then(Mono.just(authResponse)))
                             .flatMap(authResponse -> Mono.fromCallable(() -> {
                                 try {
                                     return tokensResolver.genPairOfToken(
@@ -135,10 +127,12 @@ public class WEBFLUX_Service {
                 .onErrorResume(IllegalArgumentException.class, e ->
                         ServerResponse.badRequest().bodyValue(e.getMessage()))
 
-                .onErrorResume(InternalError.class, e -> {
-                    log.error("Юзер с таким именемм существует", e);
-                    return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .bodyValue(e.getMessage());
+                .onErrorResume(AuthResponseException.class, e -> {
+                    HttpStatus code = "666".equals(e.getStatus())
+                            ? HttpStatus.CONFLICT
+                            : HttpStatus.BAD_REQUEST;
+                    log.warn("Регистрация отклонена сервисом: status={}, message={}", e.getStatus(), e.getMessage());
+                    return ServerResponse.status(code).bodyValue(e.getMessage());
                 }).onErrorResume(Exception.class, e -> {
                     log.error("Непредвиденная ошибка при регистрации", e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -212,6 +206,10 @@ public class WEBFLUX_Service {
                         ServerResponse.badRequest().bodyValue(e.getMessage()))
                 .onErrorResume(SecurityException.class, e ->
                         ServerResponse.status(HttpStatus.UNAUTHORIZED).bodyValue("Неверное имя пользователя или пароль."))
+                .onErrorResume(AuthResponseException.class, e -> {
+                    log.warn("Вход отклонён сервисом: status={}, message={}", e.getStatus(), e.getMessage());
+                    return ServerResponse.status(HttpStatus.UNAUTHORIZED).bodyValue(e.getMessage());
+                })
                 .onErrorResume(Exception.class, e -> {
                     log.error("Непредвиденная ошибка при входе", e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR).bodyValue("Внутренняя ошибка сервера.");
