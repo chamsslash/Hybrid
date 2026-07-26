@@ -60,14 +60,18 @@ import {setAccessToken} from "/inmemory.js";
                 window.location.href = redirectUri;}
         } catch (e) {
             console.error("[callback.js] Ошибка:",e);
-            const errorBody = await response.text();
+            const errorBody = response?.data;
             console.error("Статус:", response.status);
             console.error("Ответ:", errorBody);
-            // window.location.href = "/welcome?error="+response.status+":"+errorBody;
+            window.location.href = "/welcome?error=" + encodeURIComponent(
+                "OAuth: " + (errorBody?.message || errorBody || e?.message || "ошибка входа")
+            );
         }
 
     } catch (error) {
         console.error("[callback.js] Критическая ошибка:", error);
-        // window.location.href = '/welcome?error="CriticalError: '+error;
+        window.location.href = "/welcome?error=" + encodeURIComponent(
+            "OAuth: " + (error?.response?.data?.message || error?.response?.data || error?.message || "ошибка входа")
+        );
     }
 })();
