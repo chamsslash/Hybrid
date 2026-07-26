@@ -32,7 +32,7 @@ public class KafkaConsumer {
                 chatListStompController.UploadChatImageFromKafka(imageUploadDTO);
                 break;
             default:
-                log.warn("Unknown targetId in imageUploadDTO: {}", imageUploadDTO.getTargetId());
+                log.warn("Unknown targetType in imageUploadDTO: {}", imageUploadDTO.getTargetType());
         }
     }
     @KafkaListener(topics = "Events")
