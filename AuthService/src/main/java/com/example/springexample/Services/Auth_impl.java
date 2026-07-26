@@ -72,11 +72,19 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
         auth_rep.findFirstByName(request.getUsername())
                 .ifPresentOrElse(
                         user -> {
-                            if (!passwordEncoder.matches(request.getPassword(),user.getMyapppassword())){responseObserver.onError(new RuntimeException("PASSWORD MISSMATCH"));return;}
+                            if (!passwordEncoder.matches(request.getPassword(),user.getMyapppassword())){
+                                responseObserver.onNext(DataTransferService.AuthResponse.newBuilder()
+                                        .setStatus("401") // UNAUTHORIZED
+                                        .setMessage("Invalid username or password")
+                                        .build());
+                                responseObserver.onCompleted();
+                                return;
+                            }
                             DataTransferService.AuthResponse authResponse = DataTransferService.AuthResponse.newBuilder()
                                     .setStatus("200")
                                     .setMessage("Successfully logged in")
                                     .setRole(user.getUser_role())
+                                    .setSub(String.valueOf(user.getId()))
                                     .build();
                             responseObserver.onNext(authResponse);
                             responseObserver.onCompleted();
@@ -197,7 +205,16 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
 
     @Override
     public void getUserBySub(DataTransferService.Sub_Role request, StreamObserver<DataTransferService.User> responseObserver) {
-        auth_rep.findByGoogleSub(request.getSub())
+        final Long id;
+        try {
+            id = Long.parseLong(request.getSub());
+        } catch (NumberFormatException e) {
+            responseObserver.onError(Status.NOT_FOUND
+                    .withDescription("Auth Error: invalid sub " + request.getSub())
+                    .asRuntimeException());
+            return;
+        }
+        auth_rep.findById(id)
                 .ifPresentOrElse(
                         usr -> {
                             responseObserver.onNext(DataTransferService.User.newBuilder()
@@ -233,7 +250,7 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 .ifPresentOrElse(
                         user -> {
                             responseObserver.onNext(DataTransferService.Sub_Role.newBuilder()
-                                    .setSub(sub)
+                                    .setSub(String.valueOf(user.getId()))
                                     .setRole(user.getUser_role())
                                     .build());
                             responseObserver.onCompleted();

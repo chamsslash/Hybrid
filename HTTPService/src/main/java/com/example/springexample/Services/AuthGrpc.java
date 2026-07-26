@@ -33,9 +33,6 @@ public class AuthGrpc {
                 log.warn(authResponse1.toString());
                 return  authResponse1;
             }
-            if (authResponse1 != null && authResponse1.getStatus().equals("404")){
-                log.error("User does not exists");
-            }
             log.info("wrong answer from auth");
             throw new AuthResponseException(authResponse1.getStatus(), authResponse1.getMessage());
         } catch (AuthResponseException e) {
