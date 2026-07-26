@@ -327,7 +327,7 @@ public class WEBFLUX_Service {
     public Mono<ServerResponse> getChatList(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
         Map<String, Object> model = new HashMap<>();
         model.put("pathPrefix", "/reactive");
-        return ParseWithThymeLeaf(model, "chats_list", templateEngine)
+        return ParseWithThymeLeaf(model, "app", templateEngine)
                 .flatMap(htmlContent -> ServerResponse.ok()
                         .contentType(MediaType.TEXT_HTML)
                         .bodyValue(htmlContent))
@@ -345,12 +345,29 @@ public class WEBFLUX_Service {
      */
     public Mono<ServerResponse> renderChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
         Map<String, Object> model = new HashMap<>();
-        return ParseWithThymeLeaf(model, "index", templateEngine)
+        return ParseWithThymeLeaf(model, "app", templateEngine)
                 .flatMap(htmlContent -> ServerResponse.ok()
                         .contentType(MediaType.TEXT_HTML)
                         .bodyValue(htmlContent))
                 .onErrorResume(e -> {
                     log.error("chat shell render failed", e);
+                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
+                            .bodyValue("Internal Server Error: " + e.getMessage());
+                });
+    }
+
+    /**
+     * SPA-шелл страницы создания чата: отдаёт единый app-shell, клиентская
+     * вью рисует форму и шлёт POST /reactive/createchat.
+     */
+    public Mono<ServerResponse> renderCreateChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
+        Map<String, Object> model = new HashMap<>();
+        return ParseWithThymeLeaf(model, "app", templateEngine)
+                .flatMap(htmlContent -> ServerResponse.ok()
+                        .contentType(MediaType.TEXT_HTML)
+                        .bodyValue(htmlContent))
+                .onErrorResume(e -> {
+                    log.error("createchat shell render failed", e);
                     return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
                             .bodyValue("Internal Server Error: " + e.getMessage());
                 });

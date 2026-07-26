@@ -53,6 +53,7 @@ public class WebFluxConfig {
             RouterFunction<ServerResponse> staticResourceRouter,
             ReactiveHybridAuthFilter frankensteinSecurityFilter,
             RouterFunction<ServerResponse> chatPageRouter,
+            RouterFunction<ServerResponse> createChatPageRouter,
             RouterFunction<ServerResponse> registerHandle, // <-- 1. ДОБАВЛЕНО ЗДЕСЬ
             RouterFunction<ServerResponse> loginHandle,   // <-- И этот тоже, на будущее
             SecurityWebFilterChain securityWebFilterChain,
@@ -66,6 +67,7 @@ public class WebFluxConfig {
         WebSessionManager sessionManager = exchange -> Mono.empty();
         RouterFunction<?> combinedRoutes = chatListRouter
                 .and(chatPageRouter)
+                .and(createChatPageRouter)
                 .and(createchatHandle)
                 .and(registerHandle)
                 .and(loginHandle)
@@ -127,6 +129,10 @@ public class WebFluxConfig {
     @Bean
     public  RouterFunction<ServerResponse> chatPageRouter(WEBFLUX_Service wf_handler,ISpringWebFluxTemplateEngine templateEngine){
         return route(GET("/chat"),req->wf_handler.renderChatPage(req,templateEngine));
+    }
+    @Bean
+    public RouterFunction<ServerResponse> createChatPageRouter(WEBFLUX_Service wf_handler, ISpringWebFluxTemplateEngine templateEngine){
+        return route(GET("/createchat"), req -> wf_handler.renderCreateChatPage(req, templateEngine));
     }
     @Bean
     public RouterFunction<ServerResponse> createchatHandle(

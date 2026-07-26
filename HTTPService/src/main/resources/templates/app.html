@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEBEGRAM</title>
+    <link rel="stylesheet" href="/css/style2.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="toastContainer" class="toast-container"></div>
+<div id="global-spinner" class="global-spinner-overlay" style="display: none;">
+    <div class="big-spinner"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js" th:attr="nonce=${nonce}"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js" th:attr="nonce=${nonce}"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js" th:attr="nonce=${nonce}"></script>
+<script src="/trusted_policy.js" th:attr="nonce=${nonce}"></script>
+<script type="module" src="/app.js" th:attr="nonce=${nonce}"></script>
+</body>
+</html>
