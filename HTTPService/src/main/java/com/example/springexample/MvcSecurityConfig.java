@@ -70,6 +70,7 @@ public class MvcSecurityConfig  {
                                 new AntPathRequestMatcher("/images/**"),
                                 new AntPathRequestMatcher("/callback.js"),
                                 new AntPathRequestMatcher("/*.js"),
+                                new AntPathRequestMatcher("/views/**"),
                                 new AntPathRequestMatcher("/*.css"),
                                 new AntPathRequestMatcher("/error"),
                                 new AntPathRequestMatcher("/static/**"),
