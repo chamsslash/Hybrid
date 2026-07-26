@@ -300,9 +300,7 @@ public class WEBFLUX_Service {
                                     .contentType(MediaType.TEXT_PLAIN)
                                     .bodyValue(jsonObj.get("message").getAsString());
                         } else {
-                            return ServerResponse.status(HttpStatus.SEE_OTHER)
-                                    .location(URI.create("/reactive/chatlist"))
-                                    .build();
+                            return createChatSuccess(jsonObj);
                         }
                     })
                     // УЛУЧШЕНИЕ: Теперь мы точно знаем, что empty() возникает из-за ошибки gRPC
@@ -317,6 +315,22 @@ public class WEBFLUX_Service {
                                 .bodyValue("Unexpected error: " + e.getMessage());
                     });
         }
+
+    /**
+     * Success-ветка создания чата (beads SPA): вместо 303-редиректа на /reactive/chatlist
+     * возвращаем 200 JSON {chatId, title}, чтобы клиентская вью навигировала без перезагрузки.
+     */
+    Mono<ServerResponse> createChatSuccess(JsonObject jsonObj) {
+        long chatId = jsonObj.get("id").getAsLong();
+        Map<String, Object> body = new HashMap<>();
+        body.put("chatId", chatId);
+        if (jsonObj.has("title")) {
+            body.put("title", jsonObj.get("title").getAsString());
+        }
+        return ServerResponse.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body);
+    }
 
 
 
