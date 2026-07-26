@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TEBEGRAM</title>
     <link rel="stylesheet" href="/css/style2.css">
+    <link rel="stylesheet" href="/css/style_welcome.css">
 </head>
 <body>
 <div id="app"></div>
@@ -13,6 +14,7 @@
     <div class="big-spinner"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fp.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js" th:attr="nonce=${nonce}"></script>
