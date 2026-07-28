@@ -277,28 +277,6 @@ public class MVC_Service {
 
 
 
-    //затрайкатчить и залогировать и можно где асинхрон прикрутить
-//    @PostMapping(path = "/Aiassist")
-//    public ResponseEntity<?> AIassistantHelp(@RequestParam("TargetUserName") String targetusername,
-//    @RequestParam("chat_id") String chat_id) throws Exception {
-//        ChatContextService contextService = new ChatContextService(redisTemplate, chat_id);
-//        Map<String, List<String>> nameMessages = new HashMap<>();
-//        List<String> prompt =contextService.getFullContext();
-//        if (prompt.isEmpty()){
-//            return  ResponseEntity.ofNullable("THERE IS NO MESSAGES IN CHAT");
-//        }
-//        for (String s : prompt) {
-//            JsonObject prompt_part =JsonParser.parseString(s).getAsJsonObject();
-//            String username = prompt_part.get("user").toString();
-//            String usermessage = prompt_part.get("message").toString();
-//            nameMessages.computeIfAbsent(username, k -> new ArrayList<>()).add(usermessage);
-//        }
-//        String promptTemplate = "Ты — AI-ассистент в чате. Помоги составить короткий дружелюбный ответ пользователю с ником %s на его сообщение в контексте последних сообщений других участников. Обязательно упоминай %s, не отвечай самому себе, поддерживай беседу, тон вежливый и корректный, ответ краткий и по существу, не придумывай новых участников, соблюдай уважительный стиль.";
-//        String promptWithNick = String.format(promptTemplate,targetusername,"@"+targetusername);
-//        JsonArray jsonprompt =yandexGptService.BuildJsonPrompt(promptWithNick,nameMessages);
-//        String answer = yandexGptService.GetAssistantAnswer(jsonprompt);
-//        return ResponseEntity.ok(answer);
-//    }
     private void generateandputNonce(Model model,HttpServletResponse response){
         String nonceId;
 
