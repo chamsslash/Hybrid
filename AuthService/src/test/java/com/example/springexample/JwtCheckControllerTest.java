@@ -98,6 +98,23 @@ class JwtCheckControllerTest {
     }
 
     @Test
+    void tokenSignedWithWrongKeyReturns401() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair attackerKey = generator.generateKeyPair();
+
+        String forged = Jwts.builder()
+                .subject("42")
+                .id("access-jti")
+                .claim("sid", "sid-1")
+                .expiration(inOneHour())
+                .signWith(attackerKey.getPrivate())
+                .compact();
+
+        assertEquals(401, controller.jwtCheckProcess("Bearer " + forged, null).getStatusCode().value());
+    }
+
+    @Test
     void tokenWithoutSidReturns401() {
         String token = Jwts.builder()
                 .subject("42")

@@ -33,6 +33,9 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Run AuthService unit tests
+        run: mvn -B -f AuthService/pom.xml test
+
       - name: Run HTTPService unit tests
         run: mvn -B -f HTTPService/pom.xml test
 
