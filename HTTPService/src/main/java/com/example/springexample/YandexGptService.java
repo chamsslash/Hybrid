@@ -10,6 +10,7 @@ import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemReader;
 import org.checkerframework.checker.units.qual.A;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -38,6 +39,8 @@ import reactor.core.publisher.Mono;
 public class YandexGptService {
     @Autowired
     AiRequestMetric aiRequestMetric;
+    @Value("${YANDEX_GPT_MODEL_URI:gpt://b1gbhg7ve7cr68cuodj5/yandexgpt-lite/rc@tamruci1ntqpfudkgabjo}")
+    private String modelUri;
     private volatile String  IamToken = null;
     private Gson gson = new Gson();
     private WebClient wC = WebClient.builder().build();
@@ -47,13 +50,7 @@ public class YandexGptService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + this.IamToken);
-        JsonObject requestBody = new JsonObject();
-        requestBody.addProperty("modelUri", "gpt://b1gbhg7ve7cr68cuodj5/yandexgpt-lite/rc@tamruci1ntqpfudkgabjo");
-        JsonObject completionOptions = new JsonObject();
-        completionOptions.addProperty("temperature", 0.5);
-        requestBody.add("completionOptions", completionOptions);
-
-        requestBody.add("messages", JsonArrayPrompt);
+        JsonObject requestBody = buildCompletionRequestBody(JsonArrayPrompt);
 
 
             aiRequestMetric.increment();
@@ -76,17 +73,22 @@ public class YandexGptService {
 
                     }).doOnError(e->log.error(e.getMessage()));
     }
+    JsonObject buildCompletionRequestBody(JsonArray JsonArrayPrompt) {
+        JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("modelUri", this.modelUri);
+        JsonObject completionOptions = new JsonObject();
+        completionOptions.addProperty("temperature", 0.5);
+        requestBody.add("completionOptions", completionOptions);
+        requestBody.add("messages", JsonArrayPrompt);
+        return requestBody;
+    }
     public Mono<String> aiSecurePredict(JsonArray Prompt){
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + this.IamToken);
         Map<String, Object> requestBody = new HashMap<>();
-        String modelUri = System.getenv("YANDEX_GPT_MODEL_URI");
-        if (modelUri == null) {
-            modelUri = "gpt://b1gbhg7ve7cr68cuodj5/yandexgpt-lite/rc@tamruci1ntqpfudkgabjo";
-        }
-        requestBody.put("modelUri", modelUri);
+        requestBody.put("modelUri", this.modelUri);
 
         Map<String, Object> completionOptions = new HashMap<>();
         completionOptions.put("temperature", 0.5);
@@ -277,13 +279,19 @@ public class YandexGptService {
     }
     public Map<String,String> ParsePublic_PrivateKey() throws IOException {
         // Read secrets strictly from environment; fail fast if missing.
-        String public_key = System.getenv("YANDEX_PUBLIC_KEY_PEM");
-        String private_key = System.getenv("YANDEX_PRIVATE_KEY_PEM");
-        String service_account_id = System.getenv("YANDEX_SERVICE_ACCOUNT_ID");
-        String key_id = System.getenv("YANDEX_KEY_ID");
+        return parseKeys(
+                System.getenv("YANDEX_PUBLIC_KEY_PEM"),
+                System.getenv("YANDEX_PRIVATE_KEY_PEM"),
+                System.getenv("YANDEX_SERVICE_ACCOUNT_ID"),
+                System.getenv("YANDEX_KEY_ID"));
+    }
 
-        if (public_key == null || private_key == null || service_account_id == null || key_id == null) {
-            throw new IllegalStateException("Yandex GPT secrets are not set in environment variables");
+    Map<String,String> parseKeys(String public_key, String private_key,
+                                 String service_account_id, String key_id) throws IOException {
+        if (isBlank(public_key) || isBlank(private_key) || isBlank(service_account_id) || isBlank(key_id)) {
+            throw new IllegalStateException(
+                    "Yandex GPT secrets are not set (empty or missing) in environment variables: " +
+                            "YANDEX_PUBLIC_KEY_PEM, YANDEX_PRIVATE_KEY_PEM, YANDEX_SERVICE_ACCOUNT_ID, YANDEX_KEY_ID");
         }
         // Handle \n escaped PEM from .env
         public_key = public_key.replace("\\n", "\n");
@@ -302,6 +310,10 @@ public class YandexGptService {
             put("service_account_id", service_account_id);
             put("key_id", key_id);
         }};
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 //    public String Clean(String pem) {
 //
