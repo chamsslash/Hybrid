@@ -9,6 +9,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <protobuf.version>3.25.1</protobuf.version>
         <grpc.version>1.53.0</grpc.version>
+        <testcontainers.version>1.19.7</testcontainers.version>
     </properties>
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -22,6 +23,13 @@
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
                 <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -81,6 +89,19 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <!--
+                  Testcontainers-тесты (напр. ImageStorageServiceIT) требуют Docker
+                  и помечены @Tag("integration"), поэтому исключены из обычного
+                  `mvn test`. Запуск явно: `mvn test -Dgroups=integration` (нужен Docker).
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0</version>
+                <configuration>
+                    <excludedGroups>integration</excludedGroups>
+                </configuration>
             </plugin>
         </plugins>
     </build>
@@ -214,6 +235,23 @@
         <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers: MinIO integration тест ImageStorageService (beads ok9) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>minio</artifactId>
             <scope>test</scope>
         </dependency>
 
