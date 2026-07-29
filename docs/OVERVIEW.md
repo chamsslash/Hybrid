@@ -16,7 +16,7 @@
   [`docs/AuthService.md`](AuthService.md).
 - **`HTTPService/`** — основной пользовательский сервис: HTTP API (`/api/*`), SPA-шеллы,
   STOMP/WebSocket, обмен одноразового кода на access/refresh-JWT (`/authcallback`,
-  `/exchangeTokens`), загрузка картинок в MinIO, AI-ассист (Yandex GPT). Подробности:
+  `/exchangeTokens`), загрузка картинок в MinIO, AI-ассист (Gemini). Подробности:
   [`docs/HTTPService.md`](HTTPService.md).
 - **`MessegerParody/`** — владелец БД (Postgres, Liquibase-миграции), gRPC-сервер
   `ReactiveTransferService` (чаты/сообщения/пользователи), Kafka-консюмер топика `Images`

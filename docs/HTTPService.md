@@ -1,6 +1,6 @@
 # HTTPService
 
-`HTTPService` — фронтовый сервис мессенджера: отдаёт SPA-шеллы (Thymeleaf-страницы, которые дальше живут на JS), JSON API под `/api/**`, STOMP/WebSocket для живых обновлений, проксирует загрузку/отдачу картинок через MinIO и дергает Yandex GPT для AI-ассиста в чате. Данными чатов/сообщений не владеет — ходит за ними по gRPC в `MessegerParody`, за аутентификацией — в `AuthService`. Это же единственный сервис, который реально минтит пару access+refresh JWT (`TokensResolver`, приватный ключ только здесь) — подробности в `docs/security-flow.md`.
+`HTTPService` — фронтовый сервис мессенджера: отдаёт SPA-шеллы (Thymeleaf-страницы, которые дальше живут на JS), JSON API под `/api/**`, STOMP/WebSocket для живых обновлений, проксирует загрузку/отдачу картинок через MinIO и дергает Gemini API для AI-ассиста в чате. Данными чатов/сообщений не владеет — ходит за ними по gRPC в `MessegerParody`, за аутентификацией — в `AuthService`. Это же единственный сервис, который реально минтит пару access+refresh JWT (`TokensResolver`, приватный ключ только здесь) — подробности в `docs/security-flow.md`.
 
 Технически сервис — гибрид MVC и WebFlux в одном процессе (`WebApplicationType.SERVLET`, см. `Main.java`): обычный Spring MVC поднят на `/`, а ручной WebFlux-роутер (`WebFluxConfig`, роуты `/chatlist`, `/chat`, `/createchat`, `/login`, `/register`) смонтирован отдельным сервлетом на `/reactive/*`. STOMP/SockJS живёт поверх MVC-инфраструктуры (`StompConfig`), `/AiAssist` — обычный MVC `@PostMapping`.
 
@@ -9,7 +9,7 @@
 - **SPA-шеллы + JSON API**: Thymeleaf-страницы, публичные для загрузки, но данные тянут через `/api/**` с `Authorization: Bearer` (`ApiController`, `WEBFLUX_Service`).
 - **Аутентификация SPA**: единственный сервис, который минтит пару access+refresh JWT (`TokensResolver`); для `/api/**` доверяет заголовкам от ingress, но на STOMP CONNECT сам валидирует access-JWT (`AccessTokenVerifier`) — единственное место в этом сервисе, где JWT проверяется вручную, а не через ingress.
 - **Картинки в MinIO**: загрузка аватара/картинки чата (`ImageStorageService`, `WEBFLUX_Service.Upload_image`) и их отдача (`GET /api/images/{*key}`).
-- **AI-ассист чата** поверх Yandex Foundation Models (`YandexGptService`, `POST /AiAssist`).
+- **AI-ассист чата** поверх Google Gemini API (`GeminiService`, `POST /AiAssist`).
 - **STOMP/WebSocket**: живые обновления списка чатов, самого чата, статусов и картинок (`StompConfig`, `StompHandlers/*`).
 - **Kafka**: продюсер `Messages`/`Images`, консюмер `Images`/`Events` — см. раздел «Kafka» ниже.
 
@@ -87,19 +87,19 @@ sequenceDiagram
 
 Конфигурация клиента MinIO — `MinioConfig` (бин `MinioClient`), эндпоинт/креды из `MINIO_ENDPOINT`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`.
 
-## AI-ассист (Yandex GPT)
+## AI-ассист (Gemini)
 
 `POST /AiAssist` (`WEBFLUX_Service.aiAssistHandler`, multipart-поля `TargetUsername` и `chat_id`) устроен так:
 
 1. Тянет полный контекст чата из Redis (`ChatContextService.getFullContext()`), группирует сообщения по пользователю.
-2. Строит промпт (`YandexGptService.BuildJsonPrompt`) с системной инструкцией на русском — ответить дружелюбно от лица ассистента, упомянуть `@targetUsername`, не выдумывать участников.
-3. Отправляет в Yandex Foundation Models API (`YandexGptService.GetAssistantAnswer`) и возвращает текст ответа как `Mono<String>`.
+2. Строит промпт (`GeminiService.BuildJsonPrompt`) — системная инструкция на русском (ответить дружелюбно от лица ассистента, упомянуть `@targetUsername`, не выдумывать участников) уходит отдельным полем `system_instruction`, каждое сообщение участника — свой content-turn с `role: user`.
+3. Отправляет в Gemini API (`GeminiService.GetAssistantAnswer`, `POST https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent`, авторизация заголовком `x-goog-api-key`) и возвращает текст ответа как `Mono<String>`.
 
 Эндпоинт не под `/api/**`, а на стандартном MVC-диспетчере (метод аннотирован `@PostMapping`, а не роутится через `WebFluxConfig`), поэтому защищён общим правилом `MvcSecurityConfig` (`anyRequest().authenticated()`) — то есть тем же `X-User-ID`/`X-Authorities` от ingress, что и `/api/**`.
 
-IAM-токен для Yandex Cloud обновляется по расписанию (`@Scheduled`, каждые 12 часов) через сервис-аккаунтный JWT, собранный из `YANDEX_PUBLIC_KEY_PEM`/`YANDEX_PRIVATE_KEY_PEM`/`YANDEX_SERVICE_ACCOUNT_ID`/`YANDEX_KEY_ID` (жёстко из окружения, без which — при отсутствии падает `IllegalStateException`).
+Авторизация — статический API-ключ (`GEMINI_API_KEY`), без OAuth/JWT-обмена (в отличие от прежней Yandex-интеграции — миграция описана в `docs/superpowers/specs/2026-07-29-yandex-to-gemini-migration-design.md`). Модель конфигурируется через `GEMINI_MODEL` (default `gemini-2.5-flash-lite`), используется и для чат-ассиста, и для анти-фрод скоринга (`aiSecurePredict`, structured JSON output через `responseSchema`).
 
-Фича рабочая, но не вылизана: захардкоженный `modelUri` в `GetAssistantAnswer` (не согласован с `aiSecurePredict`, который уже читает `YANDEX_GPT_MODEL_URI`), отсутствие тестов на `/AiAssist`/`GetAssistantAnswer`/`BuildJsonPrompt`, и другие мелочи — см. beads `Hybrid-kubernetes-non-local-ebo`.
+Отсутствующий/пустой `GEMINI_API_KEY` — явный `IllegalStateException` при первом вызове, не тихий сбой.
 
 ## Kafka: producer/consumer в этом сервисе
 
@@ -125,7 +125,7 @@ IAM-токен для Yandex Cloud обновляется по расписан�
 | `REFRESH_SECRET` | Secret | HMAC-ключ (Base64) для refresh-JWT, `securityProps.refresh-secret` → `TokensResolver.refreshKey()`. |
 | `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | Helm value / Secret / Secret | Креды `MinioClient` (`MinioConfig`). |
 | `MINIO_BUCKET` | Helm value | Имя бакета для картинок (`ImageStorageService`), дефолт `images`, если не задано. |
-| `YANDEX_PUBLIC_KEY_PEM` / `YANDEX_PRIVATE_KEY_PEM` / `YANDEX_SERVICE_ACCOUNT_ID` / `YANDEX_KEY_ID` | Helm value (публичный) / Secret (приватный) / Helm value / Helm value | Сервис-аккаунтный JWT для обмена на IAM-токен Yandex Cloud (`YandexGptService.JWTPrepare`/`GetIAMToken`); при отсутствии любого падает `IllegalStateException` при первом вызове. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Secret / Helm value (default `gemini-2.5-flash-lite`) | Статический API-ключ Gemini (`GeminiService.callGenerateContent`); при отсутствии/пустом ключе падает `IllegalStateException` при первом вызове. |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Helm value `httpservice.env.kafkaBootstrap` | `spring.kafka.bootstrap-servers`. |
 | `SPRING_REDIS_HOST` / `SPRING_REDIS_PORT` | Helm values | Пробрасываются деплойментом, но `spring.data.redis.url` в `application.yml` захардкожен (`redis://redis:6379/0`) — как и в `AuthService`, текущим биндингом эти переменные не используются. |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Helm values / Secret (`DB_PASSWORD`) | Пробрасываются деплойментом, но в коде `HTTPService` нет ни одной JPA-сущности или репозитория (`postgresql`-драйвер в classpath не используется приложением) — Spring Boot просто поднимает неиспользуемый HikariCP-пул при старте. |
