@@ -51,7 +51,7 @@ public class WEBFLUX_Service {
     @Autowired
     ParsingDataService dataParser;
     @Autowired
-    YandexGptService yandexGptService;
+    GeminiService geminiService;
     @Autowired
     AuthGrpc authGrpc;
     @Autowired
@@ -404,11 +404,9 @@ public class WEBFLUX_Service {
                             .map(nameMessagesMap -> {
                                 String promptTemplate = "Ты — AI-ассистент в чате. Помоги составить дружелюбный ответ пользователю с ником %s на его сообщение в контексте последних сообщений других участников. Обязательно упоминай %s, не отвечай самому себе, поддерживай беседу, тон вежливый и корректный, не придумывай новых участников, соблюдай неформальный стиль.";
                                 String promptWithNick = String.format(promptTemplate, targetUsername, "@" + targetUsername);
-                                return yandexGptService.BuildJsonPrompt(promptWithNick, nameMessagesMap);
+                                return geminiService.BuildJsonPrompt(promptWithNick, nameMessagesMap);
                             })
-                            .flatMap(prompt ->
-                                    yandexGptService.GetAssistantAnswer(prompt) // Исправлено
-                            );
+                            .flatMap(geminiService::GetAssistantAnswer);
                 })
                 .onErrorResume(IllegalStateException.class, ex -> {
                     log.warn("Не удалось сгенерировать ответ: {}", ex.getMessage());

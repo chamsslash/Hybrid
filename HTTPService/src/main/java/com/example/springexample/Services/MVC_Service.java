@@ -50,7 +50,7 @@ public class MVC_Service {
     @Autowired
     ParsingDataService dataParser;
     @Autowired
-    YandexGptService gptService;
+    GeminiService gptService;
 
 
     @GetMapping(path = "/createchatpage")
@@ -299,7 +299,7 @@ public class MVC_Service {
                                       FpSimilarityScore.ClientMeta oldMeta,FpSimilarityScore FpUtils){
 
         double checkresult = FpUtils.similarCheck(oldMeta, newMeta);
-        JsonArray prompt = gptService.BuildSecurityCheckPrompt(oldMeta,newMeta);
+        GeminiPrompt prompt = gptService.BuildSecurityCheckPrompt(oldMeta,newMeta);
         Mono<String> securitypredict= gptService.aiSecurePredict(prompt);
         boolean conclusion;
         try {
