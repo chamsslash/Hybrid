@@ -10,6 +10,11 @@ tasks
 .env.local
 .env.*.local
 
+# Personal dev-workflow files — local only, not shared upstream
+/.gitattributes
+/CLAUDE.md
+/docs/superpowers/
+
 # Build outputs
 target/
 build/
@@ -64,12 +69,8 @@ Desktop.ini
 .Trashes
 *.log
 
-# Beads issue tracking (git-native JSONL)
-.beads/*
-!.beads/README.md
-!.beads/config.yaml
-!.beads/issues.jsonl
-!.beads/interactions.jsonl
+# Beads issue tracking — personal dev tooling, not shared upstream
+/.beads/
 
 # Local runtime data (grafana/redis state from compose era)
 HTTPService/grafana/
