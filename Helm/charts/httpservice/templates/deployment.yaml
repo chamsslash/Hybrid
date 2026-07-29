@@ -49,18 +49,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
                   key: JWT_PRIVATE_KEY_PEM
-            - name: YANDEX_PUBLIC_KEY_PEM
-              value: |-
-{{ .Values.env.yandexPublicKey | nindent 16 }}
-            - name: YANDEX_PRIVATE_KEY_PEM
+            - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
-                  key: YANDEX_PRIVATE_KEY_PEM
-            - name: YANDEX_SERVICE_ACCOUNT_ID
-              value: "{{ .Values.env.yandexServiceAccountId }}"
-            - name: YANDEX_KEY_ID
-              value: "{{ .Values.env.yandexKeyId }}"
+                  key: GEMINI_API_KEY
+            - name: GEMINI_MODEL
+              value: "{{ .Values.env.geminiModel }}"
             - name: MINIO_ENDPOINT
               value: "{{ .Values.env.minioEndpoint }}"
             - name: MINIO_BUCKET

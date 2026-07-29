@@ -44,7 +44,7 @@ helm upgrade --install hybrid ./Helm \
   --set secrets.googleClientSecret=... \
   --set secrets.refreshSecret=... \
   --set-file secrets.jwtPrivateKeyPem=./jwt-private.pem \
-  --set-file secrets.yandexPrivateKeyPem=./yandex-sa.pem
+  --set secrets.geminiApiKey=...
 ```
 
 ## Providing secrets at deploy time
@@ -63,9 +63,9 @@ Chart `Helm/templates/secrets.yaml` собирает k8s Secret `<release>-app-s
 | `googleClientSecret`       | `GOOGLE_CLIENT_SECRET`    | `GOOGLE_CLIENT_SECRET`                                                  |
 | `refreshSecret`            | `REFRESH_SECRET`          | `REFRESH_SECRET`                                                        |
 | `jwtPrivateKeyPem`         | `JWT_PRIVATE_KEY_PEM`     | `JWT_PRIVATE_KEY_PEM`                                                   |
-| `yandexPrivateKeyPem`      | `YANDEX_PRIVATE_KEY_PEM`  | `YANDEX_PRIVATE_KEY_PEM`                                                |
+| `geminiApiKey`             | `GEMINI_API_KEY`          | `GEMINI_API_KEY`                                                        |
 
-Публичные ключи (`*.env.jwtPublicKey`, `*.env.yandexPublicKey`) секретами не
+Публичные ключи (`*.env.jwtPublicKey`) секретами не
 являются и остаются в values как обычная конфигурация — но должны
 соответствовать приватным ключам из Secret.
 

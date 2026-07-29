@@ -19,7 +19,7 @@ secrets:
   googleClientSecret: ""    # -> GOOGLE_CLIENT_SECRET (authservice)
   refreshSecret: ""         # -> REFRESH_SECRET (httpservice)
   jwtPrivateKeyPem: ""      # -> JWT_PRIVATE_KEY_PEM (httpservice); supply via --set-file
-  yandexPrivateKeyPem: ""   # -> YANDEX_PRIVATE_KEY_PEM (httpservice); supply via --set-file
+  geminiApiKey: ""          # -> GEMINI_API_KEY (httpservice; Google AI Studio API key)
   minioRootUser: ""         # -> MINIO_ROOT_USER (minio server root identity)
   minioRootPassword: ""     # -> MINIO_ROOT_PASSWORD (minio server root credential)
   minioAccessKey: ""        # -> MINIO_ACCESS_KEY (application S3 access key; httpservice)
@@ -148,7 +148,7 @@ httpservice:
     # MinIO endpoint/bucket are plain config; access/secret keys come from the app Secret.
     minioEndpoint: http://minio:9000  # -> MINIO_ENDPOINT
     minioBucket: images               # -> MINIO_BUCKET
-    # refreshSecret / jwtPrivateKey / yandexPrivateKey come from the app Secret.
+    # refreshSecret / jwtPrivateKey / geminiApiKey come from the app Secret.
     # Public keys below are not secret and stay as plain config.
     jwtPublicKey: |
       -----BEGIN PUBLIC KEY-----
@@ -160,19 +160,8 @@ httpservice:
       jSC3lyg765maEi4WRcBYq9telxesMrf2hlu6GnJwLFrPPiCiTpycD1wloH//XC4s
       IwIDAQAB
       -----END PUBLIC KEY-----
-    yandexPublicKey: |
-      -----BEGIN PUBLIC KEY-----
-      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7vBgO+vNIYF3ZapGOsD
-      hCFbpyw88CdnS7Sb7qfK8Tahp+OERzEaeCs1BNd/EnuV0fY1zIa4hcB48ATzyEOv
-      QfFfcUhrWivkdJ4rVx5l8Dkc0wcG5as/trfup0X60JKanSbSq0Bi1BZQ34e9LNWD
-      ud44x7fGxHrKBGqgRS2gp9TSXMlEIWHLtnFL5Sc4xTRvxVI1tuonQ2ui+J1lzoJI
-      biImnG5WAXUye7Iyz7cjv9o3vbkib4fkCriglhluYkQ8qWlnedq7cahsBrDALtFI
-      re9h5iJVvigslIsf73S/WKRhG1ArlfxBL2DphVv2QmCmphKWVGaOv8yK3oNT9WEp
-      tQIDAQAB
-      -----END PUBLIC KEY-----
-    # yandexPrivateKey comes from the app Secret (secrets.yandexPrivateKeyPem)
-    yandexServiceAccountId: ajehr6no83h6drm62nc2
-    yandexKeyId: ajep47sbfhdosn8eav2k
+    # geminiApiKey comes from the app Secret (secrets.geminiApiKey)
+    geminiModel: gemini-2.5-flash-lite  # -> GEMINI_MODEL
 
 messegerparody:
   enabled: true

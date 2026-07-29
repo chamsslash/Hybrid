@@ -25,6 +25,7 @@ fi
 : "${MINIO_ROOT_PASSWORD:=minioadmin123}"
 : "${MINIO_ACCESS_KEY:=hybrid-app}"
 : "${MINIO_SECRET_KEY:=hybrid-app-secret123}"
+: "${GEMINI_API_KEY:=local-gemini-api-key-placeholder}"
 
 echo "▶ create kind cluster"
 cat <<'EOF' >/tmp/kind-hybrid-config.yaml
@@ -67,8 +68,6 @@ KEYDIR="$(mktemp -d)"
 trap 'rm -rf "$KEYDIR"' EXIT
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEYDIR/jwt-priv.pem" 2>/dev/null
 openssl rsa -in "$KEYDIR/jwt-priv.pem" -pubout -out "$KEYDIR/jwt-pub.pem" 2>/dev/null
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEYDIR/yandex-priv.pem" 2>/dev/null
-openssl rsa -in "$KEYDIR/yandex-priv.pem" -pubout -out "$KEYDIR/yandex-pub.pem" 2>/dev/null
 
 echo "▶ helm deploy"
 # LOCAL DEV credentials, sourced from .env (see .env.example) with built-in
@@ -94,10 +93,9 @@ helm upgrade --install hybrid ./Helm \
   --set secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
   --set secrets.minioSecretKey="$MINIO_SECRET_KEY" \
   --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
-  --set-file secrets.yandexPrivateKeyPem="$KEYDIR/yandex-priv.pem" \
   --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
   --set-file httpservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
-  --set-file httpservice.env.yandexPublicKey="$KEYDIR/yandex-pub.pem"
+  --set secrets.geminiApiKey="$GEMINI_API_KEY"
 
 echo "▶ wait for workloads"
 kubectl wait -n "$NS" --for=condition=Available deployment --all --timeout=300s
