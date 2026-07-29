@@ -1,7 +1,8 @@
 package com.example.springexample.Services;
 
 import com.example.springexample.Utils.FpSimilarityScore;
-import com.example.springexample.YandexGptService;
+import com.example.springexample.GeminiPrompt;
+import com.example.springexample.GeminiService;
 import com.google.gson.JsonArray;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +20,7 @@ import static org.mockito.Mockito.when;
 class MVC_ServiceComputeLikelihoodTest {
 
     @Mock
-    private YandexGptService gptService;
+    private GeminiService gptService;
     @Mock
     private FpSimilarityScore fpUtils;
 
@@ -28,7 +29,8 @@ class MVC_ServiceComputeLikelihoodTest {
 
     private void stubAi(double heuristicScore, String aiProbability) {
         when(fpUtils.similarCheck(any(), any())).thenReturn(heuristicScore);
-        when(gptService.BuildSecurityCheckPrompt(any(), any())).thenReturn(new JsonArray());
+        when(gptService.BuildSecurityCheckPrompt(any(), any()))
+                .thenReturn(new GeminiPrompt("sys", new JsonArray()));
         when(gptService.aiSecurePredict(any())).thenReturn(Mono.just(aiProbability));
     }
 
@@ -48,7 +50,8 @@ class MVC_ServiceComputeLikelihoodTest {
     @Test
     void fallsBackToHeuristicWhenAiFails() {
         when(fpUtils.similarCheck(any(), any())).thenReturn(75.0);
-        when(gptService.BuildSecurityCheckPrompt(any(), any())).thenReturn(new JsonArray());
+        when(gptService.BuildSecurityCheckPrompt(any(), any()))
+                .thenReturn(new GeminiPrompt("sys", new JsonArray()));
         when(gptService.aiSecurePredict(any())).thenReturn(Mono.error(new RuntimeException("ai down")));
         assertTrue(mvcService.computeLikelihood(null, null, fpUtils));
     }

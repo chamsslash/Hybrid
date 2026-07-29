@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 9 | 32 | 2 | 34 |
+| HTTPService | 9 | 35 | 2 | 37 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **16** | **57** | **4** | **61** |
+| **Итого** | **16** | **60** | **4** | **64** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -123,7 +123,7 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`getObjectPropagatesErrorAsMonoError`** — исключение SDK → `Mono.error` (а не выброс наружу). Зачем: ошибки не рвут реактивную цепочку.
 
 ### `Services/MVC_ServiceComputeLikelihoodTest` — `unit` — скоринг доверия (AI + эвристика)
-`MVC_Service.computeLikelihood` с замоканными `YandexGptService` и `FpSimilarityScore`.
+`MVC_Service.computeLikelihood` с замоканными `GeminiService` и `FpSimilarityScore`.
 
 - **`passesWhenAverageAboveThreshold`** — AI=90, эвристика=40 → среднее 65 ≥ 60 → `true`.
 - **`failsWhenAverageBelowThreshold`** — AI=20, эвристика=40 → среднее 30 < 60 → `false`. Зачем: **регрессия бага** — раньше `"20"+40.0` конкатенировалось в `"2040.0"` и проверка всегда проходила.
@@ -142,14 +142,17 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`defaultsExtensionToJpgWhenFilenameHasNoExtension`** — имя файла без расширения → ключ оканчивается `.jpg`.
 - **`propagatesStorageFailureWithoutPublishingToKafka`** — `putObject` падает → ошибка пробрасывается, в Kafka **ничего не публикуется**. Зачем: не рассылать событие о картинке, которая не сохранилась.
 
-### `YandexGptServiceTest` — `unit` — YandexGptService (beads ebo)
-Чистые методы `YandexGptService`; `modelUri` подставляется через `ReflectionTestUtils`.
+### `GeminiServiceTest` — `unit` — GeminiService (миграция с Yandex GPT, beads 5fc)
+Чистые методы `GeminiService` (замена `YandexGptService` после миграции AI-assist на Google Gemini API); `model`/`apiKey` подставляются через `ReflectionTestUtils`, сетевые вызовы не выполняются.
 
-- **`buildCompletionRequestBody_usesModelUriFromConfig`** — тело запроса берёт `modelUri` из конфигурируемого поля (не хардкод), temperature 0.5, messages = prompt. Зачем: фикс ebo — modelUri вынесен в `YANDEX_GPT_MODEL_URI`.
-- **`buildJsonPrompt_buildsSystemAndUserMessages`** — prompt из `system`-сообщения и `user`-сообщения `alice: hi`.
+- **`buildCompletionRequestBody_usesModelFromConfig_andWiresSystemInstructionSeparately`** — вход: prompt от `BuildJsonPrompt`, схема `null`. Проверяет: `system_instruction.parts[0].text` = системная инструкция (уходит отдельным top-level полем, не элементом `contents`), `contents` = prompt.contents(), temperature 0.5, при `null`-схеме `responseMimeType` НЕ добавляется. Зачем: контракт тела запроса Gemini `generateContent` (system-инструкция отдельно от диалога — ключевое отличие от Yandex).
+- **`buildCompletionRequestBody_withResponseSchema_addsStructuredOutputConfig`** — вход: непустая `responseSchema`. Проверяет: `generationConfig.responseMimeType = application/json` и `responseSchema` = переданная схема. Зачем: анти-фрод скоринг перешёл на structured output вместо regex-стрипа markdown.
+- **`buildJsonPrompt_buildsOneContentTurnPerMessage_withUserRole`** — одно сообщение `alice: hi` → ровно 1 content-turn с `role: user` и текстом `alice: hi`. Зачем: контракт формата `contents` (каждое сообщение — свой turn).
+- **`buildJsonPrompt_multipleMessagesFromSameUser_areNotCollapsedIntoLastOne`** — три сообщения одного юзера → три отдельных turn'а (`alice: first/second/third`). Зачем: **регрессия бага aliasing** — старый Yandex-код мутировал один и тот же `JsonObject` по ссылке, и все сообщения одного юзера схлопывались в последнее при сериализации.
 - **`buildJsonPrompt_throwsOnEmptyInput`** — пустой ввод → `RuntimeException("Empty prompt")`.
-- **`parseKeys_blankPrivateKey_throwsClearError`** — пустой (blank) PEM → `IllegalStateException`, сообщение называет `YANDEX_PRIVATE_KEY_PEM`. Зачем: фикс ebo — раньше был тихий NPE.
-- **`parseKeys_nullPrivateKey_throwsClearError`** — `null` PEM → `IllegalStateException`.
+- **`requireApiKey_blankKey_throwsClearErrorViaGetAssistantAnswer`** — blank `apiKey` → `IllegalStateException`, сообщение называет `GEMINI_API_KEY`. Зачем: явный фейл при отсутствии ключа (не тихий сбой), проверка идёт до `aiRequestMetric.increment()`.
+- **`requireApiKey_nullKey_throwsClearErrorViaGetAssistantAnswer`** — `null` `apiKey` → `IllegalStateException`.
+- **`buildSecurityCheckPrompt_wrapsBothFingerprintsInSingleUserTurn`** — два `ClientMeta` → ровно 1 content-turn с `role: user`, системная инструкция содержит методику (`secureUUID`). Зачем: контракт анти-фрод промпта (оба отпечатка в одном user-turn, методика — в system-инструкции).
 
 ---
 
