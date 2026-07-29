@@ -51,6 +51,8 @@ spec:
               value: "{{ .Values.env.redisPort }}"
             - name: GOOGLE_CLIENT_ID
               value: "{{ .Values.google.clientId }}"
+            - name: INGRESS_HOST
+              value: "{{ .Values.global.ingressHost | default "myapp.local" }}"
             - name: GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
