@@ -42,16 +42,6 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: http-protected
-  # NOTE: SPA client-router paths (/reactive/chatlist, /reactive/chat,
-  # /reactive/createchat) must NOT be listed here. The actual create-chat
-  # mutation is POST /createchat (bare path, protected by the app's own JWT
-  # filter, not ingress auth_request) — /reactive/createchat is only ever a
-  # GET from a hard page reload / direct navigation on that SPA route, same
-  # as its /reactive/chatlist and /reactive/chat siblings, and must fall
-  # through to http-public's shell so the client can silent-refresh.
-  # A stray "/reactive/createchat" entry here previously broke hard-reload
-  # on that one route with a bare nginx 401 (auth_request has no way to see
-  # the in-memory access token on a browser-initiated navigation).
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti, X-Sid"
@@ -69,6 +59,13 @@ spec:
                 port:
                   number: 8080
           - path: /AiAssist
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
+          - path: /reactive/createchat
             pathType: Prefix
             backend:
               service:
