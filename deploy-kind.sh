@@ -133,6 +133,21 @@ for attempt in 1 2 3; do
   sleep 5
 done
 
+echo "▶ force rollout restart of app deployments"
+# Image tag stays ":latest" on every run, and imagePullPolicy is IfNotPresent —
+# helm upgrade sees no diff in the rendered manifest and Kubernetes has no
+# reason to recreate already-running pods, even though `kind load
+# docker-image` just replaced the image content in containerd. Without this,
+# a pod can keep serving a build that's days old despite every subsequent
+# `./deploy-kind.sh` reporting success (found via messegerparody running a
+# 2026-07-26 build for 5+ days while later commits changed its query logic).
+for svc in authservice httpservice messegerparody; do
+  kubectl rollout restart deployment/"$svc" -n "$NS"
+done
+for svc in authservice httpservice messegerparody; do
+  kubectl rollout status deployment/"$svc" -n "$NS" --timeout=180s
+done
+
 echo "▶ wait for workloads"
 kubectl wait -n "$NS" --for=condition=Available deployment --all --timeout=300s
 kubectl get pods -n "$NS"
