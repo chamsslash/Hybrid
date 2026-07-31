@@ -52,7 +52,7 @@ spec:
             - name: GOOGLE_CLIENT_ID
               value: "{{ .Values.google.clientId }}"
             - name: INGRESS_HOST
-              value: "{{ .Values.global.ingressHost | default "myapp.local" }}"
+              value: "{{ .Values.global.ingressHost | default "myapp.localtest.me" }}"
             - name: GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
