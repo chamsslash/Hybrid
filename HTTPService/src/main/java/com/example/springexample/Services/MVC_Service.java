@@ -54,26 +54,22 @@ public class MVC_Service {
 
 
     @GetMapping(path = "/createchatpage")
-    public String GetCreateChat(Model model, HttpServletResponse response) {
-        generateandputNonce(model, response);
-        return "chatcreatepage";
+    public String GetCreateChat() {
+        return "redirect:/reactive/createchat";
     }
 
     @GetMapping(path = "/registerpage")
     public String GetRegisterPage(Model model, HttpServletResponse response) {
         generateandputNonce(model, response);
-        return "register";
+        return "app";
     }
 
     @GetMapping(path = "/welcome")
-    public String GetWelcome(@RequestParam(value = "error",required = false)String error,HttpServletRequest request,Model model, HttpServletResponse response) {
+    public String GetWelcome(HttpServletRequest request,Model model, HttpServletResponse response) {
        generateandputNonce(model, response);
         CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
         log.info(csrfToken.getToken().toString());
-        if (error != null) {
-            model.addAttribute("error", error);
-        }
-        return "welcome";
+        return "app";
     }
     @GetMapping(path = "/collect-fingerprint")
     public  String fpCollector(@RequestParam("return_url") String redirecturi,HttpServletResponse response,Model model){

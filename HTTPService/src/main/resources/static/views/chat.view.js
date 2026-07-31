@@ -1,22 +1,50 @@
 import api from "/axios.js";
 import { ensureAccessToken } from "/auth.js";
+import { navigate } from "/router.js";
+import { createStompRegistry } from "/stomp-lifecycle.js";
 
-// === SPA-шелл страницы чата (beads 55/57/58) ===
-// id/title — из query-параметров, данные — из /api/chat, STOMP — c access-токеном.
+// === SPA-вью страницы чата (beads 55/57/58) ===
+// id/title — из params роутера (mount(params)), данные — из /api/chat, STOMP — c access-токеном.
 
 const TYPING_TIMER = 1000;
-const params = new URLSearchParams(window.location.search);
-const chat_id = params.get('id');
-const chat_title = params.get('title') || '';
+
+const CHAT_HTML = `
+<div class="chat-container">
+
+    <div class="chat-header">
+        <div class="chat-avatar-container" id="chat-header-avatar"></div>
+        <span id="chat-title"></span>
+        <div id="typing-indicator"></div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages"></div>
+
+    <div class="chat-input">
+        <input type="text" id="messageInput" placeholder="Type your message...">
+        <button id="sendBtn" type="button">Send</button>
+        <button id="aiBtn" type="button">Помощь AI</button>
+    </div>
+    <div id="aiSuggestionPanel" class="ai-suggestion-panel" style="display: none;"></div>
+    <select id="aiUserSelect">
+        <option value="">Выберите пользователя для AI-ответа</option>
+    </select>
+</div>
+`;
+
+let chat_id = null;
+let chat_title = '';
 
 let user_id = null;
 let user_name = null;
 let user_image = null;
 
-const typingUsers = [];
+let typingUsers = [];
 let stompClient = null;
-let typingTimeout;
+let typingTimeout = null;
 const pendingImages = new Set();
+
+let stomp = null;
+let ac = null;
 
 // key — MinIO objectKey (напр. userimage/42/uuid.png); байты отдаёт GET /api/images/{key}.
 // Эндпоинт принимает слэши как есть — кодировать ключ не нужно.
@@ -221,14 +249,14 @@ function showToast(message, type = 'info', duration = 3000) {
 function connectStomp(token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
-    stompClient = Stomp.over(new SockJS("/ChatMessagesConn"));
+    stompClient = stomp.add(Stomp.over(new SockJS("/ChatMessagesConn")));
     stompClient.connect(authHeaders, () => {
         stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
             appendChatMessage(JSON.parse(msg.body));
         });
     });
 
-    const statusStomp = Stomp.over(new SockJS("/StatusUserConn"));
+    const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
     statusStomp.connect(authHeaders, () => {
         statusStomp.subscribe("/mutual/typing_statuses_channel" + chat_id, (message) => {
             const data = JSON.parse(message.body);
@@ -241,29 +269,47 @@ function connectStomp(token) {
         });
     });
 
-    const imagesStomp = Stomp.over(new SockJS('/MutualImagesConn'));
+    const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
     imagesStomp.connect(authHeaders, () => {
         imagesStomp.subscribe(`/mutual/chat/image_chat_channel`, (msg) => updateImage(msg, 'chat_img-'));
         imagesStomp.subscribe(`/mutual/chat/image_message_channel`, (msg) => updateImage(msg, 'img-'));
     });
 }
 
-// --- bootstrap ---
-(async () => {
+// --- mount/unmount ---
+export async function mount(params) {
+    chat_id = params.id;
+    chat_title = params.title || '';
+
+    user_id = null;
+    user_name = null;
+    user_image = null;
+    typingUsers = [];
+    stompClient = null;
+    typingTimeout = null;
+    pendingImages.clear();
+
+    stomp = createStompRegistry();
+    ac = new AbortController();
+
+    const app = document.getElementById('app');
+    app.innerHTML = policy.createHTML(CHAT_HTML);
+
     if (!chat_id) {
-        window.location.href = '/reactive/chatlist';
+        navigate('/reactive/chatlist');
         return;
     }
-    document.getElementById('sendBtn').addEventListener('click', sendChatMessage);
-    document.getElementById('aiBtn').addEventListener('click', requestAIResponse);
+
+    document.getElementById('sendBtn').addEventListener('click', sendChatMessage, { signal: ac.signal });
+    document.getElementById('aiBtn').addEventListener('click', requestAIResponse, { signal: ac.signal });
     document.getElementById('messageInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') sendChatMessage();
-    });
+    }, { signal: ac.signal });
     document.getElementById('messageInput').addEventListener('input', debounce(() => {
         sendTypingStatus("START");
         clearTimeout(typingTimeout);
         typingTimeout = setTimeout(() => sendTypingStatus("STOP"), TYPING_TIMER);
-    }, 500));
+    }, 500), { signal: ac.signal });
 
     try {
         const me = (await api.get('/api/me')).data;
@@ -283,4 +329,12 @@ function connectStomp(token) {
     } catch (e) {
         console.error("chat bootstrap failed:", e);
     }
-})();
+}
+
+export function unmount() {
+    if (stomp) stomp.disconnectAll();
+    clearTimeout(typingTimeout);
+    if (ac) ac.abort();
+    stomp = null;
+    ac = null;
+}

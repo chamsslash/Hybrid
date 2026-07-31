@@ -300,9 +300,7 @@ public class WEBFLUX_Service {
                                     .contentType(MediaType.TEXT_PLAIN)
                                     .bodyValue(jsonObj.get("message").getAsString());
                         } else {
-                            return ServerResponse.status(HttpStatus.SEE_OTHER)
-                                    .location(URI.create("/reactive/chatlist"))
-                                    .build();
+                            return createChatSuccess(jsonObj);
                         }
                     })
                     // УЛУЧШЕНИЕ: Теперь мы точно знаем, что empty() возникает из-за ошибки gRPC
@@ -318,6 +316,22 @@ public class WEBFLUX_Service {
                     });
         }
 
+    /**
+     * Success-ветка создания чата (beads SPA): вместо 303-редиректа на /reactive/chatlist
+     * возвращаем 200 JSON {chatId, title}, чтобы клиентская вью навигировала без перезагрузки.
+     */
+    Mono<ServerResponse> createChatSuccess(JsonObject jsonObj) {
+        long chatId = jsonObj.get("id").getAsLong();
+        Map<String, Object> body = new HashMap<>();
+        body.put("chatId", chatId);
+        if (jsonObj.has("title")) {
+            body.put("title", jsonObj.get("title").getAsString());
+        }
+        return ServerResponse.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body);
+    }
+
 
 
     /**
@@ -327,7 +341,7 @@ public class WEBFLUX_Service {
     public Mono<ServerResponse> getChatList(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
         Map<String, Object> model = new HashMap<>();
         model.put("pathPrefix", "/reactive");
-        return ParseWithThymeLeaf(model, "chats_list", templateEngine)
+        return ParseWithThymeLeaf(model, "app", templateEngine)
                 .flatMap(htmlContent -> ServerResponse.ok()
                         .contentType(MediaType.TEXT_HTML)
                         .bodyValue(htmlContent))
@@ -345,12 +359,29 @@ public class WEBFLUX_Service {
      */
     public Mono<ServerResponse> renderChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
         Map<String, Object> model = new HashMap<>();
-        return ParseWithThymeLeaf(model, "index", templateEngine)
+        return ParseWithThymeLeaf(model, "app", templateEngine)
                 .flatMap(htmlContent -> ServerResponse.ok()
                         .contentType(MediaType.TEXT_HTML)
                         .bodyValue(htmlContent))
                 .onErrorResume(e -> {
                     log.error("chat shell render failed", e);
+                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
+                            .bodyValue("Internal Server Error: " + e.getMessage());
+                });
+    }
+
+    /**
+     * SPA-шелл страницы создания чата: отдаёт единый app-shell, клиентская
+     * вью рисует форму и шлёт POST /reactive/createchat.
+     */
+    public Mono<ServerResponse> renderCreateChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
+        Map<String, Object> model = new HashMap<>();
+        return ParseWithThymeLeaf(model, "app", templateEngine)
+                .flatMap(htmlContent -> ServerResponse.ok()
+                        .contentType(MediaType.TEXT_HTML)
+                        .bodyValue(htmlContent))
+                .onErrorResume(e -> {
+                    log.error("createchat shell render failed", e);
                     return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
                             .bodyValue("Internal Server Error: " + e.getMessage());
                 });

@@ -48,7 +48,7 @@ public class ReactiveSecurityConfig {
                                 .pathMatchers("/register").permitAll()
                                 .pathMatchers("/login").permitAll()
                                 // SPA-шеллы публичны — данные защищены на уровне /api/* (beads 57)
-                                .pathMatchers(org.springframework.http.HttpMethod.GET, "/chatlist", "/chat").permitAll()
+                                .pathMatchers(org.springframework.http.HttpMethod.GET, "/chatlist", "/chat", "/createchat").permitAll()
                                 .anyExchange().authenticated() // Все остальные требуют аутентификации
                 )
 

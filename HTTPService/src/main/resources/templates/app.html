@@ -2,27 +2,24 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>Список чатов</title>
-    <link rel="stylesheet" th:href="${pathPrefix + '/css/style2.css'}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEBEGRAM</title>
+    <link rel="stylesheet" href="/css/style2.css">
+    <link rel="stylesheet" href="/css/style_welcome.css">
 </head>
 <body>
-
-<!-- SPA-шелл: без серверных данных, всё грузит chatlist.js через /api/* -->
-<div class="post-feed">
-    <h2 style="text-align: center;">Ваши чаты</h2>
-    <p id="no-chats-message" style="text-align: center; color: #888; display: none;">У вас пока нет чатов</p>
-    <div id="chatlist-spinner" style="text-align: center; color: #888;">Загрузка…</div>
-    <div class="chat-messages" id="chats"></div>
+<div id="app"></div>
+<div id="toastContainer" class="toast-container"></div>
+<div id="global-spinner" class="global-spinner-overlay" style="display: none;">
+    <div class="big-spinner"></div>
 </div>
 
-<div id="toastContainer" class="toast-container"></div>
-
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fp.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js" th:attr="nonce=${nonce}"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js" th:attr="nonce=${nonce}"></script>
 <script src="/trusted_policy.js" th:attr="nonce=${nonce}"></script>
-<script type="module" src="/chatlist.js" th:attr="nonce=${nonce}"></script>
-
+<script type="module" src="/app.js" th:attr="nonce=${nonce}"></script>
 </body>
 </html>

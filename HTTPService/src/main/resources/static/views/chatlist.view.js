@@ -1,12 +1,25 @@
 import api from "/axios.js";
 import { ensureAccessToken } from "/auth.js";
+import { navigate } from "/router.js";
+import { createStompRegistry } from "/stomp-lifecycle.js";
 
-// === SPA-шелл списка чатов (beads 55/57/58) ===
+// === SPA-вью списка чатов (beads 55/57/58) ===
 // Данные приходят из /api/*, STOMP аутентифицируется access-токеном на CONNECT.
+// Разметка (была в chats_list.html) рисуется сюда в mount() — сервер отдаёт только shell.
+
+const CHATLIST_HTML = `
+    <div class="post-feed">
+        <h2 style="text-align: center;">Ваши чаты</h2>
+        <p id="no-chats-message" style="text-align: center; color: #888; display: none;">У вас пока нет чатов</p>
+        <div id="chatlist-spinner" style="text-align: center; color: #888;">Загрузка…</div>
+        <div class="chat-messages" id="chats"></div>
+    </div>
+`;
 
 let user_id = null;
-const originalPreviews = {};
-const typingUsers = new Map();
+let originalPreviews = {};
+let typingUsers = new Map();
+let stomp = null;
 
 function showNotification(message, type = 'info') {
     const toastContainer = document.getElementById('toastContainer');
@@ -32,7 +45,7 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     chatPart.style.cursor = 'pointer';
     chatPart.dataset.chatId = chat_id;
     chatPart.dataset.chatTitle = chat_title;
-    chatPart.onclick = () => window.location.href = `/reactive/chat?id=${chat_id}&title=${encodeURIComponent(chat_title || '')}`;
+    chatPart.onclick = () => navigate(`/reactive/chat?id=${chat_id}&title=${encodeURIComponent(chat_title || '')}`);
 
     const hasPreview = chat_preview && chat_preview.trim() !== '';
     const previewBlock = hasPreview
@@ -124,10 +137,11 @@ function renderTyping(chatId) {
 }
 
 // --- STOMP: все подключения с Authorization в CONNECT-заголовках ---
+// Каждый клиент регистрируется в stomp-registry вью — unmount() гасит их разом.
 function connectStomp(token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
-    const generalStomp = Stomp.over(new SockJS('/GeneralChatDataUpdateConn'));
+    const generalStomp = stomp.add(Stomp.over(new SockJS('/GeneralChatDataUpdateConn')));
     generalStomp.connect(authHeaders, () => {
         generalStomp.subscribe(`/mutual/chatlist/change_chatpreview/${user_id}`, (msg) => {
             const data = JSON.parse(msg.body);
@@ -148,7 +162,7 @@ function connectStomp(token) {
         });
     });
 
-    const listStomp = Stomp.over(new SockJS('/MutualChatListNotificationConn'));
+    const listStomp = stomp.add(Stomp.over(new SockJS('/MutualChatListNotificationConn')));
     listStomp.connect(authHeaders, () => {
         listStomp.subscribe(`/private/chatlist/notify/${user_id}`, (msg) => {
             try {
@@ -160,7 +174,7 @@ function connectStomp(token) {
         });
     });
 
-    const changesStomp = Stomp.over(new SockJS('/ChatChangesHandleConn'));
+    const changesStomp = stomp.add(Stomp.over(new SockJS('/ChatChangesHandleConn')));
     changesStomp.connect(authHeaders, () => {
         changesStomp.subscribe(`/mutual/chatlist/list_update/${user_id}`, (msg) => {
             const data = JSON.parse(msg.body);
@@ -175,7 +189,7 @@ function connectStomp(token) {
         });
     });
 
-    const imagesStomp = Stomp.over(new SockJS('/MutualImagesConn'));
+    const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
     imagesStomp.connect(authHeaders, () => {
         imagesStomp.subscribe(`/mutual/chat_list/image_chat_channel`, (msg) => {
             const message = JSON.parse(msg.body);
@@ -189,7 +203,7 @@ function connectStomp(token) {
         });
     });
 
-    const statusStomp = Stomp.over(new SockJS("/StatusUserConn"));
+    const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
     statusStomp.connect(authHeaders, () => {
         statusStomp.subscribe("/mutual/typing_statuses_channel", (message) => {
             const data = JSON.parse(message.body);
@@ -203,8 +217,16 @@ function connectStomp(token) {
     });
 }
 
-// --- bootstrap: identity → данные → STOMP ---
-(async () => {
+// --- SPA-контракт: mount сбрасывает состояние вью, unmount гасит STOMP ---
+export async function mount(params) {
+    user_id = null;
+    originalPreviews = {};
+    typingUsers = new Map();
+    stomp = createStompRegistry();
+
+    const app = document.getElementById('app');
+    if (app) app.innerHTML = policy.createHTML(CHATLIST_HTML);
+
     try {
         const me = (await api.get('/api/me')).data;
         user_id = String(me.userId);
@@ -218,4 +240,9 @@ function connectStomp(token) {
         // 401 после refresh-retry интерцептор уже уводит на /welcome
         console.error("chatlist bootstrap failed:", e);
     }
-})();
+}
+
+export function unmount() {
+    if (stomp) stomp.disconnectAll();
+    stomp = null;
+}
