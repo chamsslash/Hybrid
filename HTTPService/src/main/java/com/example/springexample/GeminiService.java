@@ -60,7 +60,13 @@ public class GeminiService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-goog-api-key", apiKey); // уже провалидирован requireApiKey() в вызывающем публичном методе
-        return wC.post().uri(url).body(BodyInserters.fromValue(requestBody)).headers(h -> h.addAll(headers))
+        // BodyInserters.fromValue(requestBody) отдаёт com.google.gson.JsonObject напрямую
+        // Spring'овому Jackson-энкодеру, который сериализует его как обычный java-бин через
+        // рефлексию — натыкается на служебный геттер JsonObject.getAsDouble() (кидает
+        // UnsupportedOperationException на не-примитиве) и падает с EncodingException.
+        // Gson и Jackson — разные библиотеки, Jackson не умеет в JsonObject. Сериализуем
+        // сами через Gson (.toString() уже даёт валидный JSON) и шлём как обычную строку.
+        return wC.post().uri(url).body(BodyInserters.fromValue(requestBody.toString())).headers(h -> h.addAll(headers))
                 .retrieve()
                 .onStatus(HttpStatusCode::is4xxClientError, response -> response.bodyToMono(String.class)
                         .defaultIfEmpty("Unknown 4xx error")
