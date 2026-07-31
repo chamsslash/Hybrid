@@ -97,6 +97,29 @@ class GeminiServiceTest {
     }
 
     @Test
+    void extractPlainText_pullsNestedTextOutOfFullGeminiEnvelope() {
+        // Регрессия: aiSecurePredict() раньше парсил reasoning/probability прямо из
+        // конверта ответа Gemini (candidates[0].content.parts[0].text), а не из
+        // JSON-строки, лежащей ВНУТРИ этого text — всегда получал null/NPE.
+        String envelope = "{\"candidates\":[{\"content\":{\"parts\":[" +
+                "{\"text\":\"{\\\"reasoning\\\":\\\"looks similar\\\",\\\"probability\\\":85}\"}" +
+                "]}}]}";
+
+        String innerText = GeminiService.extractPlainText(envelope);
+
+        JsonObject parsed = com.google.gson.JsonParser.parseString(innerText).getAsJsonObject();
+        assertEquals("looks similar", parsed.get("reasoning").getAsString());
+        assertEquals(85, parsed.get("probability").getAsInt());
+    }
+
+    @Test
+    void extractPlainText_throwsOnEmptyBody() {
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> GeminiService.extractPlainText(""));
+        assertTrue(ex.getMessage().contains("uncorrect struckture"));
+    }
+
+    @Test
     void buildSecurityCheckPrompt_wrapsBothFingerprintsInSingleUserTurn() {
         // ClientMeta — record с 9 обязательными String-полями (ip,country,city,asn,org,
         // visitorId,components,secureUUID,ptr), нет no-arg конструктора.
