@@ -59,6 +59,21 @@ kubectl wait -n ingress-nginx --for=condition=ready pod --selector=app.kubernete
 kubectl -n ingress-nginx patch configmap ingress-nginx-controller --type merge -p '{"data":{"allow-snippet-annotations":"true"}}'
 kubectl -n ingress-nginx rollout restart deployment ingress-nginx-controller
 kubectl wait -n ingress-nginx --for=condition=available deployment/ingress-nginx-controller --timeout=180s
+kubectl wait -n ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+
+# Deployment "Available" (and even pod "Ready") can flip true before the
+# admission webhook's Service endpoint has propagated through kube-proxy —
+# helm's Ingress apply then hits "connection refused" against the webhook.
+# Poll the Endpoints object directly for a real address before proceeding.
+echo "▶ wait for ingress-nginx admission webhook endpoint"
+for i in $(seq 1 30); do
+  ep="$(kubectl get endpoints -n ingress-nginx ingress-nginx-controller-admission -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null)"
+  if [ -n "$ep" ]; then
+    echo "webhook endpoint ready: $ep"
+    break
+  fi
+  sleep 2
+done
 
 echo "▶ generate throwaway signing keys (LOCAL DEV ONLY — never reuse in prod)"
 # Secrets are NOT stored in values.yaml. For local kind we mint fresh, disposable
