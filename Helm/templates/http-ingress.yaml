@@ -10,6 +10,12 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: http-public
+  annotations:
+    # nginx default (1m) is smaller than the app's supported upload size
+    # (10MB — see HTTPService application.yml multipart config). Avatar
+    # uploads on /reactive/register were rejected by the ingress before
+    # reaching httpservice.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 spec:
   ingressClassName: nginx
   rules:
@@ -45,6 +51,8 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti, X-Sid"
+    # same limit as http-public — /reactive/createchat accepts a chat image upload
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 spec:
   ingressClassName: nginx
   rules:
