@@ -5,6 +5,11 @@ global:
   # when secrets.create=true). Override to point at an externally managed
   # Secret (External Secrets Operator, Sealed Secrets, etc.).
   appSecretName: ""
+  # Public host the app is reached at (must match ingress.host below —
+  # duplicated here because subcharts only see values.yaml literally under
+  # `global`, not templated references to sibling top-level keys). Used by
+  # authservice to build the Google OAuth2 redirect-uri.
+  ingressHost: myapp.local
 
 # Sensitive values. DO NOT COMMIT REAL SECRETS HERE.
 # Defaults are intentionally EMPTY placeholders. Supply real values at deploy
@@ -34,7 +39,7 @@ infra:
   grafana: true
   ingress: true
 
-# Local ingress domain
+# Local ingress domain. Keep in sync with global.ingressHost above.
 ingress:
   host: myapp.local
 
