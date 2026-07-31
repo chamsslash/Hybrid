@@ -93,28 +93,45 @@ echo "▶ helm deploy"
 # fallback defaults above. In real environments provide these from a secret
 # manager (e.g. External Secrets Operator) via secrets.create=false +
 # global.appSecretName, and do NOT pass plaintext on the command line.
-helm upgrade --install hybrid ./Helm \
-  --namespace "$NS" \
-  --create-namespace \
-  --set authservice.image.repository=authservice \
-  --set authservice.image.tag=latest \
-  --set httpservice.image.repository=httpservice \
-  --set httpservice.image.tag=latest \
-  --set messegerparody.image.repository=messegerparody \
-  --set messegerparody.image.tag=latest \
-  --set secrets.dbPassword="$DB_PASSWORD" \
-  --set secrets.grafanaAdminPassword="$GRAFANA_ADMIN_PASSWORD" \
-  --set authservice.google.clientId="$GOOGLE_CLIENT_ID" \
-  --set secrets.googleClientSecret="$GOOGLE_CLIENT_SECRET" \
-  --set secrets.refreshSecret="$REFRESH_SECRET" \
-  --set secrets.minioRootUser="$MINIO_ROOT_USER" \
-  --set secrets.minioRootPassword="$MINIO_ROOT_PASSWORD" \
-  --set secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
-  --set secrets.minioSecretKey="$MINIO_SECRET_KEY" \
-  --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
-  --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
-  --set-file httpservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
-  --set secrets.geminiApiKey="$GEMINI_API_KEY"
+#
+# The webhook-endpoint check above confirms the Endpoints object has an
+# address, but kube-proxy programming the Service's iptables/ipvs rule on
+# the node can lag a moment behind that — helm's Ingress apply can still
+# hit "connection refused" even right after the check passes. Retry the
+# whole upgrade a few times rather than trying to close that timing gap
+# more precisely.
+for attempt in 1 2 3; do
+  if helm upgrade --install hybrid ./Helm \
+    --namespace "$NS" \
+    --create-namespace \
+    --set authservice.image.repository=authservice \
+    --set authservice.image.tag=latest \
+    --set httpservice.image.repository=httpservice \
+    --set httpservice.image.tag=latest \
+    --set messegerparody.image.repository=messegerparody \
+    --set messegerparody.image.tag=latest \
+    --set secrets.dbPassword="$DB_PASSWORD" \
+    --set secrets.grafanaAdminPassword="$GRAFANA_ADMIN_PASSWORD" \
+    --set authservice.google.clientId="$GOOGLE_CLIENT_ID" \
+    --set secrets.googleClientSecret="$GOOGLE_CLIENT_SECRET" \
+    --set secrets.refreshSecret="$REFRESH_SECRET" \
+    --set secrets.minioRootUser="$MINIO_ROOT_USER" \
+    --set secrets.minioRootPassword="$MINIO_ROOT_PASSWORD" \
+    --set secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
+    --set secrets.minioSecretKey="$MINIO_SECRET_KEY" \
+    --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
+    --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
+    --set-file httpservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
+    --set secrets.geminiApiKey="$GEMINI_API_KEY"; then
+    break
+  fi
+  if [ "$attempt" = 3 ]; then
+    echo "helm upgrade failed after 3 attempts" >&2
+    exit 1
+  fi
+  echo "▶ helm upgrade failed (attempt $attempt/3, likely ingress-webhook race) — retrying in 5s"
+  sleep 5
+done
 
 echo "▶ wait for workloads"
 kubectl wait -n "$NS" --for=condition=Available deployment --all --timeout=300s
