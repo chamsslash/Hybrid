@@ -10,7 +10,11 @@ const CREATECHAT_HTML = `
 
         <form id="chatForm" class="add-comment" enctype="multipart/form-data">
 
-            <input type="text" name="title" placeholder="Название чата" required>
+            <!-- name НЕ "title": DOMPurify (см. policy.createHTML/trusted_policy.js) по
+                 умолчанию защищается от DOM clobbering и молча вырезает name="title" —
+                 совпадение с document.title. Реальный ключ "title", который ждёт сервер
+                 (WEBFLUX_Service.handleCreateChat), подставляется вручную при сабмите. -->
+            <input type="text" name="chatTitle" placeholder="Название чата" required>
 
             <!-- Поле для выбора файла -->
             <label for="imageUpload">Загрузить изображение:</label>
@@ -62,6 +66,8 @@ export async function mount(params) {
     document.getElementById("chatForm").addEventListener("submit", async function (e) {
         e.preventDefault();
         const formData = new FormData(e.target);
+        formData.set('title', formData.get('chatTitle'));
+        formData.delete('chatTitle');
 
         try {
             // api-интерцептор приложит Authorization и сделает refresh+retry на 401
