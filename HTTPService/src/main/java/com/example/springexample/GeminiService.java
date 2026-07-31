@@ -48,7 +48,12 @@ public class GeminiService {
         JsonObject requestBody = buildCompletionRequestBody(prompt, securePredictResponseSchema());
         log.warn(prompt.contents().toString());
         aiRequestMetric.increment();
-        return callGenerateContent(requestBody).map(text -> {
+        // callGenerateContent() отдаёт полный конверт ответа Gemini
+        // (candidates[0].content.parts[0].text), а structured-output JSON
+        // {reasoning, probability} лежит ВНУТРИ этого text как строка —
+        // extractPlainText() достаёт именно её, до этого parsed.get(...)
+        // читал поля из конверта и всегда получал null/NPE.
+        return callGenerateContent(requestBody).map(GeminiService::extractPlainText).map(text -> {
             JsonObject parsed = JsonParser.parseString(text).getAsJsonObject();
             log.info("Security Predict Explanation:" + parsed.get("reasoning"));
             return parsed.get("probability").getAsString();
@@ -84,7 +89,7 @@ public class GeminiService {
                 .doOnError(e -> log.error(e.getMessage()));
     }
 
-    private static String extractPlainText(String body) {
+    static String extractPlainText(String body) {
         if (body == null || body.isEmpty()) {
             throw new RuntimeException("Ai response has uncorrect struckture");
         }

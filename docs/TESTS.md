@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 9 | 35 | 2 | 37 |
+| HTTPService | 9 | 37 | 2 | 39 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **16** | **60** | **4** | **64** |
+| **Итого** | **16** | **62** | **4** | **66** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -153,6 +153,8 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`requireApiKey_blankKey_throwsClearErrorViaGetAssistantAnswer`** — blank `apiKey` → `IllegalStateException`, сообщение называет `GEMINI_API_KEY`. Зачем: явный фейл при отсутствии ключа (не тихий сбой), проверка идёт до `aiRequestMetric.increment()`.
 - **`requireApiKey_nullKey_throwsClearErrorViaGetAssistantAnswer`** — `null` `apiKey` → `IllegalStateException`.
 - **`buildSecurityCheckPrompt_wrapsBothFingerprintsInSingleUserTurn`** — два `ClientMeta` → ровно 1 content-turn с `role: user`, системная инструкция содержит методику (`secureUUID`). Зачем: контракт анти-фрод промпта (оба отпечатка в одном user-turn, методика — в system-инструкции).
+- **`extractPlainText_pullsNestedTextOutOfFullGeminiEnvelope`** — вход: полный конверт ответа Gemini (`candidates[0].content.parts[0].text` = JSON-строка `{"reasoning":...,"probability":85}`). Проверяет: возвращает именно вложенную JSON-строку, не сам конверт. Зачем: **регрессия бага** — `aiSecurePredict()` раньше парсил `reasoning`/`probability` прямо из конверта (минуя `extractPlainText`), оба поля были `null`/кидали NPE при любом реальном (не замоканном) ответе Gemini — баг не проявлялся раньше только потому, что вызов падал ещё на этапе сериализации запроса (см. `fix/gemini-webclient-gson-jackson-mismatch`), обнаружен только после того фикса живым тестом 2026-08-01.
+- **`extractPlainText_throwsOnEmptyBody`** — пустая строка → `RuntimeException` с "uncorrect struckture".
 
 ---
 
