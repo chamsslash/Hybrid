@@ -102,9 +102,13 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | Helm Secret (`secrets.minioAccessKey`/`secrets.minioSecretKey`) | креды приложения к MinIO (не root-креды сервера); тот же Secret использует `HTTPService`. |
 | `grpc.server.port` | Захардкожено в `application.yml` (`9092`) | порт gRPC-сервера `AuthTransferService`. |
 
-Заметный нюанс: `redirect-uri` для Google OAuth захардкожен в `application.yml` как
-`http://localhost/login/oauth2/code/google` и не параметризован под `ingress.host`
-(`myapp.local`) — единый для всех окружений деплоя через этот чарт.
+`redirect-uri` для Google OAuth параметризован через `INGRESS_HOST` (Helm value
+`global.ingressHost`, прокидывается деплойментом `authservice`) и по умолчанию
+собирается как `http://${INGRESS_HOST:myapp.localtest.me}/login/oauth2/code/google`.
+`myapp.localtest.me` выбран вместо `myapp.local`, потому что Google Cloud Console
+отклоняет `.local` как redirect URI ("must end with a public top-level domain") —
+`localtest.me` резолвится на `127.0.0.1` через публичный DNS и не требует записи
+в `/etc/hosts`.
 
 ## Как запускать и тестировать локально
 

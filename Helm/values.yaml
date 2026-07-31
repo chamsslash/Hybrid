@@ -9,7 +9,7 @@ global:
   # duplicated here because subcharts only see values.yaml literally under
   # `global`, not templated references to sibling top-level keys). Used by
   # authservice to build the Google OAuth2 redirect-uri.
-  ingressHost: myapp.local
+  ingressHost: myapp.localtest.me
 
 # Sensitive values. DO NOT COMMIT REAL SECRETS HERE.
 # Defaults are intentionally EMPTY placeholders. Supply real values at deploy
@@ -40,8 +40,12 @@ infra:
   ingress: true
 
 # Local ingress domain. Keep in sync with global.ingressHost above.
+# myapp.localtest.me (not myapp.local) — Google OAuth Console rejects
+# .local as a redirect-uri host ("must end with a public top-level
+# domain"); localtest.me is a real public domain that wildcard-resolves
+# to 127.0.0.1, no /etc/hosts entry needed.
 ingress:
-  host: myapp.local
+  host: myapp.localtest.me
 
 # Kafka (KRaft) — multi-arch apache image (arm64 + amd64)
 kafka:
