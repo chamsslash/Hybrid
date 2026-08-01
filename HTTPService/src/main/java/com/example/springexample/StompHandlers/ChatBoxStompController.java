@@ -51,7 +51,11 @@ public class ChatBoxStompController {
     public com.example.springexample.StompHandlers.ChatMessageDTO HandleChatMessage(com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
         kafkaProducer.send(gson.toJson(chatMessageDTO));
         ChatContextService contextService = new ChatContextService(redisTemplate, chatMessageDTO.getChat_id());
-        contextService.addMessage(chatMessageDTO.getUsername(),chatMessageDTO.getText());
+        // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
+        // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
+        // AI-assist всегда видел пустой контекст).
+        contextService.addMessage(chatMessageDTO.getUsername(),chatMessageDTO.getText())
+                .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
         List<String> client_ids = authGrpc.GetAllIdsByChat(DataTransferService.ChatData.newBuilder().setChatId(Long.parseLong(chatMessageDTO.getChat_id())).build());
         ArrayList<String> users = new ArrayList<>(client_ids);
         com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO = new com.example.springexample.StompHandlers.ChatListShortObjDTO();

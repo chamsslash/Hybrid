@@ -428,7 +428,12 @@ public class WEBFLUX_Service {
 
                     return contextService.getFullContext()
                             .switchIfEmpty(Mono.error(new IllegalStateException("Контекст чата пуст...")))
-                            .collect(Collectors.joining())
+                            // Каждый элемент — валидный JSON-объект ({"user":...,"message":...}),
+                            // но joining() без разделителей/скобок склеивал их в невалидный JSON
+                            // (несколько top-level объектов подряд) -> JsonSyntaxException при
+                            // ЛЮБОМ непустом контексте (baг вскрылся только после фикса
+                            // ChatContextService.addMessage — раньше контекст был всегда пуст).
+                            .collect(Collectors.joining(",", "[", "]"))
                             .publishOn(Schedulers.boundedElastic())
                             .map(jsonString -> {
                                 JsonArray jsonArray = JsonParser.parseString(jsonString).getAsJsonArray();
