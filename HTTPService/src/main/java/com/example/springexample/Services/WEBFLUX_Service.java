@@ -32,7 +32,6 @@ import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -413,11 +412,18 @@ public class WEBFLUX_Service {
         return  Mono.defer(()->Mono.just( templateEngine.process(tmpl_name, thymeleafContext)));
 
     }
+    // Возвращаем Mono (не Callable): вызов Gemini долгий (~секунды), реактивная
+    // модель не держит поток и не упирается в таймаут async-сервлета.
+    // @ResponseBody ОБЯЗАТЕЛЕН: класс — @Controller (не @RestController), без него
+    // Spring MVC трактует Mono<String>/String как ИМЯ ВЬЮХИ для рендера шаблоном —
+    // отсюда "class path resource [templates/<текст ответа>.html] cannot be opened"
+    // при любом реальном тексте ответа (был баг ДО фикса 6i5, не связан с ним).
     @PostMapping(path = "/AiAssist")
-    public Callable<String> aiAssistHandler(@RequestPart("TargetUsername") String targetUsername,
+    @ResponseBody
+    public Mono<String> aiAssistHandler(@RequestPart("TargetUsername") String targetUsername,
                                             @RequestPart("chat_id") String chatId) {
 
-        return () -> Mono.defer(() -> {
+        return Mono.defer(() -> {
                     ChatContextService contextService = new ChatContextService(rredisTemplate, chatId);
 
                     return contextService.getFullContext()
@@ -451,8 +457,7 @@ public class WEBFLUX_Service {
                 .onErrorResume(Exception.class, ex -> {
                     log.error("Произошла непредвиденная ошибка при обработке /AiAssist", ex);
                     return Mono.just("Извините, сервис временно недоступен. Не удалось сгенерировать ответ.");
-                })
-                .block();
+                });
     }
 
 
