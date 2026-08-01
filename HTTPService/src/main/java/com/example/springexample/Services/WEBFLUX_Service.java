@@ -266,17 +266,21 @@ public class WEBFLUX_Service {
                                             .map(ctx -> (String) ctx.getAuthentication().getPrincipal())
 
                                             .flatMap(authorId -> {
+                                                // Картинка чата опциональна (во фронте у поля file нет required).
+                                                // Без файла НЕ помечаем "pending" (иначе список чатов вечно крутит
+                                                // спиннер и Upload_image падает с NPE на file.content()) — пустой
+                                                // imageUrl даёт дефолтную аватарку. beads 2q5.
                                                 var chatdata = DataTransferService.ChatData.newBuilder()
                                                         .setAuthorId(DataTransferService.User.newBuilder().setId(authorId).build())
                                                         .setTitle(chatTitle)
                                                         .addAllUser(userList)
-                                                        .setImageUrl("pending")
+                                                        .setImageUrl(file != null ? "pending" : "")
                                                         .build();
 
                                                 return reactiveGrpcClient.reactiveChatServe(chatdata)
                                                         .flatMap(resp -> {
                                                             JsonObject jsonObj = JsonParser.parseString(resp).getAsJsonObject();
-                                                            if ("pending".equals(jsonObj.get("image_id").getAsString())) {
+                                                            if (file != null && "pending".equals(jsonObj.get("image_id").getAsString())) {
                                                                 return Upload_image(file, jsonObj.get("id").getAsString(), "chatimage")
                                                                         .thenReturn(jsonObj);
                                                             } else {
@@ -459,6 +463,11 @@ public class WEBFLUX_Service {
      * targetType — параметр: регистрация → "userimage", создание чата → "chatimage".
      */
     public Mono<Void> Upload_image(FilePart file, String targetId, String targetType) {
+        // Картинка опциональна и для чата, и для аватара при регистрации — без файла
+        // просто ничего не грузим (иначе file.content() кидает NPE). beads 2q5.
+        if (file == null) {
+            return Mono.empty();
+        }
 
         // Используем DataBufferUtils.join для безопасного объединения всех частей файла
         Mono<DataBuffer> joinedBuffers = DataBufferUtils.join(file.content());
