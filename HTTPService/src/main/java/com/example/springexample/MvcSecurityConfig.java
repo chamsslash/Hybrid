@@ -15,18 +15,24 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.annotation.web.configurers.RequestCacheConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.DelegatingAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.servlet.support.csrf.CsrfRequestDataValueProcessor;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.servlet.support.RequestDataValueProcessor;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 
 
@@ -57,6 +63,17 @@ public class MvcSecurityConfig  {
         CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repo.setSecure(false);
         CsrfTokenRequestAttributeHandler attributeHandler = new CsrfTokenRequestAttributeHandler();
+
+        // SPA-API и AI-assist отдают голый 401 — клиент сам делает refresh+retry (beads 59).
+        // Одиночный .authenticationEntryPoint(...) молча перекрывает
+        // .defaultAuthenticationEntryPointFor(...), поэтому строим делегирующий
+        // entry point вручную: /api/** и /AiAssist -> 401, всё остальное -> /welcome.
+        AuthenticationEntryPoint unauthorizedEntryPoint = new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED);
+        LinkedHashMap<RequestMatcher, AuthenticationEntryPoint> entryPoints = new LinkedHashMap<>();
+        entryPoints.put(new AntPathRequestMatcher("/api/**"), unauthorizedEntryPoint);
+        entryPoints.put(new AntPathRequestMatcher("/AiAssist"), unauthorizedEntryPoint);
+        DelegatingAuthenticationEntryPoint delegatingEntryPoint = new DelegatingAuthenticationEntryPoint(entryPoints);
+        delegatingEntryPoint.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint("/welcome"));
 
         http.
         sessionManagement(session ->
@@ -89,14 +106,7 @@ public class MvcSecurityConfig  {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(mvcJwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
-                .exceptionHandling(ex -> ex
-                        // SPA-API отдаёт голый 401 — клиент сам делает refresh+retry (beads 59)
-                        .defaultAuthenticationEntryPointFor(
-                                new org.springframework.security.web.authentication.HttpStatusEntryPoint(
-                                        org.springframework.http.HttpStatus.UNAUTHORIZED),
-                                new AntPathRequestMatcher("/api/**"))
-                        .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/welcome"))
-                )
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(delegatingEntryPoint))
 
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)

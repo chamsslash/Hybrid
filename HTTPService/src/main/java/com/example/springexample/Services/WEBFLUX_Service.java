@@ -32,6 +32,7 @@ import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -409,10 +410,10 @@ public class WEBFLUX_Service {
 
     }
     @PostMapping(path = "/AiAssist")
-    public Mono<String> aiAssistHandler(@RequestPart("TargetUsername") String targetUsername,
-                                        @RequestPart("chat_id") String chatId) {
+    public Callable<String> aiAssistHandler(@RequestPart("TargetUsername") String targetUsername,
+                                            @RequestPart("chat_id") String chatId) {
 
-        return Mono.defer(() -> {
+        return () -> Mono.defer(() -> {
                     ChatContextService contextService = new ChatContextService(rredisTemplate, chatId);
 
                     return contextService.getFullContext()
@@ -446,7 +447,8 @@ public class WEBFLUX_Service {
                 .onErrorResume(Exception.class, ex -> {
                     log.error("Произошла непредвиденная ошибка при обработке /AiAssist", ex);
                     return Mono.just("Извините, сервис временно недоступен. Не удалось сгенерировать ответ.");
-                });
+                })
+                .block();
     }
 
 
