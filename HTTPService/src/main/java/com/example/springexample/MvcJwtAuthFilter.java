@@ -68,6 +68,20 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         return PUBLIC_PATHS.stream().anyMatch(pattern -> pathMatcher.match(pattern, uri));
     }
+
+    // /api/* и /AiAssist возвращают Callable<T> (реактивная цепочка внутри) — Spring
+    // обрабатывает их через async-диспетчинг. SecurityContextHolder хранит
+    // Authentication в ThreadLocal, а OncePerRequestFilter по умолчанию НЕ
+    // перезапускается на async-диспетчинге (shouldNotFilterAsyncDispatch()==true).
+    // Из-за этого на втором (async) проходе цепочки фильтров SecurityContext пуст,
+    // и AuthorizationFilter (который на async-диспетчинге проверяет заново) отдаёт
+    // 401 при валидном токене. Заголовки X-User-ID/X-Authorities на запросе всё ещё
+    // есть, поэтому переустанавливаем Authentication и на async-диспетчинге (beads 6i5).
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
