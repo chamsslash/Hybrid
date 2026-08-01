@@ -22,7 +22,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.servlet.support.csrf.CsrfRequestDataValueProcessor;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -62,7 +62,11 @@ public class MvcSecurityConfig  {
     public SecurityFilterChain mvcFilterChain(HttpSecurity http) throws Exception {
         CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repo.setSecure(false);
-        CsrfTokenRequestAttributeHandler attributeHandler = new CsrfTokenRequestAttributeHandler();
+        // Официальный SPA-паттерн CSRF (Spring Security): SpaCsrfTokenRequestHandler
+        // резолвит токен из X-XSRF-TOKEN, а CsrfCookieFilter (ниже) материализует
+        // deferred-токен в cookie на каждом ответе — иначе первый POST после
+        // загрузки страницы (/exchangeTokens) отбивался 403 из-за рассинхрона (6i5).
+        SpaCsrfTokenRequestHandler spaCsrfHandler = new SpaCsrfTokenRequestHandler();
 
         // SPA-API и AI-assist отдают голый 401 — клиент сам делает refresh+retry (beads 59).
         // Одиночный .authenticationEntryPoint(...) молча перекрывает
@@ -110,10 +114,13 @@ public class MvcSecurityConfig  {
 
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
-                        .csrfTokenRequestHandler(attributeHandler)
+                        .csrfTokenRequestHandler(spaCsrfHandler)
                         // Bearer-API не подвержен CSRF (нет cookie-аутентификации)
                         .ignoringRequestMatchers(new AntPathRequestMatcher("/api/**"))
-                );
+                )
+                // Материализует XSRF-TOKEN cookie на каждом ответе (после CsrfFilter,
+                // который кладёт deferred-токен в атрибут запроса).
+                .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class);
 
         return http.build();
     }
