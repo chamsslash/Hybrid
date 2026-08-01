@@ -104,7 +104,14 @@ public class MvcSecurityConfig  {
                                 new AntPathRequestMatcher("/reactive/**"),
                                 new AntPathRequestMatcher("/authcallback"),
                                 new AntPathRequestMatcher("/collect-fingerprint"),
-                                new AntPathRequestMatcher("/exchangeTokens")
+                                new AntPathRequestMatcher("/exchangeTokens"),
+                                // SockJS/STOMP-хендшейк публичен: браузерный хендшейк не несёт
+                                // Authorization, аутентификация — на STOMP CONNECT
+                                // (StompAuthChannelInterceptor). Без этого GET-транспорты
+                                // (/info,/websocket,/iframe.html) ловили 302, а POST-xhr — 403,
+                                // и соединение падало до CONNECT (beads 58/59).
+                                new AntPathRequestMatcher("/*Conn/**"),
+                                new AntPathRequestMatcher("/*Conn")
                         ).permitAll()
 
                         .anyRequest().authenticated()
@@ -115,8 +122,12 @@ public class MvcSecurityConfig  {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
                         .csrfTokenRequestHandler(spaCsrfHandler)
-                        // Bearer-API не подвержен CSRF (нет cookie-аутентификации)
-                        .ignoringRequestMatchers(new AntPathRequestMatcher("/api/**"))
+                        // Bearer-API не подвержен CSRF (нет cookie-аутентификации).
+                        // SockJS POST-транспорты (/*Conn/.../xhr, xhr_streaming) — тоже:
+                        // это часть публичного хендшейка, auth на STOMP CONNECT.
+                        .ignoringRequestMatchers(
+                                new AntPathRequestMatcher("/api/**"),
+                                new AntPathRequestMatcher("/*Conn/**"))
                 )
                 // Материализует XSRF-TOKEN cookie на каждом ответе (после CsrfFilter,
                 // который кладёт deferred-токен в атрибут запроса).

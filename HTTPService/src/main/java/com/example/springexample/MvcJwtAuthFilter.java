@@ -60,7 +60,9 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
             "/images/**",
             "/reactive/**",
             "**.js",
-            "/**/*.js", "/verifylogin"
+            "/**/*.js", "/verifylogin",
+            // SockJS/STOMP-хендшейк публичен (auth на STOMP CONNECT, beads 58/59)
+            "/*Conn/**", "/*Conn"
     );
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
     @Override
