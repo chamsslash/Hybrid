@@ -1,6 +1,7 @@
 package com.example.springexample;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -26,6 +27,12 @@ public class SecurityConfiguration {
         private  final ResolverForRefreshTokens customresolverForRefreshTokens;
     private final RedisOauth2AuthorizedClientService authorizedClientService;
     private  final  RedisAuthorizationRequestRepository repository;
+
+    // Фактический хост, на котором обслуживается приложение (тот же, что в
+    // OAuth redirect-uri в application.yml). Дефолт совпадает с Helm ingress.host.
+    @Value("${INGRESS_HOST:myapp.localtest.me}")
+    private String ingressHost;
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http    .cors(Customizer.withDefaults())
@@ -59,10 +66,17 @@ public class SecurityConfiguration {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
+        // Разрешённые Origin строятся из фактического ingress-хоста (INGRESS_HOST),
+        // а не хардкодятся. Раньше список содержал только myapp.local/localhost, тогда
+        // как приложение реально обслуживается на myapp.localtest.me — из-за рассинхрона
+        // любой same-origin POST (createchat, /AiAssist) слал Origin, который nginx
+        // проксировал в auth_request-сабреквест к /jwtcheck, а Spring CorsFilter отбивал
+        // его 403 ДО контроллера (beads 2q5). GET'ы не страдали: браузер не шлёт Origin
+        // на same-origin GET.
         configuration.setAllowedOrigins(List.of(
                 "http://localhost",
-                "http://myapp.local",
-                "https://myapp.local"
+                "http://" + ingressHost,
+                "https://" + ingressHost
         ));
         configuration.setAllowedMethods(List.of("GET","POST"));
 
