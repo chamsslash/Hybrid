@@ -1,0 +1,18 @@
+databaseChangeLog:
+  # Таблица message гарантированно пуста на момент этой миграции (Kafka-консьюмер персистентности
+  # никогда не был реализован до этого коммита) — данных для конвертации нет, чистый modifyDataType.
+  # VARCHAR не сортируется хронологически для локально-форматированных строк вида "01 авг., 18:08" —
+  # TIMESTAMPTZ сортируется корректно и генерируется на сервере (не доверяем часам браузера клиента).
+  - changeSet:
+      id: messenger-003-message-timestamp-tz
+      author: claude
+      preConditions:
+        - onFail: MARK_RAN
+        - columnExists:
+            tableName: message
+            columnName: time_stamp
+      changes:
+        - modifyDataType:
+            tableName: message
+            columnName: time_stamp
+            newDataType: TIMESTAMPTZ

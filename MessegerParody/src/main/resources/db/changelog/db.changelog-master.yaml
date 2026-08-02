@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-init.yaml
   - include:
       file: db/changelog/changes/002-normalize-legacy-image-url.yaml
+  - include:
+      file: db/changelog/changes/003-message-timestamp-tz.yaml

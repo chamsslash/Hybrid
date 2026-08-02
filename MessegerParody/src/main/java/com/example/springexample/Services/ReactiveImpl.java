@@ -146,7 +146,7 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .setChatName(chat.getTitle())
                                         .setText(message.getText())
                                         .setId(message.getId())
-                                        .setTimestamp(message.getTimeStamp())
+                                        .setTimestamp(message.getTimeStamp().toString())
                                         .setChatId(chat.getId())
                                         .setUserId(user.getId())
                                         .setImageUrl(user.getImageUrl())
@@ -194,7 +194,7 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .setText(msg.getText())
                                         .setChatId(chat.getId())
                                         .setChatName(chat.getTitle()) // если надо
-                                        .setTimestamp(msg.getTimeStamp())
+                                        .setTimestamp(msg.getTimeStamp().toString())
                                         .setImageUrl(user.getImageUrl())
                                         .build();
                             });
