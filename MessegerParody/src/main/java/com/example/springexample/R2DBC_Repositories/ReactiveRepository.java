@@ -100,7 +100,14 @@ public class ReactiveRepository {
     // Если id - это первичный ключ, то более корректно ожидать один результат (или ни одного).
     // Метод переименован в findChatById и возвращает Mono для ясности намерений.
     public Mono<r2dbc_chat> findChatById(Long chatId) {
-        String sql = "SELECT * FROM chats WHERE id = $1 LIMIT 1";
+        // Была опечатка "chats" (множественное число) — реальная таблица называется
+        // "chat". Запрос всегда падал в switchIfEmpty/onErrorResume вызывающего кода
+        // (ReactiveImpl.transferchat), из-за чего просмотр УЖЕ СУЩЕСТВУЮЩЕГО чата
+        // (не создание нового) всегда получал status=500 -> ApiController.chat()
+        // пропускал загрузку истории сообщений по короткому замыканию на этом статусе.
+        // Обнаружено при живой верификации 5l4 (Task 6) — история сообщений не
+        // грузилась даже при корректно сохранённых в БД сообщениях.
+        String sql = "SELECT * FROM chat WHERE id = $1 LIMIT 1";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> ChatMapper.map(row))
