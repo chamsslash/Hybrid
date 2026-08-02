@@ -35,39 +35,7 @@ public class KafkaConsumer {
                 log.warn("Unknown targetType in imageUploadDTO: {}", imageUploadDTO.getTargetType());
         }
     }
-    @KafkaListener(topics = "Events")
-    public void listenNotifications(String message) throws Exception {
-
-
-        NotificationDTO notification = gson.fromJson(message, NotificationDTO.class);
-        log.info("notification received {}",notification.toString());
-
-
-        NotificationDTO notificationDTO= new NotificationDTO(notification.getAuthorId(),notification.getUser_id(),notification.getText(), notification.getChat_id(), notification.getType());
-
-
-        switch (notificationDTO.getType()) {
-            case "MessageCreated":
-                log.info("preparing notification");
-                chatBoxStompController.SendNotificationToChatBox(notificationDTO);
-                break;
-
-
-            case "ChatCreated":
-                log.info("preparing notification to chatList");
-                chatListStompController.ShowNotificationInChatList(notification);
-                break;
-
-        }
-
-
-    }
-
-
-
-
-
-    }
+}
 //    @KafkaListener(topics = "Messages")
 //    public void listenMessages(String message) throws Exception {
 //        JsonObject messagejson = JsonParser.parseString(message).getAsJsonObject();

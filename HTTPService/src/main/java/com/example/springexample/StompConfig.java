@@ -34,7 +34,6 @@ public class StompConfig implements WebSocketMessageBrokerConfigurer {
        registry.addEndpoint("/ChatMessagesConn").setAllowedOriginPatterns("*").withSockJS();
        registry.addEndpoint("/MutualChatNotificationConn").setAllowedOriginPatterns("*").withSockJS();
         registry.addEndpoint("/GeneralChatDataUpdateConn").setAllowedOriginPatterns("*").withSockJS();
-        registry.addEndpoint("/MutualChatListNotificationConn").setAllowedOriginPatterns("*").withSockJS();
         registry.addEndpoint("/ChatChangesHandleConn").setAllowedOriginPatterns("*").withSockJS();
         registry.addEndpoint("/MutualImagesConn").setAllowedOriginPatterns("*").withSockJS();
         registry.addEndpoint("/StatusUserConn").setAllowedOriginPatterns("*").withSockJS();

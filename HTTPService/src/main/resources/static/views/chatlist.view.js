@@ -21,24 +21,6 @@ let originalPreviews = {};
 let typingUsers = new Map();
 let stomp = null;
 
-function showNotification(message, type = 'info') {
-    const toastContainer = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.classList.add('toast', `toast-${type}`);
-
-    const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
-    toast.innerHTML = policy.createHTML(`
-            <span class="toast-icon">${icons[type] || 'ℹ️'}</span>
-            <span class="toast-text">${message}</span>
-        `);
-    toastContainer.appendChild(toast);
-
-    setTimeout(() => {
-        toast.classList.add('hide');
-        toast.addEventListener('transitionend', () => toast.remove());
-    }, 5000);
-}
-
 function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, chat_preview_username, image_url }) {
     const chatPart = document.createElement('div');
     chatPart.className = 'post';
@@ -158,18 +140,6 @@ function connectStomp(token) {
                 imageContainer.innerHTML = policy.createHTML(`
                     <img src="/api/images/${data.image_url}"
                          alt="chat avatar" class="chat-avatar">`);
-            }
-        });
-    });
-
-    const listStomp = stomp.add(Stomp.over(new SockJS('/MutualChatListNotificationConn')));
-    listStomp.connect(authHeaders, () => {
-        listStomp.subscribe(`/private/chatlist/notify/${user_id}`, (msg) => {
-            try {
-                const data = JSON.parse(msg.body);
-                showNotification(data.text, data.type);
-            } catch (e) {
-                console.error("Ошибка при парсинге уведомления:", e);
             }
         });
     });
