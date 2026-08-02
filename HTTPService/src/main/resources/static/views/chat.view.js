@@ -54,6 +54,13 @@ function avatarHtml(key) {
         : `<img src="/images/rofl-cat.jpg" alt="chat avatar" class="chat-avatar">`;
 }
 
+function formatMessageTimestamp(isoTimestamp) {
+    if (!isoTimestamp) return '';
+    const date = new Date(isoTimestamp);
+    if (Number.isNaN(date.getTime())) return isoTimestamp;
+    return date.toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url }) {
     const container = document.getElementById('chatMessages');
     const msg = document.createElement('div');
@@ -67,7 +74,7 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
             <strong>${username || 'anon'}</strong>
             <strong>ID: ${senderId || 'anon'}</strong>
             <span style="float: right; font-size: 12px; color: #999;">
-                ${timestamp || new Date().toISOString()}
+                ${formatMessageTimestamp(timestamp)}
             </span>
         </div>
         <div><span>${text}</span></div>
@@ -148,13 +155,9 @@ function sendChatMessage() {
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
     if (!text) return;
-    const date = new Date();
-    const options = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' };
-    const formatted = date.toLocaleString('ru-RU', options);
     const message = {
         username: user_name,
         chat_id: chat_id,
-        timestamp: formatted,
         user_id: user_id,
         text: text,
         imageurl: user_image
