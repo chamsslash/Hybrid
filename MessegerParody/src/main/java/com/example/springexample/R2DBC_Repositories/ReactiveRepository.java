@@ -144,4 +144,14 @@ public class ReactiveRepository {
                 .map((row, meta) -> row.get("image_url", String.class))
                 .one();
     }
+
+    public Mono<Void> insertMessage(Long chatId, Long userId, String text, java.time.Instant timestamp) {
+        String sql = "INSERT INTO message (chat_id, user_id, text, time_stamp) VALUES ($1, $2, $3, $4)";
+        return reactiveDb.sql(sql)
+                .bind(0, chatId)
+                .bind(1, userId)
+                .bind(2, text)
+                .bind(3, timestamp)
+                .then();
+    }
 }
