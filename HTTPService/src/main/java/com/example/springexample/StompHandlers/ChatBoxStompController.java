@@ -6,7 +6,6 @@ package com.example.springexample.StompHandlers;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.ImageUploadDTO;
 import com.example.springexample.KafkaProducer;
-import com.example.springexample.Services.AuthGrpc;
 import com.example.springexample.Services.ChatContextService;
 import com.example.springexample.Services.ReactiveGrpcClient;
 import com.google.gson.Gson;
@@ -39,32 +38,40 @@ public class ChatBoxStompController {
     com.example.springexample.StompHandlers.ChatListStompController chatListController;
     @Autowired
     ReactiveGrpcClient reactiveGrpcClient;
-    @Autowired
-    AuthGrpc authGrpc;
     public ChatBoxStompController(KafkaProducer kafkaProducer) {
         this.kafkaProducer = kafkaProducer;
     }
 
     @MessageMapping("/chat/send/{chatId}")
-    @SendTo("/mutual/chat/{chatId}")
-    public com.example.springexample.StompHandlers.ChatMessageDTO HandleChatMessage(com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
+    public void HandleChatMessage(com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
+        chatMessageDTO.setTimestamp(java.time.Instant.now().toString());
+
+        template.convertAndSend("/mutual/chat/" + chatMessageDTO.getChat_id(), chatMessageDTO);
+
         kafkaProducer.send(gson.toJson(chatMessageDTO));
+
         ChatContextService contextService = new ChatContextService(redisTemplate, chatMessageDTO.getChat_id());
         // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
         // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
         // AI-assist всегда видел пустой контекст).
-        contextService.addMessage(chatMessageDTO.getUsername(),chatMessageDTO.getText())
+        contextService.addMessage(chatMessageDTO.getUsername(), chatMessageDTO.getText())
                 .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
-        List<String> client_ids = authGrpc.GetAllIdsByChat(DataTransferService.ChatData.newBuilder().setChatId(Long.parseLong(chatMessageDTO.getChat_id())).build());
-        ArrayList<String> users = new ArrayList<>(client_ids);
-        com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO = new com.example.springexample.StompHandlers.ChatListShortObjDTO();
-        chatListShortObjDTO.setChat_id(chatMessageDTO.getChat_id());
-        chatListShortObjDTO.setText(chatMessageDTO.getText());
-        chatListShortObjDTO.setUsername(chatMessageDTO.getUsername());
-        chatListShortObjDTO.setTimestamp(chatMessageDTO.getTimestamp());
-        chatListController.ChangeChatPreview(users,chatListShortObjDTO);
-        return chatMessageDTO;
 
+        reactiveGrpcClient.reactiveGetAllIdsByChatId(
+                DataTransferService.ChatData.newBuilder()
+                        .setChatId(Long.parseLong(chatMessageDTO.getChat_id()))
+                        .build()
+        ).subscribe(
+                userIds -> {
+                    com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO = new com.example.springexample.StompHandlers.ChatListShortObjDTO();
+                    chatListShortObjDTO.setChat_id(chatMessageDTO.getChat_id());
+                    chatListShortObjDTO.setText(chatMessageDTO.getText());
+                    chatListShortObjDTO.setUsername(chatMessageDTO.getUsername());
+                    chatListShortObjDTO.setTimestamp(chatMessageDTO.getTimestamp());
+                    chatListController.ChangeChatPreview(new ArrayList<>(userIds), chatListShortObjDTO);
+                },
+                err -> log.error("Не удалось обновить превью чат-листа для чата {}", chatMessageDTO.getChat_id(), err)
+        );
     }
     @MessageMapping("/chat/user_statuses")
 
