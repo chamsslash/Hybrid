@@ -6,7 +6,6 @@ package com.example.springexample.StompHandlers;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.ImageUploadDTO;
 import com.example.springexample.KafkaProducer;
-import com.example.springexample.NotificationDTO;
 import com.example.springexample.Services.AuthGrpc;
 import com.example.springexample.Services.ChatContextService;
 import com.example.springexample.Services.ReactiveGrpcClient;
@@ -83,15 +82,4 @@ public class ChatBoxStompController {
 
 
     }
-    public void SendNotificationToChatBox(NotificationDTO notificationDTO){
-
-
-        try {
-            long author_id = notificationDTO.getAuthorId();
-            template.convertAndSend("/private/chatlist/notify/" + author_id, notificationDTO);
-        }catch (Exception e){
-            log.error("Error in sending notification to author in chatBox ", e);
-        }
-    }
-
 }
