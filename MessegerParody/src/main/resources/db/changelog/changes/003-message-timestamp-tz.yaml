@@ -7,6 +7,14 @@ databaseChangeLog:
   # упадёт на первом же нераспознаваемом значении -> Liquibase бросит при старте -> под
   # MessegerParody уйдёт в CrashLoopBackOff. Поэтому перед modifyDataType зануляем значения,
   # которые Postgres не распознает как timestamp (не начинаются с "YYYY-").
+  #
+  # sqlCheck на data_type ОБЯЗАТЕЛЕН, и вот почему: оператор регулярного выражения !~ существует
+  # только для текстовых типов. Если колонка УЖЕ TIMESTAMPTZ (окружение, где эта миграция уже
+  # отработала, либо где починен Hybrid-kubernetes-non-local-fwt), то UPDATE ниже упадёт с
+  # "operator does not exist: timestamp with time zone !~ unknown" -> Liquibase бросит при старте
+  # -> тот самый CrashLoopBackOff, ради предотвращения которого этот changeSet и добавлялся.
+  # С проверкой типа changeSet просто помечается MARK_RAN: нормализовать нечего, колонка уже
+  # конвертирована. Проверено напрямую в psql, не предположение.
   - changeSet:
       id: messenger-003-message-timestamp-tz-normalize-legacy
       author: claude
@@ -15,6 +23,13 @@ databaseChangeLog:
         - columnExists:
             tableName: message
             columnName: time_stamp
+        - sqlCheck:
+            expectedResult: 1
+            sql: |
+              SELECT count(*) FROM information_schema.columns
+              WHERE table_name = 'message'
+                AND column_name = 'time_stamp'
+                AND data_type = 'character varying'
       changes:
         - sql:
             dbms: postgresql
