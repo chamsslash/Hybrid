@@ -29,6 +29,10 @@ spring:
     url: r2dbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:hybrid_db}
     username: ${DB_USER:postgres}
     password: ${DB_PASSWORD:postgres123}
+    pool:
+      # Дефолт r2dbc-pool на acquire — без таймаута: при исчерпанном пуле .block()
+      # в KafkaConsumer мог бы висеть вечно и уронить консьюмера с ребалансом.
+      max-acquire-time: 10s
 
   jpa:
     hibernate:
