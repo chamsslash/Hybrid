@@ -2,6 +2,7 @@ import api from "/axios.js";
 import { ensureAccessToken } from "/auth.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
+import { formatMessageTimestamp } from "/timestamp_format.js";
 
 // === SPA-вью списка чатов (beads 55/57/58) ===
 // Данные приходят из /api/*, STOMP аутентифицируется access-токеном на CONNECT.
@@ -53,7 +54,7 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
                 <span class="user-name">${chat_title || ''}</span>
                 <span class="user-name">Чат №<span>${chat_id}</span></span>
             </div>
-            <span class="post-time" id="timestamp-${chat_id}">${chat_lastmessagetime || ''}</span>
+            <span class="post-time" id="timestamp-${chat_id}">${formatMessageTimestamp(chat_lastmessagetime)}</span>
         </div>
         ${previewBlock}
     `);
@@ -135,7 +136,7 @@ function connectStomp(token) {
             if (previewElement) previewElement.textContent = data.text;
             originalPreviews[data.chat_id] = data.text || '';
             if (usernameElement) usernameElement.textContent = data.username ? (data.username + ' : ') : '';
-            if (timestampElement) timestampElement.textContent = data.timestamp;
+            if (timestampElement) timestampElement.textContent = formatMessageTimestamp(data.timestamp);
             if (imageContainer && data.image_url && data.image_url !== 'pending') {
                 imageContainer.innerHTML = policy.createHTML(`
                     <img src="/api/images/${data.image_url}"
