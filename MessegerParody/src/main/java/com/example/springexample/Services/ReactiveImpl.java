@@ -142,20 +142,24 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                 .flatMap(chat -> customReactiveRepository.findTopByChatIdOrderByTimestampDesc(chat.getId())
                         .flatMap(message -> reactiveUserRepository.findById(message.getUserId())
                                 .map(user -> DataTransferService.Message.newBuilder()
-                                        .setUserName(user.getName())
-                                        .setChatName(chat.getTitle())
-                                        .setText(message.getText())
+                                        .setUserName(orEmpty(user.getName()))
+                                        .setChatName(orEmpty(chat.getTitle()))
+                                        .setText(orEmpty(message.getText()))
                                         .setId(message.getId())
-                                        .setTimestamp(message.getTimeStamp().toString())
+                                        .setTimestamp(isoOrEmpty(message.getTimeStamp()))
                                         .setChatId(chat.getId())
                                         .setUserId(user.getId())
-                                        .setImageUrl(user.getImageUrl())
+                                        .setImageUrl(orEmpty(user.getImageUrl()))
                                         .build()))
                         .switchIfEmpty(Mono.just(DataTransferService.Message.newBuilder()
                                 .setChatId(chat.getId())
-                                .setChatName(chat.getTitle())
+                                .setChatName(orEmpty(chat.getTitle()))
                                 .build())))
-                .switchIfEmpty(Mono.just(DataTransferService.Message.getDefaultInstance()));
+                .switchIfEmpty(Mono.just(DataTransferService.Message.getDefaultInstance()))
+                .onErrorResume(e -> {
+                    log.error("getnewest failed for chat {}", chatId, e);
+                    return Mono.just(DataTransferService.Message.getDefaultInstance());
+                });
     }
 
     @Override
@@ -189,20 +193,24 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
 
                                 return DataTransferService.Message.newBuilder()
                                         .setId(msg.getId())
-                                        .setUserName(user.getName())
+                                        .setUserName(orEmpty(user.getName()))
                                         .setUserId(user.getId())
-                                        .setText(msg.getText())
+                                        .setText(orEmpty(msg.getText()))
                                         .setChatId(chat.getId())
-                                        .setChatName(chat.getTitle()) // если надо
-                                        .setTimestamp(msg.getTimeStamp().toString())
-                                        .setImageUrl(user.getImageUrl())
+                                        .setChatName(orEmpty(chat.getTitle())) // если надо
+                                        .setTimestamp(isoOrEmpty(msg.getTimeStamp()))
+                                        .setImageUrl(orEmpty(user.getImageUrl()))
                                         .build();
                             });
                 })
                 .collectList()
                 .map(messageList -> DataTransferService.ListOfMessages.newBuilder()
                         .addAllMessageList(messageList)
-                        .build());
+                        .build())
+                .onErrorResume(e -> {
+                    log.error("transferAllMessages failed for chat {}", request.getChatId(), e);
+                    return Mono.just(DataTransferService.ListOfMessages.getDefaultInstance());
+                });
     }
 
 
@@ -246,5 +254,16 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                 .switchIfEmpty(Mono.just(DataTransferService.DriveUrl.newBuilder()
                         .setChatId(String.valueOf(request.getId()))
                         .build()));
+    }
+
+    // Protobuf-сеттеры строк кидают NPE на null, а message.text, message.time_stamp,
+    // users.name/image_url и chat.title в схеме nullable. Одна битая строка не должна
+    // ронять весь gRPC-вызов: пустая строка — это и есть protobuf-дефолт для string.
+    private static String orEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String isoOrEmpty(java.time.Instant timestamp) {
+        return timestamp == null ? "" : timestamp.toString();
     }
 }
