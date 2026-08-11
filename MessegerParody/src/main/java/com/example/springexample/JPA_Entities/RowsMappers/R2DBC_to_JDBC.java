@@ -31,7 +31,8 @@ public class R2DBC_to_JDBC {
         Message message = new Message();
         message.setId(rmessage.getId());
         message.setText(rmessage.getText());
-        message.setTime_stamp(rmessage.getTimeStamp().toString());
+        // Симметрично null-safety в ReactiveImpl: time_stamp бывает NULL у легаси-строк.
+        message.setTime_stamp(rmessage.getTimeStamp() == null ? "" : rmessage.getTimeStamp().toString());
         Message messageEntity = messageRepBase.findById(rmessage.getId()).orElseThrow(() -> new RuntimeException("No messages found"));;
         message.setUser_id(messageEntity.getUser_id());
         message.setChat(messageEntity.getChat());
