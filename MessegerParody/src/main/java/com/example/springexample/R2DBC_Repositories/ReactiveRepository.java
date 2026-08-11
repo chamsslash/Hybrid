@@ -119,10 +119,12 @@ public class ReactiveRepository {
         // поэтому строка без времени всегда выигрывала бы "самое новое" и превью
         // чата показывало бы не то сообщение. NULL здесь означает "время неизвестно"
         // (легаси-строки), такие сообщения не должны считаться самыми свежими.
+        // Тай-брейк по id: при равных time_stamp (в частности у всех легаси-строк
+        // с NULL) порядок иначе недетерминирован между запросами.
         String sql = """
             SELECT * FROM message
             WHERE chat_id = $1
-            ORDER BY time_stamp DESC NULLS LAST
+            ORDER BY time_stamp DESC NULLS LAST, id DESC
             LIMIT 1
         """;
 
@@ -136,7 +138,9 @@ public class ReactiveRepository {
         // Симметрично findTopByChatIdOrderByTimestampDesc: NULL = "время неизвестно",
         // такие строки самые старые, поэтому в начало истории (ASC по умолчанию в
         // Postgres ставит NULL последними, т.е. выдавал бы их за самые свежие).
-        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC NULLS FIRST";
+        // Тай-брейк по id: при равных time_stamp (в частности у всех легаси-строк
+        // с NULL) порядок иначе недетерминирован между запросами.
+        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC NULLS FIRST, id ASC";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> MessageMapper.map(row))

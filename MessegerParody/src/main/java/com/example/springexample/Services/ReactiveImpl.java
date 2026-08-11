@@ -182,7 +182,20 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
     public Mono<DataTransferService.ListOfMessages> transferAllMessages(DataTransferService.ChatData request) {
 
         return customReactiveRepository.getMessagesByChatId(request.getChatId())
-                .flatMap(msg -> {
+                // flatMapSequential, а НЕ flatMap: репозиторий отдаёт Flux строго в порядке
+                // time_stamp ASC, но внутри лямбды на каждое сообщение идут 2 независимых
+                // запроса в БД (user, chat) с разной латентностью. Обычный flatMap эмитит
+                // результаты по мере готовности внутренних Mono, из-за чего collectList()
+                // ниже собрал бы историю чата в перемешанном порядке. flatMapSequential
+                // сохраняет параллелизм запросов, но буферизует и отдаёт результаты в том
+                // порядке, в котором сообщения пришли из исходного Flux.
+                .flatMapSequential(msg -> {
+                    if (msg.getUserId() == null || msg.getChatId() == null) {
+                        log.warn("Пропускаю сообщение id={} chatId={}: user_id или chat_id не заполнены",
+                                msg.getId(), msg.getChatId());
+                        return Mono.empty();
+                    }
+
                     Mono<r2dbc_user> userMono = reactiveUserRepository.findById(msg.getUserId());
                     Mono<r2dbc_chat> chatMono = reactiveChatRepository.findById(msg.getChatId());
 
@@ -201,12 +214,21 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .setTimestamp(isoOrEmpty(msg.getTimeStamp()))
                                         .setImageUrl(orEmpty(user.getImageUrl()))
                                         .build();
+                            })
+                            // Битые данные одного сообщения (например user_id_id ссылается на
+                            // несуществующего пользователя) не должны обнулять всю историю чата —
+                            // пропускаем только это сообщение, а не весь Flux.
+                            .onErrorResume(e -> {
+                                log.warn("Не удалось собрать сообщение id={} chatId={}: {}",
+                                        msg.getId(), msg.getChatId(), e.getMessage());
+                                return Mono.empty();
                             });
                 })
                 .collectList()
                 .map(messageList -> DataTransferService.ListOfMessages.newBuilder()
                         .addAllMessageList(messageList)
                         .build())
+                // Страховка на случай фатальной ошибки всего потока (например обрыв соединения с БД).
                 .onErrorResume(e -> {
                     log.error("transferAllMessages failed for chat {}", request.getChatId(), e);
                     return Mono.just(DataTransferService.ListOfMessages.getDefaultInstance());
