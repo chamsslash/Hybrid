@@ -142,20 +142,24 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                 .flatMap(chat -> customReactiveRepository.findTopByChatIdOrderByTimestampDesc(chat.getId())
                         .flatMap(message -> reactiveUserRepository.findById(message.getUserId())
                                 .map(user -> DataTransferService.Message.newBuilder()
-                                        .setUserName(user.getName())
-                                        .setChatName(chat.getTitle())
-                                        .setText(message.getText())
+                                        .setUserName(orEmpty(user.getName()))
+                                        .setChatName(orEmpty(chat.getTitle()))
+                                        .setText(orEmpty(message.getText()))
                                         .setId(message.getId())
-                                        .setTimestamp(message.getTimeStamp())
+                                        .setTimestamp(isoOrEmpty(message.getTimeStamp()))
                                         .setChatId(chat.getId())
                                         .setUserId(user.getId())
-                                        .setImageUrl(user.getImageUrl())
+                                        .setImageUrl(orEmpty(user.getImageUrl()))
                                         .build()))
                         .switchIfEmpty(Mono.just(DataTransferService.Message.newBuilder()
                                 .setChatId(chat.getId())
-                                .setChatName(chat.getTitle())
+                                .setChatName(orEmpty(chat.getTitle()))
                                 .build())))
-                .switchIfEmpty(Mono.just(DataTransferService.Message.getDefaultInstance()));
+                .switchIfEmpty(Mono.just(DataTransferService.Message.getDefaultInstance()))
+                .onErrorResume(e -> {
+                    log.error("getnewest failed for chat {}", chatId, e);
+                    return Mono.just(DataTransferService.Message.getDefaultInstance());
+                });
     }
 
     @Override
@@ -178,7 +182,20 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
     public Mono<DataTransferService.ListOfMessages> transferAllMessages(DataTransferService.ChatData request) {
 
         return customReactiveRepository.getMessagesByChatId(request.getChatId())
-                .flatMap(msg -> {
+                // flatMapSequential, а НЕ flatMap: репозиторий отдаёт Flux строго в порядке
+                // time_stamp ASC, но внутри лямбды на каждое сообщение идут 2 независимых
+                // запроса в БД (user, chat) с разной латентностью. Обычный flatMap эмитит
+                // результаты по мере готовности внутренних Mono, из-за чего collectList()
+                // ниже собрал бы историю чата в перемешанном порядке. flatMapSequential
+                // сохраняет параллелизм запросов, но буферизует и отдаёт результаты в том
+                // порядке, в котором сообщения пришли из исходного Flux.
+                .flatMapSequential(msg -> {
+                    if (msg.getUserId() == null || msg.getChatId() == null) {
+                        log.warn("Пропускаю сообщение id={} chatId={}: user_id или chat_id не заполнены",
+                                msg.getId(), msg.getChatId());
+                        return Mono.empty();
+                    }
+
                     Mono<r2dbc_user> userMono = reactiveUserRepository.findById(msg.getUserId());
                     Mono<r2dbc_chat> chatMono = reactiveChatRepository.findById(msg.getChatId());
 
@@ -189,20 +206,33 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
 
                                 return DataTransferService.Message.newBuilder()
                                         .setId(msg.getId())
-                                        .setUserName(user.getName())
+                                        .setUserName(orEmpty(user.getName()))
                                         .setUserId(user.getId())
-                                        .setText(msg.getText())
+                                        .setText(orEmpty(msg.getText()))
                                         .setChatId(chat.getId())
-                                        .setChatName(chat.getTitle()) // если надо
-                                        .setTimestamp(msg.getTimeStamp())
-                                        .setImageUrl(user.getImageUrl())
+                                        .setChatName(orEmpty(chat.getTitle())) // если надо
+                                        .setTimestamp(isoOrEmpty(msg.getTimeStamp()))
+                                        .setImageUrl(orEmpty(user.getImageUrl()))
                                         .build();
+                            })
+                            // Битые данные одного сообщения (например user_id_id ссылается на
+                            // несуществующего пользователя) не должны обнулять всю историю чата —
+                            // пропускаем только это сообщение, а не весь Flux.
+                            .onErrorResume(e -> {
+                                log.warn("Не удалось собрать сообщение id={} chatId={}: {}",
+                                        msg.getId(), msg.getChatId(), e.getMessage());
+                                return Mono.empty();
                             });
                 })
                 .collectList()
                 .map(messageList -> DataTransferService.ListOfMessages.newBuilder()
                         .addAllMessageList(messageList)
-                        .build());
+                        .build())
+                // Страховка на случай фатальной ошибки всего потока (например обрыв соединения с БД).
+                .onErrorResume(e -> {
+                    log.error("transferAllMessages failed for chat {}", request.getChatId(), e);
+                    return Mono.just(DataTransferService.ListOfMessages.getDefaultInstance());
+                });
     }
 
 
@@ -246,5 +276,16 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                 .switchIfEmpty(Mono.just(DataTransferService.DriveUrl.newBuilder()
                         .setChatId(String.valueOf(request.getId()))
                         .build()));
+    }
+
+    // Protobuf-сеттеры строк кидают NPE на null, а message.text, message.time_stamp,
+    // users.name/image_url и chat.title в схеме nullable. Одна битая строка не должна
+    // ронять весь gRPC-вызов: пустая строка — это и есть protobuf-дефолт для string.
+    private static String orEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String isoOrEmpty(java.time.Instant timestamp) {
+        return timestamp == null ? "" : timestamp.toString();
     }
 }

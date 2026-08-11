@@ -2,6 +2,7 @@ import api from "/axios.js";
 import { ensureAccessToken } from "/auth.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
+import { formatMessageTimestamp } from "/timestamp_format.js";
 
 // === SPA-вью страницы чата (beads 55/57/58) ===
 // id/title — из params роутера (mount(params)), данные — из /api/chat, STOMP — c access-токеном.
@@ -67,7 +68,7 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
             <strong>${username || 'anon'}</strong>
             <strong>ID: ${senderId || 'anon'}</strong>
             <span style="float: right; font-size: 12px; color: #999;">
-                ${timestamp || new Date().toISOString()}
+                ${formatMessageTimestamp(timestamp)}
             </span>
         </div>
         <div><span>${text}</span></div>
@@ -148,13 +149,9 @@ function sendChatMessage() {
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
     if (!text) return;
-    const date = new Date();
-    const options = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' };
-    const formatted = date.toLocaleString('ru-RU', options);
     const message = {
         username: user_name,
         chat_id: chat_id,
-        timestamp: formatted,
         user_id: user_id,
         text: text,
         imageurl: user_image

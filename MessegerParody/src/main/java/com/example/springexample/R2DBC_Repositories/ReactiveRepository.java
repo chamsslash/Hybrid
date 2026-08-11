@@ -100,7 +100,14 @@ public class ReactiveRepository {
     // Если id - это первичный ключ, то более корректно ожидать один результат (или ни одного).
     // Метод переименован в findChatById и возвращает Mono для ясности намерений.
     public Mono<r2dbc_chat> findChatById(Long chatId) {
-        String sql = "SELECT * FROM chats WHERE id = $1 LIMIT 1";
+        // Была опечатка "chats" (множественное число) — реальная таблица называется
+        // "chat". Запрос всегда падал в switchIfEmpty/onErrorResume вызывающего кода
+        // (ReactiveImpl.transferchat), из-за чего просмотр УЖЕ СУЩЕСТВУЮЩЕГО чата
+        // (не создание нового) всегда получал status=500 -> ApiController.chat()
+        // пропускал загрузку истории сообщений по короткому замыканию на этом статусе.
+        // Обнаружено при живой верификации 5l4 (Task 6) — история сообщений не
+        // грузилась даже при корректно сохранённых в БД сообщениях.
+        String sql = "SELECT * FROM chat WHERE id = $1 LIMIT 1";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> ChatMapper.map(row))
@@ -108,10 +115,16 @@ public class ReactiveRepository {
     }
 
     public Mono<r2dbc_message> findTopByChatIdOrderByTimestampDesc(Long chatId) {
+        // NULLS LAST обязателен: в Postgres DESC по умолчанию ставит NULL первыми,
+        // поэтому строка без времени всегда выигрывала бы "самое новое" и превью
+        // чата показывало бы не то сообщение. NULL здесь означает "время неизвестно"
+        // (легаси-строки), такие сообщения не должны считаться самыми свежими.
+        // Тай-брейк по id: при равных time_stamp (в частности у всех легаси-строк
+        // с NULL) порядок иначе недетерминирован между запросами.
         String sql = """
             SELECT * FROM message
             WHERE chat_id = $1
-            ORDER BY time_stamp DESC
+            ORDER BY time_stamp DESC NULLS LAST, id DESC
             LIMIT 1
         """;
 
@@ -122,7 +135,12 @@ public class ReactiveRepository {
     }
 
     public Flux<r2dbc_message> getMessagesByChatId(Long chatId) {
-        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC";
+        // Симметрично findTopByChatIdOrderByTimestampDesc: NULL = "время неизвестно",
+        // такие строки самые старые, поэтому в начало истории (ASC по умолчанию в
+        // Postgres ставит NULL последними, т.е. выдавал бы их за самые свежие).
+        // Тай-брейк по id: при равных time_stamp (в частности у всех легаси-строк
+        // с NULL) порядок иначе недетерминирован между запросами.
+        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC NULLS FIRST, id ASC";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> MessageMapper.map(row))
@@ -143,5 +161,15 @@ public class ReactiveRepository {
                 .bind(0, userId)
                 .map((row, meta) -> row.get("image_url", String.class))
                 .one();
+    }
+
+    public Mono<Void> insertMessage(Long chatId, Long userId, String text, java.time.Instant timestamp) {
+        String sql = "INSERT INTO message (chat_id, user_id_id, text, time_stamp) VALUES ($1, $2, $3, $4)";
+        return reactiveDb.sql(sql)
+                .bind(0, chatId)
+                .bind(1, userId)
+                .bind(2, text)
+                .bind(3, timestamp)
+                .then();
     }
 }

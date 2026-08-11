@@ -1,0 +1,55 @@
+databaseChangeLog:
+  # VARCHAR не сортируется хронологически для локально-форматированных строк вида "01 авг., 18:08" —
+  # TIMESTAMPTZ сортируется корректно и генерируется на сервере (не доверяем часам браузера клиента).
+  # Вопреки исходному предположению об этой миграции, таблица message на проде НЕ гарантированно
+  # пуста — легаси-строки вида "01 авг., 18:08" реальны (старый фронтенд слал клиентский формат).
+  # Postgres сгенерирует ALTER COLUMN ... TYPE TIMESTAMPTZ USING (time_stamp::TIMESTAMPTZ), и каст
+  # упадёт на первом же нераспознаваемом значении -> Liquibase бросит при старте -> под
+  # MessegerParody уйдёт в CrashLoopBackOff. Поэтому перед modifyDataType зануляем значения,
+  # которые Postgres не распознает как timestamp (не начинаются с "YYYY-").
+  #
+  # sqlCheck на data_type ОБЯЗАТЕЛЕН, и вот почему: оператор регулярного выражения !~ существует
+  # только для текстовых типов. Если колонка УЖЕ TIMESTAMPTZ (окружение, где эта миграция уже
+  # отработала, либо где починен Hybrid-kubernetes-non-local-fwt), то UPDATE ниже упадёт с
+  # "operator does not exist: timestamp with time zone !~ unknown" -> Liquibase бросит при старте
+  # -> тот самый CrashLoopBackOff, ради предотвращения которого этот changeSet и добавлялся.
+  # С проверкой типа changeSet просто помечается MARK_RAN: нормализовать нечего, колонка уже
+  # конвертирована. Проверено напрямую в psql, не предположение.
+  - changeSet:
+      id: messenger-003-message-timestamp-tz-normalize-legacy
+      author: claude
+      preConditions:
+        - onFail: MARK_RAN
+        - columnExists:
+            tableName: message
+            columnName: time_stamp
+        - sqlCheck:
+            expectedResult: 1
+            sql: |
+              SELECT count(*) FROM information_schema.columns
+              WHERE table_name = 'message'
+                AND column_name = 'time_stamp'
+                AND data_type = 'character varying'
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            stripComments: true
+            sql: |
+              UPDATE message
+              SET time_stamp = NULL
+              WHERE time_stamp IS NOT NULL
+                AND time_stamp !~ '^\d{4}-';
+  - changeSet:
+      id: messenger-003-message-timestamp-tz
+      author: claude
+      preConditions:
+        - onFail: MARK_RAN
+        - columnExists:
+            tableName: message
+            columnName: time_stamp
+      changes:
+        - modifyDataType:
+            tableName: message
+            columnName: time_stamp
+            newDataType: TIMESTAMPTZ

@@ -43,6 +43,14 @@ public class ReactiveGrpcClient {
 
     }
 
+    public Mono<List<String>> reactiveGetAllIdsByChatId(DataTransferService.ChatData chatData) {
+        grpcRequestsMetric.increment();
+        return reactiveTransferServiceStub.getAllUsersByChatId(chatData)
+                .map(users->users.getUsersList().stream()
+                        .map(userdata->String.valueOf(userdata.getId()))
+                        .collect(Collectors.toList()));
+    }
+
     public Mono<ShortChatObject> reactiveGetNewestMessage(DataTransferService.ChatData chatData) {
         grpcRequestsMetric.increment();
         return  reactiveTransferServiceStub.getnewest(chatData).map(message -> {
