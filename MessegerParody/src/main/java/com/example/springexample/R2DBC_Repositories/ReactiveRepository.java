@@ -115,10 +115,14 @@ public class ReactiveRepository {
     }
 
     public Mono<r2dbc_message> findTopByChatIdOrderByTimestampDesc(Long chatId) {
+        // NULLS LAST обязателен: в Postgres DESC по умолчанию ставит NULL первыми,
+        // поэтому строка без времени всегда выигрывала бы "самое новое" и превью
+        // чата показывало бы не то сообщение. NULL здесь означает "время неизвестно"
+        // (легаси-строки), такие сообщения не должны считаться самыми свежими.
         String sql = """
             SELECT * FROM message
             WHERE chat_id = $1
-            ORDER BY time_stamp DESC
+            ORDER BY time_stamp DESC NULLS LAST
             LIMIT 1
         """;
 
@@ -129,7 +133,10 @@ public class ReactiveRepository {
     }
 
     public Flux<r2dbc_message> getMessagesByChatId(Long chatId) {
-        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC";
+        // Симметрично findTopByChatIdOrderByTimestampDesc: NULL = "время неизвестно",
+        // такие строки самые старые, поэтому в начало истории (ASC по умолчанию в
+        // Postgres ставит NULL последними, т.е. выдавал бы их за самые свежие).
+        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC NULLS FIRST";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> MessageMapper.map(row))
