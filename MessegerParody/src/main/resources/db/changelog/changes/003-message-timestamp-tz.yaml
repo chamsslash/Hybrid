@@ -1,8 +1,30 @@
 databaseChangeLog:
-  # Таблица message гарантированно пуста на момент этой миграции (Kafka-консьюмер персистентности
-  # никогда не был реализован до этого коммита) — данных для конвертации нет, чистый modifyDataType.
   # VARCHAR не сортируется хронологически для локально-форматированных строк вида "01 авг., 18:08" —
   # TIMESTAMPTZ сортируется корректно и генерируется на сервере (не доверяем часам браузера клиента).
+  # Вопреки исходному предположению об этой миграции, таблица message на проде НЕ гарантированно
+  # пуста — легаси-строки вида "01 авг., 18:08" реальны (старый фронтенд слал клиентский формат).
+  # Postgres сгенерирует ALTER COLUMN ... TYPE TIMESTAMPTZ USING (time_stamp::TIMESTAMPTZ), и каст
+  # упадёт на первом же нераспознаваемом значении -> Liquibase бросит при старте -> под
+  # MessegerParody уйдёт в CrashLoopBackOff. Поэтому перед modifyDataType зануляем значения,
+  # которые Postgres не распознает как timestamp (не начинаются с "YYYY-").
+  - changeSet:
+      id: messenger-003-message-timestamp-tz-normalize-legacy
+      author: claude
+      preConditions:
+        - onFail: MARK_RAN
+        - columnExists:
+            tableName: message
+            columnName: time_stamp
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            stripComments: true
+            sql: |
+              UPDATE message
+              SET time_stamp = NULL
+              WHERE time_stamp IS NOT NULL
+                AND time_stamp !~ '^\d{4}-';
   - changeSet:
       id: messenger-003-message-timestamp-tz
       author: claude

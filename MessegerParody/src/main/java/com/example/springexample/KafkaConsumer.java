@@ -42,15 +42,25 @@ public class KafkaConsumer {
 
     // attempts="7" = 1 исходная попытка + 6 ретраев (initial 1s, x2, max 10s) — после исчерпания
     // запись уходит в топик "Messages-dlt" (дефолтный суффикс), не теряется молча (beads 5l4).
-    @RetryableTopic(attempts = "7", backoff = @Backoff(delay = 1000, multiplier = 2, maxDelay = 10000))
+    // exclude: ошибки парсинга мусорного payload (Long.parseLong/Instant.parse/JSON) детерминированы
+    // и никогда не станут успешными на повторной попытке — гонять их через все 7 ретраев (~35 c)
+    // бессмысленно, такие сообщения должны уходить в DLT сразу.
+    @RetryableTopic(attempts = "7", backoff = @Backoff(delay = 1000, multiplier = 2, maxDelay = 10000),
+            exclude = {NumberFormatException.class, java.time.format.DateTimeParseException.class,
+                    NullPointerException.class, com.google.gson.JsonSyntaxException.class})
     @KafkaListener(topics = "Messages")
     public void listenChatMessages(String message) {
         ChatMessageDTO dto = gson.fromJson(message, ChatMessageDTO.class);
+        // Таймаут обязателен: дефолтный r2dbc-пул на acquire — без таймаута. Если пул
+        // исчерпан или Postgres завис, .block() без таймаута никогда не вернётся,
+        // единственный поток контейнера перестанет вызывать poll(), и через
+        // max.poll.interval.ms консьюмер выпадет из группы (бесконечный ребаланс,
+        // топик "Messages" перестанет потребляться, при этом под останется Ready).
         reactiveRepository.insertMessage(
                 Long.parseLong(dto.getChat_id()),
                 Long.parseLong(dto.getUser_id()),
                 dto.getText(),
                 Instant.parse(dto.getTimestamp())
-        ).block();
+        ).block(java.time.Duration.ofSeconds(15));
     }
 }

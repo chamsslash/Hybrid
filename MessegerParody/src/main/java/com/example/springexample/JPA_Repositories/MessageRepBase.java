@@ -20,10 +20,12 @@ public interface MessageRepBase extends JpaRepository<Message
 
     Optional<Message
 > getMessageById(Long id);
+    // NULLS LAST + тай-брейк по id: симметрично зафиксированному инварианту в
+    // ReactiveRepository ("NULL — не самое свежее"), см. FIX 3.
     @Query(value = """
-    SELECT * FROM message 
+    SELECT * FROM message
     WHERE chat_id = :chatId
-    ORDER BY time_stamp DESC
+    ORDER BY time_stamp DESC NULLS LAST, id DESC
     LIMIT 1
 """, nativeQuery = true)
     r2dbc_message

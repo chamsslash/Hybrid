@@ -2,6 +2,7 @@ import api from "/axios.js";
 import { ensureAccessToken } from "/auth.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
+import { formatMessageTimestamp } from "/timestamp_format.js";
 
 // === SPA-вью страницы чата (beads 55/57/58) ===
 // id/title — из params роутера (mount(params)), данные — из /api/chat, STOMP — c access-токеном.
@@ -52,13 +53,6 @@ function avatarHtml(key) {
     return key && key !== 'pending'
         ? `<img src="/api/images/${key}" alt="chat avatar" class="chat-avatar">`
         : `<img src="/images/rofl-cat.jpg" alt="chat avatar" class="chat-avatar">`;
-}
-
-function formatMessageTimestamp(isoTimestamp) {
-    if (!isoTimestamp) return '';
-    const date = new Date(isoTimestamp);
-    if (Number.isNaN(date.getTime())) return isoTimestamp;
-    return date.toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url }) {
