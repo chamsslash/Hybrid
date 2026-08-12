@@ -36,7 +36,11 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Liquibase — единственный владелец схемы (Hybrid-kubernetes-non-local-fwt).
+      # validate, а не none: none просто отнимает право на запись, а validate
+      # вдобавок валит под на старте при расхождении сущности со схемой —
+      # то есть ловит дрейф сразу, а не через недели тихой поломки.
+      ddl-auto: validate
     show-sql: true
     properties:
       hibernate:
