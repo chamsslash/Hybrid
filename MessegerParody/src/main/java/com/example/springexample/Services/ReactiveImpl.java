@@ -215,7 +215,7 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .setImageUrl(orEmpty(user.getImageUrl()))
                                         .build();
                             })
-                            // Битые данные одного сообщения (например user_id_id ссылается на
+                            // Битые данные одного сообщения (например user_id ссылается на
                             // несуществующего пользователя) не должны обнулять всю историю чата —
                             // пропускаем только это сообщение, а не весь Flux.
                             .onErrorResume(e -> {

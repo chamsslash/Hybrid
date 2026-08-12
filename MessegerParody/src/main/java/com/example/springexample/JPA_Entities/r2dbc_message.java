@@ -22,9 +22,7 @@ public class r2dbc_message {
     @Column("time_stamp")
     private Instant timeStamp;
 
-    // Фактическое имя колонки — user_id_id (см. MessageMapper.map, ReactiveRepository.insertMessage):
-    // создано дрейфом Hibernate ddl-auto vs Liquibase-декларации (тикет Hybrid-kubernetes-non-local-fwt).
-    @Column("user_id_id")
+    @Column("user_id")
     private Long userId;
 
     @Column("chat_id")
