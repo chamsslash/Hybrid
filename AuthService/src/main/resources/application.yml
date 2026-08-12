@@ -43,7 +43,11 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Второй писатель схемы на ту же hybrid_db. Liquibase живёт в MessegerParody
+      # и остаётся единственным владельцем: сюда его добавлять нельзя, два
+      # мигратора на одной БД воспроизвели бы ту же болезнь.
+      # См. Hybrid-kubernetes-non-local-fwt.
+      ddl-auto: validate
       show-sql: true
     properties:
       hibernate:

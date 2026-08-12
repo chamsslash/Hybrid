@@ -4,7 +4,14 @@ kind: Job
 metadata:
   name: messegerparody-liquibase
   annotations:
-    "helm.sh/hook": post-install,post-upgrade
+    # post-install (не pre-install): postgres — обычный шаблон умбрелла-чарта
+    # (Helm/templates/postgres.yaml), на pre-install его ещё не существует и
+    # initContainer wait-for-postgres ждал бы вечно.
+    # pre-upgrade (не post-upgrade): миграция обязана пройти ДО старта новых
+    # подов. При post-upgrade новый код успевал поработать на старой схеме, а
+    # Hibernate ddl-auto успевал создать схему раньше Liquibase — отсюда
+    # MARK_RAN у 001-init. См. Hybrid-kubernetes-non-local-fwt.
+    "helm.sh/hook": post-install,pre-upgrade
     "helm.sh/hook-weight": "0"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
