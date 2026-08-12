@@ -25,13 +25,13 @@ artifactId — `DatabaseModule` (исторический, не переимен
 В сервисе одновременно живут два стека доступа к Postgres — это не случайность,
 а разделение по путям использования:
 
-- **JPA (блокирующий), пакеты `JPA_Entities` / `JPA_Repositories`.**
-  Реально используется только `UserRepBase` — в `ImageUrlPersistenceService`,
-  для записи `image_url` пользователя, когда Kafka-событие приходит с
-  `targetType=userimage`. `ChatRepBase` и `MessageRepBase` объявлены и
-  используются вспомогательным классом `R2DBC_to_JDBC` (пакет
-  `JPA_Entities/RowsMappers`), но сам этот класс нигде не инжектится —
-  фактически не участвует в рантайм-потоках сервиса.
+- **JPA (блокирующий).** Ровно одна JPA-сущность — `JPA_Entities/User.java` —
+  и ровно один JPA-репозиторий — `JPA_Repositories/UserRepBase.java`.
+  Используется в `ImageUrlPersistenceService`, для записи `image_url`
+  пользователя, когда Kafka-событие приходит с `targetType=userimage`.
+  `ChatRepBase`, `MessageRepBase` и вспомогательный класс `R2DBC_to_JDBC`
+  (пакет `JPA_Entities/RowsMappers`) были мёртвым кодом (объявлены, но нигде
+  не инжектились) и удалены в ветке `fix/schema-source-of-truth`.
 - **R2DBC (реактивный), пакеты `JPA_Entities` (`r2dbc_*`) /
   `R2DBC_Repositories`.** Основной путь для gRPC (`ReactiveImpl` целиком
   работает через `ReactiveRepository`, `ReactiveUserRepository`,
@@ -89,35 +89,65 @@ artifactId — `DatabaseModule` (исторический, не переимен
 ## Liquibase-миграции
 
 Master-changelog: `src/main/resources/db/changelog/db.changelog-master.yaml`,
-подключает по порядку:
+подключает baseline `changes/v1/` — организация по релизам (следующий релиз
+добавляет `changes/v2/`, не трогая `v1/`), четыре файла, 9 changeSet'ов
+суммарно:
 
-1. `changes/001-init.yaml` — создание таблиц `chat`, `message`, `user_chat`
-   (FK на `chat`/`users`), с `preConditions: onFail: MARK_RAN` по
-   `tableExists`, то есть идемпотентно на уже существующей схеме. Таблица
-   `users` этим changelog'ом не создаётся и в репозитории вообще нет
-   Liquibase-миграции, которая бы её создавала: строку заводит Hibernate
-   через `spring.jpa.hibernate.ddl-auto: update` в AuthService (JPA-сущность
-   `AuthService/.../JPA_Entities/User.java`, `@Table(name = "users")`). FK на
-   `users` из `message`/`user_chat` в MessegerParody полагаются на то, что
-   AuthService к моменту прогона джобы уже создал таблицу.
-2. `changes/002-normalize-legacy-image-url.yaml` — разовая нормализация
-   legacy-данных: раньше в колонку `image_url` (и `users`, и `chat`) писался
-   сырой Base64, а не короткий MinIO object key. Changeset обнуляет значения
-   длиннее 255 символов или похожие на Base64-блоб (regex
-   `^[A-Za-z0-9+/=]{200,}$`), не меняя тип колонки. SQL идемпотентен —
-   повторный прогон не находит уже обнулённых строк.
+1. `changes/v1/001-create-users.yaml` (1 changeSet) — создаёт `users`. Раньше
+   эту таблицу заводил Hibernate через `spring.jpa.hibernate.ddl-auto: update`
+   в AuthService; теперь Liquibase — единственный владелец, а Hibernate в
+   обоих JPA-сервисах (AuthService, MessegerParody) переведён в `validate` и
+   прав на DDL не имеет.
+2. `changes/v1/002-create-chat.yaml` (1 changeSet) — создаёт `chat`.
+3. `changes/v1/003-create-message.yaml` (3 changeSet'а) — создаёт `message`
+   (колонка `user_id`, не `user_id_id` — старое имя было артефактом
+   Hibernate-нейминга для `@ManyToOne User user_id` в удалённой сущности
+   `Message.java`; `time_stamp` сразу `TIMESTAMP WITH TIME ZONE`, так как
+   откатывать её в `VARCHAR` больше некому — ни на `message`, ни где-либо ещё
+   в дереве нет `@Entity`, которая бы на неё отображалась) и FK на
+   `users`/`chat`.
+4. `changes/v1/004-create-user-chat.yaml` (4 changeSet'а) — создаёт
+   `user_chat`, составной PK и FK на `users`/`chat`.
+
+Ни один из changeSet'ов **не** имеет `preConditions` — это осознанное решение,
+не упущение: `preConditions` дали бы `MARK_RAN` на уже существующей легаси-
+схеме (с `user_id_id`, `VARCHAR` вместо `TIMESTAMPTZ`) и воспроизвели бы
+исходный баг вместо его устранения. Из этого есть прямое эксплуатационное
+следствие — см. «Переход на baseline v1: обязательный сброс БД» ниже.
 
 **Как реально накатываются миграции:** основной под сервиса стартует с
 `spring.liquibase.enabled: false` (`application.yml`) — Liquibase в нём
 выключен. Миграции применяет **отдельный Helm-job**
 (`Helm/charts/messegerparody/templates/liquibase-job.yaml`, хуки
-`post-install,post-upgrade`), который поднимает тот же образ с
+`post-install,pre-upgrade`), который поднимает тот же образ с
 `--spring.profiles.active=liquibase`. Профиль `liquibase` подключает
 `application-liquibase.yml` (`spring.liquibase.enabled: true`) и активирует
 бин `config/LiquibaseExitOnReady`, который по `ApplicationReadyEvent`
 завершает процесс (`SpringApplication.exit` + `System.exit(0)`) — то есть джоба
 именно "применить миграции и выйти", а не постоянно живущий под. Джоба
 предваряется init-контейнером, ждущим `pg_isready`.
+
+### Переход на baseline v1: обязательный сброс БД
+
+Если под postgres в кластере уже жив со старыми данными (легаси-схема до
+этой ветки), `pre-upgrade`-джоба Liquibase упадёт: `changes/v1/001-create-users.yaml`
+выполнит `CREATE TABLE users`, получит `relation "users" already exists"` (это
+ожидаемо — changeSet'ы намеренно без `preConditions`, см. выше),
+`backoffLimit: 1` джобы исчерпается, и `helm upgrade` завершится с ошибкой.
+`deploy-kind.sh` при этом ретраит `helm upgrade` трижды с сообщением "likely
+ingress-webhook race" — это маскирует настоящую причину, если она в этом.
+
+Поэтому при первом переходе существующего кластера на baseline v1 нужно
+**один раз вручную сбросить БД**. `postgres` в `Helm/templates/postgres.yaml`
+монтирует `emptyDir: {}` (строка 53), а не PVC — данные не переживают
+пересоздание пода, так что сброс сводится к:
+
+```bash
+kubectl delete pod -n hybrid-platform -l app=postgres
+```
+
+После этого под пересоздаётся с пустым `emptyDir`, и следующий прогон
+Liquibase-джобы создаёт схему с нуля по `changes/v1/`.
 
 ## Конфигурация и деплой
 
