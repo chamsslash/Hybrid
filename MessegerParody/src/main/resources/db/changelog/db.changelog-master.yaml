@@ -1,7 +1,19 @@
 databaseChangeLog:
+  # Baseline v1. Liquibase — единственный владелец схемы hybrid_db
+  # (Hibernate ddl-auto переведён в validate в обоих JPA-сервисах).
+  # Организация по релизам — рекомендация Liquibase bestpractices:
+  # следующий релиз добавляет changes/v2/, не трогая v1.
+  #
+  # Прежние 001-init / 002-normalize-legacy-image-url / 003-message-timestamp-tz
+  # свёрнуты сюда и удалены: их декларации разошлись с фактической схемой
+  # (001-init числился MARK_RAN и объявлял message.user_id при реальном
+  # user_id_id), а 002 нормализовал легаси-данные, которых на свежей БД нет.
+  # История изменений остаётся в git.
   - include:
-      file: db/changelog/changes/001-init.yaml
+      file: db/changelog/changes/v1/001-create-users.yaml
   - include:
-      file: db/changelog/changes/002-normalize-legacy-image-url.yaml
+      file: db/changelog/changes/v1/002-create-chat.yaml
   - include:
-      file: db/changelog/changes/003-message-timestamp-tz.yaml
+      file: db/changelog/changes/v1/003-create-message.yaml
+  - include:
+      file: db/changelog/changes/v1/004-create-user-chat.yaml

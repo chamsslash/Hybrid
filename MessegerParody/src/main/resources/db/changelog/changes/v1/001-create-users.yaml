@@ -1,0 +1,38 @@
+databaseChangeLog:
+  # Таблица users впервые попадает под управление Liquibase: до этого её целиком
+  # создавал Hibernate ddl-auto, при том что changeSet 002 уже делал по ней UPDATE
+  # (Liquibase правил данные в таблице, о существовании которой не знал).
+  # См. Hybrid-kubernetes-non-local-fwt.
+  - changeSet:
+      id: v1-001-create-users
+      author: claude
+      changes:
+        - createTable:
+            tableName: users
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_users
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+              - column:
+                  name: myapppassword
+                  type: VARCHAR(255)
+              - column:
+                  name: image_url
+                  type: VARCHAR(255)
+              - column:
+                  name: user_role
+                  type: VARCHAR(255)
+              - column:
+                  name: google_sub
+                  type: VARCHAR(255)
+      rollback:
+        - dropTable:
+            tableName: users

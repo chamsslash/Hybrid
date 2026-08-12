@@ -1,0 +1,61 @@
+databaseChangeLog:
+  - changeSet:
+      id: v1-004-create-user-chat
+      author: claude
+      changes:
+        - createTable:
+            tableName: user_chat
+            columns:
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: chat_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: user_chat
+  - changeSet:
+      id: v1-004-user-chat-pk
+      author: claude
+      changes:
+        - addPrimaryKey:
+            tableName: user_chat
+            columnNames: user_id, chat_id
+            constraintName: pk_user_chat
+      rollback:
+        - dropPrimaryKey:
+            tableName: user_chat
+            constraintName: pk_user_chat
+  - changeSet:
+      id: v1-004-user-chat-fk-user
+      author: claude
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_user_chat_user
+            baseTableName: user_chat
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+      rollback:
+        - dropForeignKeyConstraint:
+            baseTableName: user_chat
+            constraintName: fk_user_chat_user
+  - changeSet:
+      id: v1-004-user-chat-fk-chat
+      author: claude
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_user_chat_chat
+            baseTableName: user_chat
+            baseColumnNames: chat_id
+            referencedTableName: chat
+            referencedColumnNames: id
+      rollback:
+        - dropForeignKeyConstraint:
+            baseTableName: user_chat
+            constraintName: fk_user_chat_chat
