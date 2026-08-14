@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 9 | 37 | 2 | 39 |
+| HTTPService | 12 | 46 | 2 | 48 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **16** | **62** | **4** | **66** |
+| **Итого** | **19** | **71** | **4** | **75** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -141,6 +141,27 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`routesChatCreationImageToChatimage`** — `targetType=chatimage`, id=7, JPEG → ключ `chatimage/7/<uuid>.jpg`, Kafka-событие `chatimage`.
 - **`defaultsExtensionToJpgWhenFilenameHasNoExtension`** — имя файла без расширения → ключ оканчивается `.jpg`.
 - **`propagatesStorageFailureWithoutPublishingToKafka`** — `putObject` падает → ошибка пробрасывается, в Kafka **ничего не публикуется**. Зачем: не рассылать событие о картинке, которая не сохранилась.
+
+### `Services/AppShellRenderTest` — `unit` — рендеринг SPA-шелла (Thymeleaf)
+Рендерит шаблон `app.html` через `SpringWebFluxTemplateEngine` с classloader-резолвером, без поднятия контекста Spring.
+
+- **`appShellRendersRootAndEntrypoint`** — в модель кладётся `nonce="testnonce"`, рендерится шаблон `app`. Проверяет: в HTML есть `id="app"` (корневой SPA-контейнер), `src="/app.js"` (точка входа фронтенда) и `nonce="testnonce"` (CSP nonce проброшен в `<script>`). Зачем: стережёт контракт SPA-шелла — если рендер сломается или nonce перестанет прокидываться, фронтенд не загрузится или упадёт по CSP.
+
+### `Services/CreateChatJsonResponseTest` — `reactive-unit` — success-ответ создания чата (SPA-миграция)
+`WEBFLUX_Service.createChatSuccess` — часть миграции с 303-редиректа на `/reactive/chatlist` на JSON-ответ, чтобы SPA навигировала без перезагрузки страницы. Проверяется через `ServerResponse.writeTo` в mock-exchange.
+
+- **`successReturns200JsonWithChatIdAndTitle`** — успешный ответ бэкенда с `id=42`, `title="My Chat"` → `200 OK`, `Content-Type: application/json`, тело содержит `"chatId":42` и `"title":"My Chat"`. Зачем: контракт JSON-ответа, на который завязан клиентский роутинг SPA.
+- **`successWithoutTitleReturnsOnlyChatId`** — ответ без `title` (`id=7`) → тело содержит `"chatId":7`, поле `title` отсутствует. Зачем: опциональность `title` в ответе не должна ломать сериализацию.
+
+### `Services/ChatMembershipServiceTest` — `unit` — проверка членства в чате, fail-closed (beads g9x)
+`ChatMembershipService` с замоканным `ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub`. Отвечает на вопрос «состоит ли пользователь в чате» — источник, от которого в следующих задачах зависит STOMP-интерцептор.
+
+- **`membersReturnsUsersWithIdAndUsername`** — стаб возвращает `UserListResponse` с участниками `id=7,9`. Проверяет: `members(5L)` отдаёт список из 2 `UserDataRequest` с корректными `id`/`username` (`7`/`"user-7"`). Зачем: базовый контракт метода `members()`, на который опирается всё остальное.
+- **`isMemberTrueWhenUserPresent`** — участники `7,9`, проверяем `userId="9"` → `true`. Зачем: happy path проверки членства.
+- **`isMemberFalseWhenUserAbsent`** — участники `7,9`, проверяем `userId="42"` → `false`. Зачем: базовое отрицание для отсутствующего пользователя.
+- **`isMemberFalseOnEmptyMemberList`** — gRPC вернул пустой список участников → `false`. Зачем: fail-closed — пустой список участников не должен трактоваться как «доступ всем».
+- **`isMemberFalseWhenGrpcFails`** — стаб отдаёт `Mono.error` (MessegerParody недоступен) → `false`, без исключения наружу. Зачем: fail-closed при ошибке gRPC — недоступность бэкенда не должна открывать доступ.
+- **`isMemberFalseOnTimeout`** — стаб зависает (`Mono.never()`), таймаут укорочен до 100мс через переопределение package-private `membershipTimeout()` → `false`. Зачем: fail-closed по таймауту (в проде — ровно `Duration.ofSeconds(5)`); тест не ждёт реальные 5 секунд.
 
 ### `GeminiServiceTest` — `unit` — GeminiService (миграция с Yandex GPT, beads 5fc)
 Чистые методы `GeminiService` (замена `YandexGptService` после миграции AI-assist на Google Gemini API); `model`/`apiKey` подставляются через `ReflectionTestUtils`, сетевые вызовы не выполняются.
