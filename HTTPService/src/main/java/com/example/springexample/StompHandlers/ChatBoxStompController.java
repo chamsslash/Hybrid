@@ -96,11 +96,39 @@ public class ChatBoxStompController {
                 err -> log.error("Не удалось получить участников чата {} — сообщение не отправлено", chatId, err)
         );
     }
-    @MessageMapping("/chat/user_statuses")
+    /**
+     * Личность и чат берутся из принципала и адреса, как и в HandleChatMessage (beads g9x).
+     * Глобальный канал /mutual/typing_statuses_channel удалён: на него был подписан
+     * список чатов, из-за чего любой пользователь получал события набора текста во всей
+     * системе — утечка графа общения без всякой атаки. Вместо него — веерная рассылка
+     * участникам чата на персональные адреса, уже защищённые PER_USER_PREFIXES.
+     */
+    @MessageMapping("/chat/user_statuses/{chatId}")
+    public void HandleChangeOfUserStatus(@DestinationVariable String chatId,
+                                         Principal principal,
+                                         com.example.springexample.StompHandlers.StatusUserDTO statusDto) {
+        final long chat = Long.parseLong(chatId);
+        final String senderId = principal.getName();
 
-    public void HandleChangeOfUserStatus(com.example.springexample.StompHandlers.StatusUserDTO statusDto) {
-        template.convertAndSend("/mutual/typing_statuses_channel"+statusDto.chat_id,statusDto);
-        template.convertAndSend("/mutual/typing_statuses_channel",statusDto);
+        chatMembershipService.members(chat).subscribe(
+                members -> {
+                    String username = members.stream()
+                            .filter(u -> String.valueOf(u.getId()).equals(senderId))
+                            .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername)
+                            .findFirst()
+                            .orElse(senderId);
+
+                    statusDto.setChat_id(chatId);
+                    statusDto.setUser_id(senderId);
+                    statusDto.setUser_name(username);
+
+                    template.convertAndSend("/mutual/typing/" + chatId, statusDto);
+                    for (com.example.grpc.DataTransferService.UserDataRequest member : members) {
+                        template.convertAndSend("/mutual/chatlist/typing/" + member.getId(), statusDto);
+                    }
+                },
+                err -> log.error("Не удалось получить участников чата {} — статус набора не разослан", chatId, err)
+        );
     }
     public void UploadMessageImageFromKafka(ImageUploadDTO imageUploadDTO) {
         template.convertAndSend("/mutual/chat/image_message_channel", imageUploadDTO);

@@ -109,4 +109,46 @@ class ChatBoxStompControllerTest {
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
+
+    @Test
+    void typingStatusIdentityComesFromPrincipalNotBody() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"), user(7L, "Оля"))));
+
+        StatusUserDTO forged = new StatusUserDTO();
+        forged.setUser_id("7");
+        forged.setUser_name("Оля");
+        forged.setChat_id("77");
+        forged.setStatus("START");
+
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChangeOfUserStatus("5", principal, forged);
+
+        ArgumentCaptor<StatusUserDTO> sent = ArgumentCaptor.forClass(StatusUserDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/typing/5"), sent.capture());
+
+        StatusUserDTO actual = sent.getValue();
+        assertEquals("9", actual.getUser_id());
+        assertEquals("Дима", actual.getUser_name());
+        assertEquals("5", actual.getChat_id());
+    }
+
+    @Test
+    void typingStatusFansOutPerMemberAndNotGlobally() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"), user(7L, "Оля"))));
+
+        StatusUserDTO dto = new StatusUserDTO();
+        dto.setStatus("START");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChangeOfUserStatus("5", principal, dto);
+
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chatlist/typing/9"), Mockito.any(Object.class));
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chatlist/typing/7"), Mockito.any(Object.class));
+        // Глобальный канал удалён — утечка графа общения закрыта.
+        Mockito.verify(template, Mockito.never())
+                .convertAndSend(Mockito.eq("/mutual/typing_statuses_channel"), Mockito.any(Object.class));
+    }
 }
