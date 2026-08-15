@@ -54,7 +54,19 @@ public class ChatBoxStompController {
     public void HandleChatMessage(@DestinationVariable String chatId,
                                   Principal principal,
                                   com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
+        // Строгая валидация формата: на SEND StompAuthChannelInterceptor больше не парсит
+        // chatId (beads g9x, проверка перенесена сюда), а голый Long.parseLong принимает
+        // "+7", "-5" и другой мусор. Отказ — ДО любых побочных эффектов.
+        if (!chatId.matches("\\d+")) {
+            log.warn("HandleChatMessage: chatId {} не в каноническом числовом формате — отказ", chatId);
+            return;
+        }
         final long chat = Long.parseLong(chatId);
+        // "\\d+" пропускает и "007": Long.parseLong("007") == 7, но буквальная рассылка на
+        // "/mutual/chat/007" ушла бы без подписчиков, а Redis-контекст чата 7 расщепился бы
+        // на два ключа (сценарий 007 из beads g9x). Поэтому все побочные эффекты ниже используют
+        // канонический вид уже распарсенного числа, а не сырую строку chatId.
+        final String canonicalChatId = String.valueOf(chat);
         final String senderId = principal.getName();
 
         if (chatMessageDTO.getUser_id() != null && !senderId.equals(chatMessageDTO.getUser_id())) {
@@ -75,15 +87,15 @@ public class ChatBoxStompController {
                     }
                     String username = senderUsername.get();
 
-                    chatMessageDTO.setChat_id(chatId);
+                    chatMessageDTO.setChat_id(canonicalChatId);
                     chatMessageDTO.setUser_id(senderId);
                     chatMessageDTO.setUsername(username);
                     chatMessageDTO.setTimestamp(java.time.Instant.now().toString());
 
-                    template.convertAndSend("/mutual/chat/" + chatId, chatMessageDTO);
+                    template.convertAndSend("/mutual/chat/" + canonicalChatId, chatMessageDTO);
                     kafkaProducer.send(gson.toJson(chatMessageDTO));
 
-                    ChatContextService contextService = new ChatContextService(redisTemplate, chatId);
+                    ChatContextService contextService = new ChatContextService(redisTemplate, canonicalChatId);
                     // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
                     // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
                     // AI-assist всегда видел пустой контекст).
@@ -92,7 +104,7 @@ public class ChatBoxStompController {
 
                     com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO =
                             new com.example.springexample.StompHandlers.ChatListShortObjDTO();
-                    chatListShortObjDTO.setChat_id(chatId);
+                    chatListShortObjDTO.setChat_id(canonicalChatId);
                     chatListShortObjDTO.setText(chatMessageDTO.getText());
                     chatListShortObjDTO.setUsername(username);
                     chatListShortObjDTO.setTimestamp(chatMessageDTO.getTimestamp());
@@ -118,7 +130,19 @@ public class ChatBoxStompController {
     public void HandleChangeOfUserStatus(@DestinationVariable String chatId,
                                          Principal principal,
                                          com.example.springexample.StompHandlers.StatusUserDTO statusDto) {
+        // Строгая валидация формата: на SEND StompAuthChannelInterceptor больше не парсит
+        // chatId (beads g9x, проверка перенесена сюда), а голый Long.parseLong принимает
+        // "+7", "-5" и другой мусор. Отказ — ДО любых побочных эффектов.
+        if (!chatId.matches("\\d+")) {
+            log.warn("HandleChangeOfUserStatus: chatId {} не в каноническом числовом формате — отказ", chatId);
+            return;
+        }
         final long chat = Long.parseLong(chatId);
+        // "\\d+" пропускает и "007": Long.parseLong("007") == 7, но буквальная рассылка на
+        // "/mutual/typing/007" ушла бы без подписчиков (сценарий 007 из beads g9x). Поэтому
+        // все побочные эффекты ниже используют канонический вид уже распарсенного числа,
+        // а не сырую строку chatId.
+        final String canonicalChatId = String.valueOf(chat);
         final String senderId = principal.getName();
 
         chatMembershipService.members(chat).subscribe(
@@ -134,11 +158,11 @@ public class ChatBoxStompController {
                     }
                     String username = senderUsername.get();
 
-                    statusDto.setChat_id(chatId);
+                    statusDto.setChat_id(canonicalChatId);
                     statusDto.setUser_id(senderId);
                     statusDto.setUser_name(username);
 
-                    template.convertAndSend("/mutual/typing/" + chatId, statusDto);
+                    template.convertAndSend("/mutual/typing/" + canonicalChatId, statusDto);
                     for (com.example.grpc.DataTransferService.UserDataRequest member : members) {
                         template.convertAndSend("/mutual/chatlist/typing/" + member.getId(), statusDto);
                     }

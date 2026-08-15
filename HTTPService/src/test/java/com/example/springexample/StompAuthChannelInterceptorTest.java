@@ -73,6 +73,21 @@ class StompAuthChannelInterceptorTest {
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/77"), null));
     }
 
+    /**
+     * Ветка catch (NumberFormatException) в parseChatIdOrDeny жива и достижима через SUBSCRIBE,
+     * хотя на SEND chatId больше не парсится интерцептором (beads g9x). Двадцать девяток не
+     * влезают в long — Long.parseLong бросает NumberFormatException, интерцептор обязан
+     * превратить это в отказ, а не в необработанное исключение.
+     */
+    @Test
+    void subscribeWithOverflowingChatIdIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chat/99999999999999999999"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
+
     @Test
     void subscribeToForeignTypingChannelIsDenied() {
         Mockito.when(membership.isMember(77L, "9")).thenReturn(false);

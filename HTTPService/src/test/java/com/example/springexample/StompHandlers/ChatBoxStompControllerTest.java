@@ -174,6 +174,64 @@ class ChatBoxStompControllerTest {
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
 
+    /**
+     * Строгая валидация формата chatId (beads g9x): на SEND интерцептор больше не парсит
+     * chatId, а голый Long.parseLong пропускает "+7". Контроллер обязан отказать сам,
+     * ДО любого gRPC-вызова и побочного эффекта.
+     */
+    @Test
+    void nonNumericChatIdCausesNoSideEffects() {
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("+7", principal, dto);
+
+        Mockito.verify(membership, Mockito.never()).members(Mockito.anyLong());
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+    }
+
+    /**
+     * "007" проходит "\\d+", но Long.parseLong("007") == 7 — рассылка обязана уйти на
+     * канонический адрес "/mutual/chat/7", а не на буквальный "/mutual/chat/007", иначе
+     * живые подписчики чата 7 её не увидят (сценарий 007 из beads g9x).
+     */
+    @Test
+    void leadingZeroesChatIdBroadcastsToCanonicalAddress() {
+        Mockito.when(membership.members(7L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("007", principal, dto);
+
+        ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/7"), sent.capture());
+        assertEquals("7", sent.getValue().getChat_id());
+    }
+
+    /** Та же канонизация адреса, что и для сообщений чата, но для статуса набора текста (beads g9x). */
+    @Test
+    void leadingZeroesChatIdCanonicalizesTypingAddress() {
+        Mockito.when(membership.members(7L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        StatusUserDTO dto = new StatusUserDTO();
+        dto.setStatus("START");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChangeOfUserStatus("007", principal, dto);
+
+        ArgumentCaptor<StatusUserDTO> sent = ArgumentCaptor.forClass(StatusUserDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/typing/7"), sent.capture());
+        assertEquals("7", sent.getValue().getChat_id());
+    }
+
     @Test
     void typingStatusFansOutPerMemberAndNotGlobally() {
         Mockito.when(membership.members(5L))
