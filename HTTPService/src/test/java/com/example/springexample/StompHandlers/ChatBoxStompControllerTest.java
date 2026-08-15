@@ -25,11 +25,12 @@ class ChatBoxStompControllerTest {
     private final SimpMessagingTemplate template = Mockito.mock(SimpMessagingTemplate.class);
     private final ChatMembershipService membership = Mockito.mock(ChatMembershipService.class);
     private final ChatListStompController chatListController = Mockito.mock(ChatListStompController.class);
+    @SuppressWarnings("unchecked")
+    private final ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
 
     @SuppressWarnings("unchecked")
     private ChatBoxStompController controller() {
         ReactiveRedisTemplate<String, String> redis = Mockito.mock(ReactiveRedisTemplate.class);
-        ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
         ReactiveSetOperations<String, String> set = Mockito.mock(ReactiveSetOperations.class);
         Mockito.when(redis.opsForList()).thenReturn(list);
         Mockito.when(redis.opsForSet()).thenReturn(set);
@@ -105,5 +106,7 @@ class ChatBoxStompControllerTest {
 
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
 }
