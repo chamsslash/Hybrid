@@ -12,6 +12,7 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
 
 /**
@@ -29,6 +30,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private final AccessTokenVerifier accessTokenVerifier;
     private final ChatMembershipService chatMembershipService;
+
+    /**
+     * Тот же матчер, что использует {@code DefaultSubscriptionRegistry} простого брокера
+     * для сопоставления подписки с исходящими адресами (Ant-путь). isPattern() отвечает
+     * ровно на нужный вопрос — «является ли эта строка шаблоном для брокера» — а не на
+     * приблизительный вопрос «есть ли в строке спецсимволы», поэтому предпочтён явной
+     * проверке символов.
+     */
+    private static final AntPathMatcher ANT_PATH_MATCHER = new AntPathMatcher();
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -56,6 +66,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 }
                 String destination = accessor.getDestination();
                 String userId = accessor.getUser().getName();
+                if (destination != null && ANT_PATH_MATCHER.isPattern(destination)) {
+                    log.warn("SUBSCRIBE на шаблонный адрес {} отклонён: пользователь {}", destination, userId);
+                    throw new org.springframework.security.access.AccessDeniedException(
+                            "Wildcard subscriptions are not allowed");
+                }
                 if (isPerUserDestination(destination)) {
                     if (!destination.endsWith("/" + userId)) {
                         log.warn("SUBSCRIBE to foreign per-user destination {} by user {}", destination, userId);
@@ -76,6 +91,12 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                             "SEND requires authenticated session");
                 }
                 String destination = accessor.getDestination();
+                if (!StringUtils.hasText(destination) || !destination.startsWith("/app/")) {
+                    log.warn("SEND на адрес {} отклонён: адреса вне /app/ доставляются брокером напрямую, минуя @MessageMapping",
+                            destination);
+                    throw new org.springframework.security.access.AccessDeniedException(
+                            "SEND is only allowed to /app/ destinations");
+                }
                 String prefix = matchedSendPrefix(destination);
                 if (prefix != null) {
                     long chatId = parseChatIdOrDeny(destination, prefix);

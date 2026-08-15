@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 14 | 62 | 2 | 64 |
+| HTTPService | 14 | 67 | 2 | 69 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **21** | **87** | **4** | **91** |
+| **Итого** | **21** | **92** | **4** | **96** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -172,8 +172,8 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`typingStatusIdentityComesFromPrincipalNotBody`** — клиент шлёт фрейм на `/app/chat/user_statuses/5` от принципала `userId="9"`, но в теле DTO подделывает `user_id="7"`, `user_name="Оля"`, `chat_id="77"`; `membership.members(5L)` возвращает участников `{9:"Дима", 7:"Оля"}`. Проверяет: в `template.convertAndSend` уходит `/mutual/typing/5` с DTO, где `user_id="9"`, `user_name="Дима"`, `chat_id="5"` — все три взяты из принципала/адреса/списка участников, тело проигнорировано. Зачем: тот же контракт авторства, что и для сообщений чата — статус набора текста нельзя было подделать раньше, теперь нельзя и здесь.
 - **`typingStatusFansOutPerMemberAndNotGlobally`** — `membership.members(5L)` возвращает участников `9,7`. Проверяет: `template.convertAndSend` вызывается на `/mutual/chatlist/typing/9` и `/mutual/chatlist/typing/7` (веерная рассылка по участникам), но ни разу — на `/mutual/typing_statuses_channel`. Зачем: **закрывает утечку графа общения** — раньше статус набора текста дублировался на глобальный канал, на который подписан список чатов (`chatlist.view.js`), из-за чего любой пользователь с открытым списком чатов видел, кто и в каком чате печатает, во всей системе; теперь адресация строго по участникам конкретного чата.
 
-### `StompAuthChannelInterceptorTest` — `unit` — проверка членства в чате на SEND/SUBSCRIBE (beads g9x)
-`StompAuthChannelInterceptor` с замоканными `AccessTokenVerifier` и `ChatMembershipService`. Фреймы собираются хелпером `frame()` от имени аутентифицированного пользователя `userId="9"`. Закрывает дыру: раньше интерцептор проверял только факт логина, а не то, что пользователь состоит в чате, куда пишет/на который подписывается.
+### `StompAuthChannelInterceptorTest` — `unit` — проверка членства в чате на SEND/SUBSCRIBE, запрет wildcard-подписок и брокерных SEND-адресов (beads g9x)
+`StompAuthChannelInterceptor` с замоканными `AccessTokenVerifier` и `ChatMembershipService`. Фреймы собираются хелпером `frame()` от имени аутентифицированного пользователя `userId="9"`. Закрывает дыру: раньше интерцептор проверял только факт логина, а не то, что пользователь состоит в чате, куда пишет/на который подписывается. Финальное ревью (security-тикет g9x) добавило два Critical-дефекта: C1 — подписка Ant-шаблоном (`/mutual/**`) обходила все префиксные проверки, потому что `DefaultSubscriptionRegistry` матчит шаблон против каждого исходящего адреса брокера; C2 — `SEND` напрямую на брокерный адрес (`/mutual/...`, `/private/...`) вообще не попадал в `@MessageMapping` и проверку членства, `SimpleBrokerMessageHandler` рассылал его подписчикам как есть, позволяя подделать авторство сообщения в чужом чате.
 
 - **`sendToOwnChatPasses`** — `SEND /app/chat/send/5`, `isMember(5,"9")=true` → фрейм проходит (`preSend` не бросает). Зачем: happy path отправки в свой чат.
 - **`sendToForeignChatIsDenied`** — `SEND /app/chat/send/77`, `isMember(77,"9")=false` → `AccessDeniedException`. Зачем: центральный сценарий бага — раньше это проходило, любой логированный пользователь мог писать в чужой чат.
@@ -186,6 +186,11 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`sendWithOverflowingChatIdIsDenied`** — `SEND /app/chat/send/99999999999999999999` (20 цифр, не влезает в `long`) → `AccessDeniedException`. Зачем: `Long.parseLong` кинул бы `NumberFormatException` — проверяет, что переполнение тоже fail-closed, а не 500-я или проход.
 - **`perUserTypingDestinationOfAnotherUserIsDenied`** — `SUBSCRIBE /mutual/chatlist/typing/42` от лица `userId="9"` → `AccessDeniedException`. Зачем: `/mutual/chatlist/typing/` добавлен в `PER_USER_PREFIXES` этим таском — проверяет, что подписка на чужой per-user typing-канал отклоняется существующей `isPerUserDestination`-веткой.
 - **`ownPerUserTypingDestinationPasses`** — `SUBSCRIBE /mutual/chatlist/typing/9` от лица того же `userId="9"` → проходит. Зачем: happy path для нового префикса, парный к предыдущему тесту.
+- **`subscribeToMutualWildcardIsDenied`** — `SUBSCRIBE /mutual/**` → `AccessDeniedException`, `membership.isMember(...)` не вызван. Зачем: **C1** — воспроизводит атаку из финального ревью: `DefaultSubscriptionRegistry` хранит адрес подписки как Ant-шаблон и матчит его против каждого исходящего сообщения брокера, поэтому `/mutual/**` собрал бы себе все чужие чаты, typing-канал и chatlist-превью в обход префиксных проверок ниже по коду.
+- **`subscribeToGlobalWildcardIsDenied`** — `SUBSCRIBE /**` → `AccessDeniedException`. Зачем: **C1**, второй вариант атаки — предельно широкий шаблон добирает ещё и `/private/**`, проверяет, что проверка шаблона не завязана на конкретный префикс `/mutual`.
+- **`sendDirectlyToMutualChatBrokerAddressIsDenied`** — `SEND /mutual/chat/77` (не `/app/...`) → `AccessDeniedException`, `membership.isMember(...)` не вызван. Зачем: **C2** — центральный сценарий подделки авторства: такой фрейм не долетает ни до одного `@MessageMapping`, `SimpleBrokerMessageHandler` разослал бы его подписчикам чата 77 напрямую, как будто это легитимное сообщение.
+- **`sendDirectlyToPrivateBrokerAddressIsDenied`** — `SEND /private/42` → `AccessDeniedException`. Зачем: **C2**, тот же обход бьёт и по личным уведомлениям чужого пользователя, не только по групповым чатам.
+- **`sendToUnlistedAppDestinationPasses`** — `SEND /app/some/other/handler` (легитимный `/app/`-адрес вне двух проверяемых префиксов `send`/`user_statuses`) → проходит, `membership.isMember(...)` не вызван. Зачем: **регрессия аллоулиста** — в HTTPService есть и другие `@MessageMapping`-методы под `/app/`; проверяет, что переход с чёрного списка на аллоулист `/app/*` не запирает адреса, для которых проверка членства не требуется.
 
 ### `GeminiServiceTest` — `unit` — GeminiService (миграция с Yandex GPT, beads 5fc)
 Чистые методы `GeminiService` (замена `YandexGptService` после миграции AI-assist на Google Gemini API); `model`/`apiKey` подставляются через `ReflectionTestUtils`, сетевые вызовы не выполняются.

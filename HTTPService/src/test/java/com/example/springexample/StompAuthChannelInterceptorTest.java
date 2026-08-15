@@ -116,4 +116,45 @@ class StompAuthChannelInterceptorTest {
         assertNotNull(interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/typing/9"), null));
     }
+
+    /** C1: подписка по Ant-шаблону обходила бы префиксные проверки — брокер матчит /mutual/** против всего. */
+    @Test
+    void subscribeToMutualWildcardIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/**"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
+
+    /** C1: глобальный "поймать всё" шаблон добирает и /private/**, отклоняется той же проверкой. */
+    @Test
+    void subscribeToGlobalWildcardIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/**"), null));
+    }
+
+    /** C2: SEND напрямую на брокерный адрес /mutual/chat/{id} минует @MessageMapping — доставился бы подписчикам чата напрямую. */
+    @Test
+    void sendDirectlyToMutualChatBrokerAddressIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SEND, "/mutual/chat/77"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
+
+    /** C2: SEND напрямую на /private/{userId} — тот же обход, подделка личного сообщения. */
+    @Test
+    void sendDirectlyToPrivateBrokerAddressIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SEND, "/private/42"), null));
+    }
+
+    /** Аллоулист не должен ломать другие /app/-адреса, не входящие в два проверяемых префикса. */
+    @Test
+    void sendToUnlistedAppDestinationPasses() {
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SEND, "/app/some/other/handler"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
 }
