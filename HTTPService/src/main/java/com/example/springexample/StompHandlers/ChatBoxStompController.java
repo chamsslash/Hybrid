@@ -3,11 +3,10 @@ package com.example.springexample.StompHandlers;
 
 
 
-import com.example.grpc.DataTransferService;
 import com.example.springexample.ImageUploadDTO;
 import com.example.springexample.KafkaProducer;
 import com.example.springexample.Services.ChatContextService;
-import com.example.springexample.Services.ReactiveGrpcClient;
+import com.example.springexample.Services.ChatMembershipService;
 import com.google.gson.Gson;
 
 import lombok.extern.slf4j.Slf4j;
@@ -16,14 +15,12 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.PathVariable;
-import reactor.ReactiveTransferServiceGrpc;
 
+import java.security.Principal;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Controller
@@ -37,40 +34,66 @@ public class ChatBoxStompController {
     @Autowired
     com.example.springexample.StompHandlers.ChatListStompController chatListController;
     @Autowired
-    ReactiveGrpcClient reactiveGrpcClient;
+    ChatMembershipService chatMembershipService;
     public ChatBoxStompController(KafkaProducer kafkaProducer) {
         this.kafkaProducer = kafkaProducer;
     }
 
+    /**
+     * Личность отправителя и чат берутся из принципала и адреса, а не из тела фрейма (beads g9x).
+     * Клиентские chat_id/user_id/username игнорируются: раньше их можно было подделать,
+     * и подделка оседала в БД навсегда. Рассылка идёт ПОСЛЕ ответа gRPC — так в Kafka
+     * не может уехать сообщение, чьё авторство не подтверждено.
+     * Членство в чате уже проверено StompAuthChannelInterceptor до входа сюда.
+     */
     @MessageMapping("/chat/send/{chatId}")
-    public void HandleChatMessage(com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
-        chatMessageDTO.setTimestamp(java.time.Instant.now().toString());
+    public void HandleChatMessage(@DestinationVariable String chatId,
+                                  Principal principal,
+                                  com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
+        final long chat = Long.parseLong(chatId);
+        final String senderId = principal.getName();
 
-        template.convertAndSend("/mutual/chat/" + chatMessageDTO.getChat_id(), chatMessageDTO);
+        if (chatMessageDTO.getUser_id() != null && !senderId.equals(chatMessageDTO.getUser_id())) {
+            log.warn("Тело фрейма разошлось с принципалом: тело user_id={}, принципал={} — берём принципал",
+                    chatMessageDTO.getUser_id(), senderId);
+        }
 
-        kafkaProducer.send(gson.toJson(chatMessageDTO));
+        chatMembershipService.members(chat).subscribe(
+                members -> {
+                    String username = members.stream()
+                            .filter(u -> String.valueOf(u.getId()).equals(senderId))
+                            .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername)
+                            .findFirst()
+                            .orElse(senderId);
 
-        ChatContextService contextService = new ChatContextService(redisTemplate, chatMessageDTO.getChat_id());
-        // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
-        // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
-        // AI-assist всегда видел пустой контекст).
-        contextService.addMessage(chatMessageDTO.getUsername(), chatMessageDTO.getText())
-                .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
+                    chatMessageDTO.setChat_id(chatId);
+                    chatMessageDTO.setUser_id(senderId);
+                    chatMessageDTO.setUsername(username);
+                    chatMessageDTO.setTimestamp(java.time.Instant.now().toString());
 
-        reactiveGrpcClient.reactiveGetAllIdsByChatId(
-                DataTransferService.ChatData.newBuilder()
-                        .setChatId(Long.parseLong(chatMessageDTO.getChat_id()))
-                        .build()
-        ).subscribe(
-                userIds -> {
-                    com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO = new com.example.springexample.StompHandlers.ChatListShortObjDTO();
-                    chatListShortObjDTO.setChat_id(chatMessageDTO.getChat_id());
+                    template.convertAndSend("/mutual/chat/" + chatId, chatMessageDTO);
+                    kafkaProducer.send(gson.toJson(chatMessageDTO));
+
+                    ChatContextService contextService = new ChatContextService(redisTemplate, chatId);
+                    // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
+                    // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
+                    // AI-assist всегда видел пустой контекст).
+                    contextService.addMessage(username, chatMessageDTO.getText())
+                            .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
+
+                    com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO =
+                            new com.example.springexample.StompHandlers.ChatListShortObjDTO();
+                    chatListShortObjDTO.setChat_id(chatId);
                     chatListShortObjDTO.setText(chatMessageDTO.getText());
-                    chatListShortObjDTO.setUsername(chatMessageDTO.getUsername());
+                    chatListShortObjDTO.setUsername(username);
                     chatListShortObjDTO.setTimestamp(chatMessageDTO.getTimestamp());
-                    chatListController.ChangeChatPreview(new ArrayList<>(userIds), chatListShortObjDTO);
+                    chatListController.ChangeChatPreview(
+                            members.stream()
+                                    .map(u -> String.valueOf(u.getId()))
+                                    .collect(Collectors.toCollection(ArrayList::new)),
+                            chatListShortObjDTO);
                 },
-                err -> log.error("Не удалось обновить превью чат-листа для чата {}", chatMessageDTO.getChat_id(), err)
+                err -> log.error("Не удалось получить участников чата {} — сообщение не отправлено", chatId, err)
         );
     }
     @MessageMapping("/chat/user_statuses")

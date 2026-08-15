@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 13 | 57 | 2 | 59 |
+| HTTPService | 14 | 60 | 2 | 62 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **20** | **82** | **4** | **86** |
+| **Итого** | **21** | **85** | **4** | **89** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -162,6 +162,13 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`isMemberFalseOnEmptyMemberList`** — gRPC вернул пустой список участников → `false`. Зачем: fail-closed — пустой список участников не должен трактоваться как «доступ всем».
 - **`isMemberFalseWhenGrpcFails`** — стаб отдаёт `Mono.error` (MessegerParody недоступен) → `false`, без исключения наружу. Зачем: fail-closed при ошибке gRPC — недоступность бэкенда не должна открывать доступ.
 - **`isMemberFalseOnTimeout`** — стаб зависает (`Mono.never()`), таймаут укорочен до 100мс через переопределение package-private `membershipTimeout()` → `false`. Зачем: fail-closed по таймауту (в проде — ровно `Duration.ofSeconds(5)`); тест не ждёт реальные 5 секунд.
+
+### `StompHandlers/ChatBoxStompControllerTest` — `unit` — авторство сообщения из принципала и адреса (beads g9x)
+`ChatBoxStompController.HandleChatMessage` с замоканными `KafkaProducer`, `SimpMessagingTemplate`, `ChatMembershipService`, `ChatListStompController` и реактивным Redis-стеком (`ReactiveRedisTemplate`/`ReactiveListOperations`/`ReactiveSetOperations`), поля контроллера подставлены `ReflectionTestUtils`.
+
+- **`serverOverwritesForgedIdentityFromFrameBody`** — клиент шлёт фрейм на `/app/chat/send/5` от принципала `userId="9"`, но в теле подделывает `chat_id="77"`, `user_id="7"`, `username="Оля"`; `membership.members(5L)` возвращает участников `{9:"Дима", 7:"Оля"}`. Проверяет: в `template.convertAndSend` уходит `/mutual/chat/5` (адрес, не тело) с DTO, где `chat_id="5"`, `user_id="9"`, `username="Дима"` (все три — из принципала/адреса/списка участников, не из тела), `text="привет"` (единственное поле из тела) и непустой `timestamp`. Зачем: **центральный сторож тикета g9x** — раньше сервер верил телу фрейма, и подделанное авторство оседало в БД навсегда.
+- **`previewFansOutToAllChatMembers`** — `membership.members(5L)` возвращает участников `9,7`. Проверяет: `chatListController.ChangeChatPreview` получает список id `["9","7"]`, собранный из ответа gRPC-членства, а не из старого fire-and-forget `reactiveGetAllIdsByChatId`. Зачем: превью чат-листа должно рассылаться всем реальным участникам чата.
+- **`nothingIsBroadcastWhenMembershipLookupFails`** — `membership.members(5L)` возвращает `Mono.error`. Проверяет: `template.convertAndSend` и `kafkaProducer.send` не вызываются ни разу. Зачем: fail-closed — раньше рассылка шла ПЕРВОЙ, а gRPC-запрос участников был fire-and-forget следом; теперь участники запрашиваются первыми, и вся рассылка живёт внутри `subscribe(...)`, поэтому недоступность MessegerParody не даёт наружу уйти ни одному сообщению с неподтверждённым авторством.
 
 ### `StompAuthChannelInterceptorTest` — `unit` — проверка членства в чате на SEND/SUBSCRIBE (beads g9x)
 `StompAuthChannelInterceptor` с замоканными `AccessTokenVerifier` и `ChatMembershipService`. Фреймы собираются хелпером `frame()` от имени аутентифицированного пользователя `userId="9"`. Закрывает дыру: раньше интерцептор проверял только факт логина, а не то, что пользователь состоит в чате, куда пишет/на который подписывается.
