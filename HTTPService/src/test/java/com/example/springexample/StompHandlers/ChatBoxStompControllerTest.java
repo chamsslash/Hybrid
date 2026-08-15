@@ -134,6 +134,46 @@ class ChatBoxStompControllerTest {
         assertEquals("5", actual.getChat_id());
     }
 
+    /**
+     * Членство теперь проверяется здесь, а не в StompAuthChannelInterceptor (beads g9x):
+     * отправитель отсутствует в списке участников чата → рассылка не происходит,
+     * никакого из побочных эффектов (broadcast/Kafka/preview/Redis) не случается.
+     */
+    @Test
+    void messageIsNotBroadcastWhenSenderIsNotAChatMember() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(7L, "Оля"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, dto);
+
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+    }
+
+    /** Тот же контракт членства, что и для сообщений чата, но для статуса набора текста (beads g9x). */
+    @Test
+    void typingStatusIsNotBroadcastWhenSenderIsNotAChatMember() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(7L, "Оля"))));
+
+        StatusUserDTO dto = new StatusUserDTO();
+        dto.setStatus("START");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChangeOfUserStatus("5", principal, dto);
+
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+    }
+
     @Test
     void typingStatusFansOutPerMemberAndNotGlobally() {
         Mockito.when(membership.members(5L))

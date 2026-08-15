@@ -20,8 +20,16 @@ import org.springframework.util.StringUtils;
  * SockJS-handshake не несёт Authorization-заголовок, поэтому ingress его не проверяет —
  * клиент обязан передать access-токен в заголовках STOMP CONNECT.
  * Подписки на /private/** разрешены только на собственный userId.
- * Отправка и подписка на адреса конкретного чата разрешены только его участникам (beads g9x);
+ * Подписка на адреса конкретного чата разрешена только его участникам (beads g9x);
  * членство проверяется через ChatMembershipService, при недоступности проверки — отказ.
+ * На SEND проверка членства сюда намеренно НЕ вынесена: {@code ChatBoxStompController}
+ * и так вызывает {@code ChatMembershipService.members(chatId)} за списком получателей
+ * веерной рассылки, так что интерцептор дублировал бы тот же gRPC-вызов вторым разом
+ * на каждый фрейм (особенно чувствительно на typing-статусах — они летят вдвое чаще).
+ * Кроме того, {@code isMember} внутри интерцептора блокирует ({@code .block()}) поток
+ * общего пула {@code clientInboundChannel}, которым обслуживаются вообще все STOMP-команды
+ * всех сессий, включая CONNECT — заминка MessegerParody без единой ошибки в логах вешает
+ * весь WebSocket-ярус. Проверка перенесена в контроллер, где список участников уже под рукой.
  */
 @Slf4j
 @Component
@@ -97,16 +105,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "SEND is only allowed to /app/ destinations");
                 }
-                String prefix = matchedSendPrefix(destination);
-                if (prefix != null) {
-                    long chatId = parseChatIdOrDeny(destination, prefix);
-                    String userId = accessor.getUser().getName();
-                    if (!chatMembershipService.isMember(chatId, userId)) {
-                        log.warn("SEND в чат {} отклонён: пользователь {} не участник", chatId, userId);
-                        throw new org.springframework.security.access.AccessDeniedException(
-                                "Not a member of chat " + chatId);
-                    }
-                }
+                // Проверка членства в чате здесь намеренно отсутствует (beads g9x) —
+                // см. javadoc класса: перенесена в ChatBoxStompController, где список
+                // участников уже запрашивается для веерной рассылки, чтобы не дублировать
+                // gRPC-вызов и не держать поток clientInboundChannel на .block().
             }
             default -> { /* остальные команды не требуют проверок */ }
         }
@@ -141,8 +143,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         return false;
     }
 
-    private static final String SEND_CHAT_PREFIX = "/app/chat/send/";
-    private static final String SEND_STATUS_PREFIX = "/app/chat/user_statuses/";
     private static final String SUB_CHAT_PREFIX = "/mutual/chat/";
     private static final String SUB_TYPING_PREFIX = "/mutual/typing/";
 
@@ -173,20 +173,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Malformed chat destination: " + destination);
         }
-    }
-
-    /** Префикс SEND-адреса, требующего проверки членства, либо null. */
-    private static String matchedSendPrefix(String destination) {
-        if (!StringUtils.hasText(destination)) {
-            return null;
-        }
-        if (destination.startsWith(SEND_CHAT_PREFIX)) {
-            return SEND_CHAT_PREFIX;
-        }
-        if (destination.startsWith(SEND_STATUS_PREFIX)) {
-            return SEND_STATUS_PREFIX;
-        }
-        return null;
     }
 
     /** chatId подписки, требующей проверки членства, либо null если адрес к чатам не относится. */

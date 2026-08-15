@@ -20,6 +20,7 @@ import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -44,7 +45,10 @@ public class ChatBoxStompController {
      * Клиентские chat_id/user_id/username игнорируются: раньше их можно было подделать,
      * и подделка оседала в БД навсегда. Рассылка идёт ПОСЛЕ ответа gRPC — так в Kafka
      * не может уехать сообщение, чьё авторство не подтверждено.
-     * Членство в чате уже проверено StompAuthChannelInterceptor до входа сюда.
+     * Членство в чате проверяется здесь же, по списку участников из members(chat): если
+     * отправителя в списке нет — он не член чата, разбор фрейма прерывается без побочных
+     * эффектов. StompAuthChannelInterceptor эту проверку на SEND намеренно не делает —
+     * дублировала бы тот же gRPC-вызов и блокировала пул clientInboundChannel (beads g9x).
      */
     @MessageMapping("/chat/send/{chatId}")
     public void HandleChatMessage(@DestinationVariable String chatId,
@@ -60,11 +64,16 @@ public class ChatBoxStompController {
 
         chatMembershipService.members(chat).subscribe(
                 members -> {
-                    String username = members.stream()
+                    Optional<String> senderUsername = members.stream()
                             .filter(u -> String.valueOf(u.getId()).equals(senderId))
                             .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername)
-                            .findFirst()
-                            .orElse(senderId);
+                            .findFirst();
+                    if (senderUsername.isEmpty()) {
+                        log.warn("SEND в чат {} отклонён: пользователь {} не найден среди участников",
+                                chatId, senderId);
+                        return;
+                    }
+                    String username = senderUsername.get();
 
                     chatMessageDTO.setChat_id(chatId);
                     chatMessageDTO.setUser_id(senderId);
@@ -102,6 +111,8 @@ public class ChatBoxStompController {
      * список чатов, из-за чего любой пользователь получал события набора текста во всей
      * системе — утечка графа общения без всякой атаки. Вместо него — веерная рассылка
      * участникам чата на персональные адреса, уже защищённые PER_USER_PREFIXES.
+     * Членство проверяется по тому же списку участников, что и в HandleChatMessage:
+     * отправитель не найден среди них — статус не рассылается (beads g9x).
      */
     @MessageMapping("/chat/user_statuses/{chatId}")
     public void HandleChangeOfUserStatus(@DestinationVariable String chatId,
@@ -112,11 +123,16 @@ public class ChatBoxStompController {
 
         chatMembershipService.members(chat).subscribe(
                 members -> {
-                    String username = members.stream()
+                    Optional<String> senderUsername = members.stream()
                             .filter(u -> String.valueOf(u.getId()).equals(senderId))
                             .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername)
-                            .findFirst()
-                            .orElse(senderId);
+                            .findFirst();
+                    if (senderUsername.isEmpty()) {
+                        log.warn("SEND статуса набора текста в чат {} отклонён: пользователь {} не найден среди участников",
+                                chatId, senderId);
+                        return;
+                    }
+                    String username = senderUsername.get();
 
                     statusDto.setChat_id(chatId);
                     statusDto.setUser_id(senderId);

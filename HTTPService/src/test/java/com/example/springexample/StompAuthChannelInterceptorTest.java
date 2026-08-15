@@ -31,27 +31,31 @@ class StompAuthChannelInterceptorTest {
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 
+    /**
+     * Членство на SEND в чужой/свой чат больше не проверяет интерцептор (beads g9x) —
+     * перенесено в ChatBoxStompController, где список участников и так нужен для рассылки.
+     * Здесь стережём только то, что осталось за интерцептором: аутентификация и аллоулист
+     * /app/. Оба случая проходят преSend одинаково, membership не опрашивается вовсе.
+     */
     @Test
-    void sendToOwnChatPasses() {
-        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
-
+    void sendToOwnChatPassesWithoutMembershipCheck() {
         assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/5"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
-    void sendToForeignChatIsDenied() {
-        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+    void sendToForeignChatPassesInterceptorWithoutMembershipCheck() {
+        assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/77"), null));
 
-        assertThrows(AccessDeniedException.class,
-                () -> interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/77"), null));
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
-    void sendTypingStatusToForeignChatIsDenied() {
-        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+    void sendTypingStatusPassesInterceptorWithoutMembershipCheck() {
+        assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/user_statuses/77"), null));
 
-        assertThrows(AccessDeniedException.class,
-                () -> interceptor.preSend(frame(StompCommand.SEND, "/app/chat/user_statuses/77"), null));
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
@@ -94,14 +98,6 @@ class StompAuthChannelInterceptorTest {
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(
                         frame(StompCommand.SUBSCRIBE, "/mutual/chat/new_global_channel"), null));
-    }
-
-    /** Двадцатизначный хвост не влезает в long — тоже отказ. */
-    @Test
-    void sendWithOverflowingChatIdIsDenied() {
-        assertThrows(AccessDeniedException.class,
-                () -> interceptor.preSend(
-                        frame(StompCommand.SEND, "/app/chat/send/99999999999999999999"), null));
     }
 
     @Test
