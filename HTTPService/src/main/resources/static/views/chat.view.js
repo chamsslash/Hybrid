@@ -110,12 +110,8 @@ function debounce(fn, delay) {
 
 function sendTypingStatus(status) {
     if (!stompClient) return;
-    stompClient.send("/app/chat/user_statuses", {}, JSON.stringify({
-        user_id: user_id,
-        status,
-        user_name: user_name,
-        chat_id: chat_id
-    }));
+    // chat_id теперь в адресе — сервер берёт его оттуда и игнорирует тело (beads g9x).
+    stompClient.send(`/app/chat/user_statuses/${chat_id}`, {}, JSON.stringify({ status }));
 }
 
 function showTypingIndicator(userName) {
@@ -149,10 +145,9 @@ function sendChatMessage() {
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
     if (!text) return;
+    // username/chat_id/user_id больше не шлём: сервер проставляет их сам из принципала
+    // и адреса, присланные значения игнорируются (beads g9x).
     const message = {
-        username: user_name,
-        chat_id: chat_id,
-        user_id: user_id,
         text: text,
         imageurl: user_image
     };
@@ -255,7 +250,7 @@ function connectStomp(token) {
 
     const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
     statusStomp.connect(authHeaders, () => {
-        statusStomp.subscribe("/mutual/typing_statuses_channel" + chat_id, (message) => {
+        statusStomp.subscribe(`/mutual/typing/${chat_id}`, (message) => {
             const data = JSON.parse(message.body);
             if (String(data.user_id) === String(user_id)) return;
             if (data.status === "START") {

@@ -176,7 +176,7 @@ function connectStomp(token) {
 
     const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
     statusStomp.connect(authHeaders, () => {
-        statusStomp.subscribe("/mutual/typing_statuses_channel", (message) => {
+        statusStomp.subscribe(`/mutual/chatlist/typing/${user_id}`, (message) => {
             const data = JSON.parse(message.body);
             if (String(data.user_id) === String(user_id)) return;
             if (data.status === "START") {
