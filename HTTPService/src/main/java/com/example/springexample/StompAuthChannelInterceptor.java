@@ -1,5 +1,6 @@
 package com.example.springexample;
 
+import com.example.springexample.Services.ChatMembershipService;
 import com.example.springexample.Utils.AccessTokenVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,8 @@ import org.springframework.util.StringUtils;
  * SockJS-handshake не несёт Authorization-заголовок, поэтому ingress его не проверяет —
  * клиент обязан передать access-токен в заголовках STOMP CONNECT.
  * Подписки на /private/** разрешены только на собственный userId.
+ * Отправка и подписка на адреса конкретного чата разрешены только его участникам (beads g9x);
+ * членство проверяется через ChatMembershipService, при недоступности проверки — отказ.
  */
 @Slf4j
 @Component
@@ -25,6 +28,7 @@ import org.springframework.util.StringUtils;
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private final AccessTokenVerifier accessTokenVerifier;
+    private final ChatMembershipService chatMembershipService;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -51,19 +55,36 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                             "SUBSCRIBE requires authenticated session");
                 }
                 String destination = accessor.getDestination();
+                String userId = accessor.getUser().getName();
                 if (isPerUserDestination(destination)) {
-                    String userId = accessor.getUser().getName();
                     if (!destination.endsWith("/" + userId)) {
                         log.warn("SUBSCRIBE to foreign per-user destination {} by user {}", destination, userId);
                         throw new org.springframework.security.access.AccessDeniedException(
                                 "Cannot subscribe to another user's destination");
                     }
                 }
+                Long chatId = subscriptionChatId(destination);
+                if (chatId != null && !chatMembershipService.isMember(chatId, userId)) {
+                    log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
+                    throw new org.springframework.security.access.AccessDeniedException(
+                            "Not a member of chat " + chatId);
+                }
             }
             case SEND -> {
                 if (accessor.getUser() == null) {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "SEND requires authenticated session");
+                }
+                String destination = accessor.getDestination();
+                String prefix = matchedSendPrefix(destination);
+                if (prefix != null) {
+                    long chatId = parseChatIdOrDeny(destination, prefix);
+                    String userId = accessor.getUser().getName();
+                    if (!chatMembershipService.isMember(chatId, userId)) {
+                        log.warn("SEND в чат {} отклонён: пользователь {} не участник", chatId, userId);
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                "Not a member of chat " + chatId);
+                    }
                 }
             }
             default -> { /* остальные команды не требуют проверок */ }
@@ -83,7 +104,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             "/private/",
             "/mutual/chatlist/change_chatpreview/",
             "/mutual/chatlist/list_update/",
-            "/mutual/chatlist/notify/"
+            "/mutual/chatlist/notify/",
+            "/mutual/chatlist/typing/"
     };
 
     private static boolean isPerUserDestination(String destination) {
@@ -96,5 +118,71 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             }
         }
         return false;
+    }
+
+    private static final String SEND_CHAT_PREFIX = "/app/chat/send/";
+    private static final String SEND_STATUS_PREFIX = "/app/chat/user_statuses/";
+    private static final String SUB_CHAT_PREFIX = "/mutual/chat/";
+    private static final String SUB_TYPING_PREFIX = "/mutual/typing/";
+
+    /**
+     * Глобальные каналы, живущие под префиксом /mutual/chat/ и не относящиеся к чатам.
+     * Список поимённый намеренно: всё остальное под этим префиксом обязано быть числовым
+     * chatId, иначе отказ. Иначе следующий добавленный глобальный канал молча оказался бы
+     * без проверки членства.
+     */
+    private static final java.util.Set<String> NON_CHAT_MUTUAL_CHAT_SUFFIXES =
+            java.util.Set.of("image_chat_channel", "image_message_channel");
+
+    /**
+     * Разбирает chatId из хвоста адреса. Пустой хвост, нечисловой или не влезающий
+     * в long — не валидный адрес чата, доступ отклоняется (fail-closed).
+     */
+    private static long parseChatIdOrDeny(String destination, String prefix) {
+        String tail = destination.substring(prefix.length());
+        if (!tail.matches("\\d+")) {
+            log.warn("Отказ: адрес {} не содержит числового chatId", destination);
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Malformed chat destination: " + destination);
+        }
+        try {
+            return Long.parseLong(tail);
+        } catch (NumberFormatException e) {
+            log.warn("Отказ: chatId в адресе {} не влезает в long", destination);
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Malformed chat destination: " + destination);
+        }
+    }
+
+    /** Префикс SEND-адреса, требующего проверки членства, либо null. */
+    private static String matchedSendPrefix(String destination) {
+        if (!StringUtils.hasText(destination)) {
+            return null;
+        }
+        if (destination.startsWith(SEND_CHAT_PREFIX)) {
+            return SEND_CHAT_PREFIX;
+        }
+        if (destination.startsWith(SEND_STATUS_PREFIX)) {
+            return SEND_STATUS_PREFIX;
+        }
+        return null;
+    }
+
+    /** chatId подписки, требующей проверки членства, либо null если адрес к чатам не относится. */
+    private static Long subscriptionChatId(String destination) {
+        if (!StringUtils.hasText(destination)) {
+            return null;
+        }
+        if (destination.startsWith(SUB_TYPING_PREFIX)) {
+            return parseChatIdOrDeny(destination, SUB_TYPING_PREFIX);
+        }
+        if (destination.startsWith(SUB_CHAT_PREFIX)) {
+            String tail = destination.substring(SUB_CHAT_PREFIX.length());
+            if (NON_CHAT_MUTUAL_CHAT_SUFFIXES.contains(tail)) {
+                return null;
+            }
+            return parseChatIdOrDeny(destination, SUB_CHAT_PREFIX);
+        }
+        return null;
     }
 }

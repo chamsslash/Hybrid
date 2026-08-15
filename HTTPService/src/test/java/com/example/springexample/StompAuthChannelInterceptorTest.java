@@ -1,0 +1,119 @@
+package com.example.springexample;
+
+import com.example.springexample.Services.ChatMembershipService;
+import com.example.springexample.Utils.AccessTokenVerifier;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.simp.stomp.StompCommand;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class StompAuthChannelInterceptorTest {
+
+    private final AccessTokenVerifier verifier = Mockito.mock(AccessTokenVerifier.class);
+    private final ChatMembershipService membership = Mockito.mock(ChatMembershipService.class);
+    private final StompAuthChannelInterceptor interceptor =
+            new StompAuthChannelInterceptor(verifier, membership);
+
+    /** Фрейм от аутентифицированного пользователя с userId="9". */
+    private static Message<byte[]> frame(StompCommand command, String destination) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
+        accessor.setDestination(destination);
+        accessor.setUser(new UsernamePasswordAuthenticationToken("9", null, List.of()));
+        accessor.setLeaveMutable(true);
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    @Test
+    void sendToOwnChatPasses() {
+        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+
+        assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/5"), null));
+    }
+
+    @Test
+    void sendToForeignChatIsDenied() {
+        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/77"), null));
+    }
+
+    @Test
+    void sendTypingStatusToForeignChatIsDenied() {
+        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SEND, "/app/chat/user_statuses/77"), null));
+    }
+
+    @Test
+    void subscribeToOwnChatPasses() {
+        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+
+        assertNotNull(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null));
+    }
+
+    @Test
+    void subscribeToForeignChatIsDenied() {
+        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/77"), null));
+    }
+
+    @Test
+    void subscribeToForeignTypingChannelIsDenied() {
+        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/typing/77"), null));
+    }
+
+    /** Стережёт ловушку: глобальные картиночные каналы живут под тем же префиксом. */
+    @Test
+    void subscribeToGlobalImageChannelsPassesWithoutMembershipCheck() {
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat/image_chat_channel"), null));
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat/image_message_channel"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
+
+    /** Неизвестный нечисловой хвост под /mutual/chat/ — отказ, а не тихий проход. */
+    @Test
+    void subscribeToUnknownNonNumericChatDestinationIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chat/new_global_channel"), null));
+    }
+
+    /** Двадцатизначный хвост не влезает в long — тоже отказ. */
+    @Test
+    void sendWithOverflowingChatIdIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SEND, "/app/chat/send/99999999999999999999"), null));
+    }
+
+    @Test
+    void perUserTypingDestinationOfAnotherUserIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/typing/42"), null));
+    }
+
+    @Test
+    void ownPerUserTypingDestinationPasses() {
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/typing/9"), null));
+    }
+}

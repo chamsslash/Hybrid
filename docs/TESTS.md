@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 12 | 46 | 2 | 48 |
+| HTTPService | 13 | 57 | 2 | 59 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **19** | **71** | **4** | **75** |
+| **Итого** | **20** | **82** | **4** | **86** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -162,6 +162,21 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`isMemberFalseOnEmptyMemberList`** — gRPC вернул пустой список участников → `false`. Зачем: fail-closed — пустой список участников не должен трактоваться как «доступ всем».
 - **`isMemberFalseWhenGrpcFails`** — стаб отдаёт `Mono.error` (MessegerParody недоступен) → `false`, без исключения наружу. Зачем: fail-closed при ошибке gRPC — недоступность бэкенда не должна открывать доступ.
 - **`isMemberFalseOnTimeout`** — стаб зависает (`Mono.never()`), таймаут укорочен до 100мс через переопределение package-private `membershipTimeout()` → `false`. Зачем: fail-closed по таймауту (в проде — ровно `Duration.ofSeconds(5)`); тест не ждёт реальные 5 секунд.
+
+### `StompAuthChannelInterceptorTest` — `unit` — проверка членства в чате на SEND/SUBSCRIBE (beads g9x)
+`StompAuthChannelInterceptor` с замоканными `AccessTokenVerifier` и `ChatMembershipService`. Фреймы собираются хелпером `frame()` от имени аутентифицированного пользователя `userId="9"`. Закрывает дыру: раньше интерцептор проверял только факт логина, а не то, что пользователь состоит в чате, куда пишет/на который подписывается.
+
+- **`sendToOwnChatPasses`** — `SEND /app/chat/send/5`, `isMember(5,"9")=true` → фрейм проходит (`preSend` не бросает). Зачем: happy path отправки в свой чат.
+- **`sendToForeignChatIsDenied`** — `SEND /app/chat/send/77`, `isMember(77,"9")=false` → `AccessDeniedException`. Зачем: центральный сценарий бага — раньше это проходило, любой логированный пользователь мог писать в чужой чат.
+- **`sendTypingStatusToForeignChatIsDenied`** — `SEND /app/chat/user_statuses/77`, не участник → `AccessDeniedException`. Зачем: проверка членства покрывает второй SEND-адрес (статусы набора текста), не только отправку сообщений.
+- **`subscribeToOwnChatPasses`** — `SUBSCRIBE /mutual/chat/5`, участник → проходит. Зачем: happy path подписки на свой чат.
+- **`subscribeToForeignChatIsDenied`** — `SUBSCRIBE /mutual/chat/77`, не участник → `AccessDeniedException`. Зачем: раньше любой пользователь мог подписаться и читать чужую переписку.
+- **`subscribeToForeignTypingChannelIsDenied`** — `SUBSCRIBE /mutual/typing/77`, не участник → `AccessDeniedException`. Зачем: индикатор набора текста в чужом чате — та же дыра, отдельный адрес.
+- **`subscribeToGlobalImageChannelsPassesWithoutMembershipCheck`** — `SUBSCRIBE` на `/mutual/chat/image_chat_channel` и `/mutual/chat/image_message_channel` без настройки мока → оба проходят, `membership.isMember(...)` не вызван ни разу (`Mockito.verify(..., never())`). Зачем: **сторож ловушки таска** — под `/mutual/chat/` живут не только чаты, но и два глобальных картиночных канала (`chat.view.js:271-272`); наивная проверка членства сломала бы аватарки после деплоя.
+- **`subscribeToUnknownNonNumericChatDestinationIsDenied`** — `SUBSCRIBE /mutual/chat/new_global_channel` (нечисловой хвост не из именного списка исключений) → `AccessDeniedException`. Зачем: **сторож от молчаливой дыры** — список глобальных каналов поимённый, а не «пропускать всё нечисловое»; иначе следующий добавленный в будущем канал автоматически оказался бы без проверки членства.
+- **`sendWithOverflowingChatIdIsDenied`** — `SEND /app/chat/send/99999999999999999999` (20 цифр, не влезает в `long`) → `AccessDeniedException`. Зачем: `Long.parseLong` кинул бы `NumberFormatException` — проверяет, что переполнение тоже fail-closed, а не 500-я или проход.
+- **`perUserTypingDestinationOfAnotherUserIsDenied`** — `SUBSCRIBE /mutual/chatlist/typing/42` от лица `userId="9"` → `AccessDeniedException`. Зачем: `/mutual/chatlist/typing/` добавлен в `PER_USER_PREFIXES` этим таском — проверяет, что подписка на чужой per-user typing-канал отклоняется существующей `isPerUserDestination`-веткой.
+- **`ownPerUserTypingDestinationPasses`** — `SUBSCRIBE /mutual/chatlist/typing/9` от лица того же `userId="9"` → проходит. Зачем: happy path для нового префикса, парный к предыдущему тесту.
 
 ### `GeminiServiceTest` — `unit` — GeminiService (миграция с Yandex GPT, beads 5fc)
 Чистые методы `GeminiService` (замена `YandexGptService` после миграции AI-assist на Google Gemini API); `model`/`apiKey` подставляются через `ReflectionTestUtils`, сетевые вызовы не выполняются.
