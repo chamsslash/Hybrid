@@ -111,6 +111,13 @@ public class ChatBoxStompController {
                     // Клиентское значение из тела фрейма затирается так же, как user_id/chat_id/
                     // username (beads g9x) — иначе клиент выбирал бы себе место в истории.
                     chatMessageDTO.setTimestamp(serverTimestamp);
+                    // Идентификатор сообщения — тоже серверное поле (beads myl): Kafka даёт
+                    // at-least-once, и переигранная запись обязана нести ТОТ ЖЕ id, иначе
+                    // ON CONFLICT DO NOTHING в консьюмере ничего не отловит. Генерируется до
+                    // рассылки, чтобы одно значение ушло и в эхо, и в Kafka. Клиентское
+                    // значение затирается по той же причине, что и остальные поля (beads g9x):
+                    // иначе можно было бы заранее занять чужой id и подавить чужую вставку.
+                    chatMessageDTO.setMessage_id(java.util.UUID.randomUUID().toString());
 
                     template.convertAndSend("/mutual/chat/" + canonicalChatId, chatMessageDTO);
                     kafkaProducer.send(gson.toJson(chatMessageDTO));

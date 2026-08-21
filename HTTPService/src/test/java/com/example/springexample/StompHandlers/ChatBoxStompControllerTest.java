@@ -443,4 +443,62 @@ class ChatBoxStompControllerTest {
         assertNotNull(actual, "время не может остаться пустым — по нему сортируется история");
         assertFalse(Instant.parse(actual).isBefore(beforeCall));
     }
+
+    /**
+     * Идентификатор сообщения — такое же серверное поле, как user_id/chat_id/username/
+     * timestamp (инвариант beads g9x). Клиент, которому удалось бы протащить своё значение
+     * в тело фрейма, смог бы заранее занять чужой message_id и тем самым заблокировать
+     * вставку настоящего сообщения: ON CONFLICT DO NOTHING на стороне консьюмера молча
+     * выбросил бы его как дубль.
+     */
+    @Test
+    void serverOverwritesForgedMessageIdFromFrameBody() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO forged = new ChatMessageDTO();
+        forged.setText("привет");
+        forged.setMessage_id("00000000-0000-0000-0000-000000000000");
+
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, forged);
+
+        ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
+
+        String actual = sent.getValue().getMessage_id();
+        assertNotNull(actual, "message_id обязан проставлять сервер");
+        assertNotEquals("00000000-0000-0000-0000-000000000000", actual,
+                "клиентское значение message_id обязано быть затёрто");
+        assertDoesNotThrow(() -> java.util.UUID.fromString(actual));
+    }
+
+    /**
+     * Один и тот же идентификатор обязан уйти и в realtime-эхо, и в Kafka: по нему консьюмер
+     * отличает переигранную запись от нового сообщения (ON CONFLICT DO NOTHING). Если бы id
+     * генерировался после convertAndSend или дважды, идемпотентность стала бы фикцией —
+     * каждая переигровка давала бы новую строку.
+     */
+    @Test
+    void sameMessageIdGoesToBroadcastAndToKafka() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, dto);
+
+        ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(kafkaProducer).send(payload.capture());
+
+        String broadcastId = sent.getValue().getMessage_id();
+        Map<String, Object> json = new com.google.gson.Gson().fromJson(payload.getValue(), Map.class);
+        assertEquals(broadcastId, json.get("message_id"),
+                "имя поля в JSON и само значение обязаны совпасть с разосланным эхо");
+    }
 }
