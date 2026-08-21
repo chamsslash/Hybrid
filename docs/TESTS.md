@@ -32,6 +32,8 @@
 | MessegerParody | 2 | 8 | 0 | 8 |
 | **Итого** | **26** | **158** | **4** | **162** |
 
+Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
+
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
 ---
@@ -88,14 +90,35 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`roundTripsChatImageContract`** — то же для `chatimage`.
 - **`deserializesLiteralContractJson`** — парсинг литеральной JSON-строки контракта в DTO. Зачем: гарантия, что имена полей DTO совпадают с проводным контрактом Kafka-топика.
 
-### `MvcJwtAuthFilterTest` — `unit` — фильтр аутентификации по X-заголовкам
-`MvcJwtAuthFilter` с mock-сервлет-примитивами Spring; `SecurityContextHolder` чистится в `@AfterEach`.
+### `TestAccessTokens` — тест-хелпер (не содержит тестов) — подписанные access-JWT (beads 1fs)
+Генерирует две RSA-пары: «нашу» (её публичный ключ отдаётся фильтрам как `JWT_PUBLIC_KEY_PEM`) и чужую — для токенов с невалидной подписью. Умеет минтить `Bearer`-значения с заданными `sub` и `authorities` в том же формате `[{"authority":"USER"}]`, в каком их выдаёт AuthService.
 
-- **`parsesAuthoritiesFromObjectFormat`** — `[{"authority":"USER"}]` → `[USER]`.
-- **`parsesAuthoritiesFromPlainStringFormat`** — `["ADMIN","USER"]` → `[ADMIN, USER]`. Зачем: фильтр понимает оба формата authorities.
-- **`returnsEmptyListOnGarbage`** — мусор/`null` → пустой список (без исключения).
-- **`setsAuthenticationFromHeaders`** — запрос с `X-User-ID=42` и `X-Authorities` → в `SecurityContext` появляется Authentication с principal `42` и `[USER]`. Зачем: контракт gateway→MVC (заголовки, которые ставит `JwtCheckController`).
-- **`skipsAuthenticationWithoutHeaders`** — без заголовков → Authentication не ставится (остаётся анонимом).
+Зачем отдельный хелпер вместо мока `AccessTokenVerifier`: тесты обоих фильтров стерегут именно то, что личность берётся из **проверенной подписи**. С Mockito-моком верификатора сценарий «подделанный `X-User-ID` против валидного токена другого пользователя» ничего не доказывал бы — мок вернул бы заранее заданный ответ независимо от подписи.
+
+### `MvcJwtAuthFilterTest` — `unit` — сервлетная аутентификация по подписи access-JWT (beads 1fs)
+`MvcJwtAuthFilter` с настоящим `AccessTokenVerifier` (публичный ключ из `TestAccessTokens`) и mock-сервлет-примитивами Spring; `SecurityContextHolder` чистится в `@AfterEach`. Покрывает путь `/api/*`, `/AiAssist`.
+
+Контекст: до beads 1fs фильтр строил `Authentication` прямо из `X-User-ID`/`X-Authorities`, а доверенными их делала только аннотация `auth_request` на ingress `http-protected` — nginx через `auth-response-headers` перезаписывал клиентские значения ответом `/jwtcheck`. На путях `http-public` те же заголовки шли от клиента насквозь, то есть аутентификация держалась на топологии ingress, а не на коде. Теперь личность берётся из RSA-подписи токена, а ingress отвечает только за ревокацию (жива ли refresh-сессия по `sid` в Redis).
+
+- **`setsAuthenticationFromSignedToken`** — `Authorization: Bearer <подписан нашим ключом, sub=42, authorities=[USER]>` → в `SecurityContext` появляется Authentication с principal `42` и `[USER]`. Зачем: штатный путь обязан работать как раньше — принципал совпадает с тем, что раньше приходил в `X-User-ID` (`/jwtcheck` отдаёт `X-User-ID = claims.getSubject()`), иначе сломались бы проверки членства в чате (beads 7f7, dz5).
+- **`skipsAuthenticationWithoutAnyCredentials`** — запрос без заголовков вообще → Authentication не ставится. Зачем: аноним остаётся анонимом, поведение по умолчанию не изменилось.
+- **`ignoresSpoofedHeadersWithoutBearer`** — `X-User-ID=42` + `X-Authorities=[{"authority":"USER"}]`, никакого `Authorization` → Authentication **не** ставится. Зачем: центральный сторож тикета — ровно такой запрос раньше проходил как аутентифицированный на любом пути мимо `auth_request`. Тест не вакуумный: соседний `setsAuthenticationFromSignedToken` доказывает, что фильтр в принципе умеет аутентифицировать.
+- **`tokenSubjectWinsOverSpoofedHeader`** — `X-User-ID=victim-1` + `X-Authorities=[{"authority":"ADMIN"}]` ПЛЮС валидный Bearer с `sub=attacker-9`, `authorities=[USER]` → principal `attacker-9`, authorities `[USER]`. Зачем: второй сторож тикета — при расхождении заголовка и токена побеждает подпись. Иначе владелец любого валидного токена выдавал бы себя за чужой `userId` и обходил проверки членства в чате.
+- **`rejectsTokenSignedByForeignKey`** — структурно валидный JWT, подписанный чужой парой ключей → Authentication не ставится. Зачем: проверка подписи реальна, а не сводится к парсингу payload.
+- **`rejectsGarbageBearer`** — `Authorization: Bearer not-a-jwt` → Authentication не ставится, исключение наружу не летит.
+- **`stompHandshakePathsStayPublic`** — `shouldNotFilter` истинно для `/ChatMessagesConn/info` и `/StatusUserConn`, ложно для `/api/chats`. Зачем: SockJS-хендшейк браузера не несёт `Authorization` (аутентификация живёт на STOMP CONNECT, beads 58/59) — если бы правка 1fs затянула эти пути в фильтр, WebSocket отвалился бы до CONNECT.
+
+### `ReactiveHybridAuthFilterTest` — `reactive-unit` — реактивная аутентификация по подписи access-JWT (beads 1fs)
+`ReactiveHybridAuthFilter` с настоящим `AccessTokenVerifier` и `MockServerWebExchange`. `Authentication` снимается подставной `WebFilterChain`, читающей `ReactiveSecurityContextHolder.getContext()` ниже фильтра: если контекст не записан, Mono пуст и захваченное значение остаётся `null`. Пути в тесте без префикса `/reactive` — реактивное приложение смонтировано на сервлет, и `ServletHttpHandlerAdapter` отдаёт фильтру уже срезанный путь (снаружи `/reactive/api/createchat`, внутри `/api/createchat`).
+
+Это вторая половина той же дыры, что описана в секции `MvcJwtAuthFilterTest`, и исходное место из тикета 1fs: `ReactiveHybridAuthFilter.java:56-63`. Набор сценариев зеркалит сервлетную половину намеренно — контракты фильтров разные (`WebFilter` против `OncePerRequestFilter`), и регрессия может вернуться в любую из них по отдельности.
+
+- **`setsAuthenticationFromSignedToken`** — валидный Bearer (`sub=42`, `[USER]`) на `POST /api/createchat` → в реактивном контексте Authentication с principal `42` и `[USER]`. Зачем: мутация создания чата за `auth_request` (beads 52u) обязана получать того же принципала, что и до правки.
+- **`skipsAuthenticationWithoutAnyCredentials`** — запрос без заголовков → контекст не записывается.
+- **`ignoresSpoofedHeadersWithoutBearer`** — только подделанные `X-User-ID`/`X-Authorities` → контекст не записывается. Зачем: центральный сторож тикета для реактивной половины.
+- **`tokenSubjectWinsOverSpoofedHeader`** — подделанный `X-User-ID=victim-1`/`ADMIN` плюс валидный Bearer `sub=attacker-9`/`[USER]` → principal `attacker-9`, authorities `[USER]`.
+- **`rejectsTokenSignedByForeignKey`** — токен с чужой подписью → контекст не записывается.
+- **`rejectsGarbageBearer`** — `Bearer not-a-jwt` → контекст не записывается.
 
 ### `Services/AuthGrpcTest` — `unit` — gRPC-клиент AuthGrpc (beads 93e)
 `AuthGrpc` с замоканным blocking-stub и метрикой.
@@ -159,7 +182,7 @@ Round-trip `ImageUploadDTO` через Gson.
 Контекст: шелл `/reactive/createchat` обязан быть публичным на ingress (обычная навигация браузера не несёт `Authorization`, access-токен SPA держит только в памяти — иначе F5 даёт голый nginx-401), а мутация создания чата обязана оставаться за `auth_request` → AuthService `/jwtcheck`. Ingress не умеет разводить `auth_request` по HTTP-методу (`configuration-snippet` на нашем ingress-nginx отбивается admission-вебхуком по `annotations-risk-level`), поэтому GET-шелл и POST-мутация разведены по разным путям. Тест стережёт именно это разведение — без него правка роутера тихо выносит создание чата из-под защиты ingress.
 
 - **`createChatMutationIsRoutedUnderProtectedApiPrefix`** — `POST /api/createchat` (снаружи `/reactive/api/createchat`, сервлет смонтирован на `/reactive/*`) → роутер `createchatHandle` матчится. Зачем: путь мутации должен попадать под правило `/reactive/api/createchat` ingress `http-protected`; при рассинхроне путей POST начнёт отдавать 404.
-- **`createChatMutationIsNotRoutedUnderPublicShellPath`** — `POST /createchat` (снаружи `/reactive/createchat`) → роутер `createchatHandle` **не** матчится. Зачем: главный ассерт тикета — возврат POST-роута на путь публичного шелла означал бы создание чата без `auth_request`, т.е. дыру вместо UX-фикса (приложение на этом пути не защищает: `MvcSecurityConfig` даёт `permitAll` на `/reactive/**`, а `ReactiveHybridAuthFilter` верит заголовкам `X-User-ID`/`X-Authorities`, которые вне `auth_request` приходят прямо от клиента).
+- **`createChatMutationIsNotRoutedUnderPublicShellPath`** — `POST /createchat` (снаружи `/reactive/createchat`) → роутер `createchatHandle` **не** матчится. Зачем: главный ассерт тикета — возврат POST-роута на путь публичного шелла означал бы создание чата без `auth_request`, т.е. дыру вместо UX-фикса (`MvcSecurityConfig` даёт `permitAll` на `/reactive/**`, а `ReactiveSecurityConfig` — на GET-шеллы, так что мутация на этом пути не защищена ничем). С beads 1fs подделка личности заголовками там уже невозможна — `ReactiveHybridAuthFilter` берёт принципала из подписи токена, — но обход проверки ревокации на `/jwtcheck` остаётся, поэтому разведение путей по-прежнему обязательно.
 - **`createChatShellStaysGetOnlyOnPublicPath`** — `GET /createchat` матчится роутером шелла, `POST /createchat` — нет. Зачем: публичный путь остаётся только read-only рендером app-shell.
 
 ### `Services/ChatMembershipServiceTest` — `unit` — проверка членства в чате, fail-closed (beads g9x)

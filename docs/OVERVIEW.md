@@ -117,8 +117,10 @@ graph LR
   (оба на `authservice:8081`) и `/` (SPA-шеллы, статика, SockJS-хендшейки — на
   `httpservice:8080`).
 - `http-protected` — `/api`, `/AiAssist`, `/reactive/createchat` (на `httpservice:8080`),
-  защищены аннотацией `nginx.ingress.kubernetes.io/auth-url` → `authservice:8081/jwtcheck`;
-  ingress прокидывает `X-User-ID`/`X-Authorities`/`X-Jti`/`X-Sid` в backend.
+  защищены аннотацией `nginx.ingress.kubernetes.io/auth-url` → `authservice:8081/jwtcheck`.
+  `auth_request` отвечает за **ревокацию** (жива ли refresh-сессия по `sid` в Redis);
+  **личность** backend берёт сам из подписи access-JWT, а не из прокинутых
+  `X-User-ID`/`X-Authorities` (beads 1fs, см. `docs/security-flow.md`).
 
 `deploy-kind.sh` собирает образы сервисов, генерирует одноразовые dev-ключи, ставит chart в
 kind-кластер; секреты — либо из gitignored `.env` (см. `README.md`), либо через

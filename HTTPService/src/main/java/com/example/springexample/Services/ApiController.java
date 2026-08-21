@@ -30,8 +30,10 @@ import java.util.regex.Pattern;
 
 /**
  * JSON API для SPA-шеллов (beads 56).
- * Аутентификация: ingress auth_request -> X-User-ID/X-Authorities -> MvcJwtAuthFilter.
  * Страницы-шеллы публичны, данные ходят только сюда с Authorization: Bearer.
+ * Аутентификация: MvcJwtAuthFilter проверяет подпись access-JWT и берёт принципала
+ * из sub (beads 1fs); ingress auth_request -> /jwtcheck остаётся поверх и отвечает
+ * за ревокацию — жива ли ещё refresh-сессия по sid.
  */
 @Slf4j
 @RestController
