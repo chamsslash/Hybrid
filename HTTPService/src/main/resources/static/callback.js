@@ -56,6 +56,13 @@ import {setAccessToken} from "/inmemory.js";
             const redirectUri = responseBody.redirectUri;
             if (  redirectUri) {
 
+                // callback.html — отдельный Thymeleaf-документ вне SPA-шелла, поэтому уход на
+                // redirectUri (/reactive/chatlist) — это в любом случае смена документа, и токен,
+                // положенный выше в память, здесь теряется by design (переносить его через
+                // storage/URL нельзя — inmemory.js на то и in-memory). Восстановится silent
+                // refresh'ем на целевой вью (auth.js/ensureAccessToken), ценой лишнего
+                // /exchangeTokens. Убрать этот round-trip можно только затащив OAuth-callback
+                // внутрь SPA — это отдельный тикет-спайк (j35).
                 console.log("[callback.js] Выполняем редирект на:", redirectUri);
                 window.location.href = redirectUri;}
         } catch (e) {
