@@ -42,7 +42,7 @@ class CreateChatJsonResponseTest {
 
     private MockServerHttpResponse writeResponse(ServerResponse response) {
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post("/reactive/createchat"));
+                MockServerHttpRequest.post("/reactive/api/createchat"));
         response.writeTo(exchange, context()).block();
         return exchange.getResponse();
     }

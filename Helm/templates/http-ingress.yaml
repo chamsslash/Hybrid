@@ -3,9 +3,14 @@
 # - Всё, кроме данных, публично: HTML-шеллы, статика, SockJS-хендшейки.
 #   WebSocket аутентифицируется на уровне STOMP CONNECT (access-токен),
 #   т.к. хендшейк браузера не несёт Authorization-заголовок.
-# - Данные (/api/*) и мутации защищены auth_request -> AuthService /jwtcheck
-#   по Authorization: Bearer. Без auth-signin: API отдаёт голый 401,
-#   SPA сама делает refresh+retry.
+# - Данные (/api/*, /reactive/api/*) и мутации защищены auth_request ->
+#   AuthService /jwtcheck по Authorization: Bearer. Без auth-signin: API отдаёт
+#   голый 401, SPA сама делает refresh+retry.
+# - Шелл-страницы (/reactive/chatlist, /reactive/chat, /reactive/createchat)
+#   обязаны оставаться публичными: обычная навигация браузера (F5, закладка,
+#   прямая ссылка) не несёт Authorization, а access-токен SPA держит только в
+#   памяти (static/inmemory.js) — auth_request на шелле давал бы голый nginx-401
+#   вместо приложения (beads 52u).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -51,7 +56,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/auth-url: "http://authservice.{{ .Release.Namespace }}.svc.cluster.local:8081/jwtcheck"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti, X-Sid"
-    # same limit as http-public — /reactive/createchat accepts a chat image upload
+    # same limit as http-public — POST /reactive/api/createchat carries a chat image
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 spec:
   ingressClassName: nginx
@@ -73,7 +78,15 @@ spec:
                 name: httpservice
                 port:
                   number: 8080
-          - path: /reactive/createchat
+          # Мутация создания чата вынесена из шелла /reactive/createchat в
+          # отдельный путь (beads 52u): ingress не умеет разводить auth_request
+          # по HTTP-методу — configuration-snippet на этом контроллере отбивается
+          # admission-вебхуком ("annotation group ConfigurationSnippet contains
+          # risky annotation"), т.к. annotations-risk-level ниже Critical.
+          # Разводим GET-шелл и POST-данные по разным путям: nginx выбирает
+          # location по самому длинному префиксу, шелл ловится правилом "/"
+          # из http-public.
+          - path: /reactive/api/createchat
             pathType: Prefix
             backend:
               service:
