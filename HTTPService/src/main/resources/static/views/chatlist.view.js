@@ -1,4 +1,5 @@
 import api from "/axios.js";
+import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 import { ensureAccessToken } from "/auth.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
@@ -40,10 +41,10 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
                  <p class="no-message" id="preview-${chat_id}">Нет сообщений</p>
            </div>`;
 
-    // image_url — MinIO objectKey; байты отдаёт GET /api/images/{key} (слэши не кодируем).
-    const avatarImg = image_url && image_url !== 'pending'
-        ? `<img src="/api/images/${image_url}" alt="chat avatar" class="chat-avatar">`
-        : `<img src="/images/rofl-cat.jpg" alt="chat avatar" class="chat-avatar">`;
+    // image_url — MinIO objectKey. Разметка отдаёт заглушку с меткой data-image-key, байты
+    // подставляет hydrateImages через axios (beads gs2): тег <img> не умеет послать
+    // Authorization, и такой запрос отбивался 401 ещё на ingress.
+    const avatarImg = imageTag(image_url, 'chat-avatar', 'chat avatar');
 
     chatPart.innerHTML = policy.createHTML(`
         <div class="post-header">
@@ -65,7 +66,9 @@ function appendChat(chat) {
     const chatsDiv = document.getElementById('chats');
     const noChatsMessage = document.getElementById('no-chats-message');
     if (noChatsMessage) noChatsMessage.style.display = 'none';
-    chatsDiv.prepend(chatCard(chat));
+    const card = chatCard(chat);
+    chatsDiv.prepend(card);
+    hydrateImages(card);
 }
 
 function renderInitialChats(chats) {
@@ -78,14 +81,16 @@ function renderInitialChats(chats) {
         return;
     }
     for (const chat of chats) {
-        chatsDiv.appendChild(chatCard({
+        const card = chatCard({
             chat_id: chat.id,
             chat_title: chat.title,
             chat_lastmessagetime: chat.lastMessageTime,
             chat_preview: chat.preview,
             chat_preview_username: chat.preview_username,
             image_url: chat.chat_image_url
-        }));
+        });
+        chatsDiv.appendChild(card);
+        hydrateImages(card);
         originalPreviews[chat.id] = chat.preview || '';
     }
 }
@@ -138,9 +143,9 @@ function connectStomp(token) {
             if (usernameElement) usernameElement.textContent = data.username ? (data.username + ' : ') : '';
             if (timestampElement) timestampElement.textContent = formatMessageTimestamp(data.timestamp);
             if (imageContainer && data.image_url && data.image_url !== 'pending') {
-                imageContainer.innerHTML = policy.createHTML(`
-                    <img src="/api/images/${data.image_url}"
-                         alt="chat avatar" class="chat-avatar">`);
+                imageContainer.innerHTML = policy.createHTML(
+                    imageTag(data.image_url, 'chat-avatar', 'chat avatar'));
+                hydrateImages(imageContainer);
             }
         });
     });
@@ -174,9 +179,9 @@ function connectStomp(token) {
             const target = document.getElementById(`chat-img-${message.targetId}`);
             // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
             if (target && message.objectKey && message.objectKey !== 'pending') {
-                target.innerHTML = policy.createHTML(`
-                    <img src="/api/images/${message.objectKey}"
-                         class="chat-avatar" alt="chat">`);
+                target.innerHTML = policy.createHTML(
+                    imageTag(message.objectKey, 'chat-avatar', 'chat'));
+                hydrateImages(target);
             }
         });
     });
@@ -221,6 +226,8 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // blob-URL живут до отзыва (beads gs2) — иначе вкладка копит их при каждом переходе.
+    releaseImages();
     if (stomp) stomp.disconnectAll();
     stomp = null;
 }

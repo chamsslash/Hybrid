@@ -1,4 +1,5 @@
 import api from "/axios.js";
+import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 import { ensureAccessToken } from "/auth.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
@@ -46,12 +47,11 @@ let typingTimeout = null;
 let stomp = null;
 let ac = null;
 
-// key — MinIO objectKey (напр. userimage/42/uuid.png); байты отдаёт GET /api/images/{key}.
-// Эндпоинт принимает слэши как есть — кодировать ключ не нужно.
+// key — MinIO objectKey (напр. userimage/42/uuid.png). Разметка отдаёт заглушку с меткой
+// data-image-key, байты подставляет hydrateImages через axios (beads gs2): тег <img> не умеет
+// послать Authorization, и такой запрос отбивался 401 ещё на ingress.
 function avatarHtml(key) {
-    return key && key !== 'pending'
-        ? `<img src="/api/images/${key}" alt="chat avatar" class="chat-avatar">`
-        : `<img src="/images/rofl-cat.jpg" alt="chat avatar" class="chat-avatar">`;
+    return imageTag(key, 'chat-avatar', 'chat avatar');
 }
 
 function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url }) {
@@ -74,6 +74,7 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
     `);
 
     container.appendChild(msg);
+    hydrateImages(msg);
     container.scrollTop = container.scrollHeight;
 }
 
@@ -85,6 +86,7 @@ function renderHeader(data) {
             ? `<div class="spinner-avatar"></div>`
             : avatarHtml(data.chatImageUrl)
     );
+    hydrateImages(headerAvatar);
 }
 
 function renderMembers(members) {
@@ -168,6 +170,7 @@ function updateChatHeaderAvatar(msg) {
     // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
     if (target && message.objectKey && message.objectKey !== 'pending') {
         target.innerHTML = policy.createHTML(avatarHtml(message.objectKey));
+        hydrateImages(target);
     }
 }
 
@@ -331,6 +334,9 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // blob-URL живут до отзыва (beads gs2) — без этого вкладка копила бы их при каждом
+    // переходе между чатами.
+    releaseImages();
     if (stomp) stomp.disconnectAll();
     clearTimeout(typingTimeout);
     if (ac) ac.abort();
