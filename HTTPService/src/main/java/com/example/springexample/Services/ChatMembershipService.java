@@ -37,21 +37,34 @@ public class ChatMembershipService {
     }
 
     /**
-     * Fail-closed: таймаут, ошибка gRPC и пустой список участников одинаково означают «нет».
-     * Недоступность MessegerParody и так означает, что сообщения не сохраняются, —
-     * честнее отказать сразу, чем создать видимость работы.
+     * Fail-closed: таймаут, ошибка gRPC, пустой ответ и пустой список участников
+     * одинаково означают «нет». Недоступность MessegerParody и так означает, что
+     * сообщения не сохраняются, — честнее отказать сразу, чем создать видимость работы.
+     *
+     * Реактивный вариант нужен вызывающим, которые собирают ответ одной цепочкой и
+     * блокируются на ней ровно один раз (beads 7f7, /api/chat): отдельный блокирующий
+     * вызов проверки в общем пуле уже приводил к таймаутам (beads 8wh). Правила отказа
+     * живут здесь в единственном экземпляре, isMember — блокирующая обёртка над ними,
+     * чтобы политика не разъехалась между HTTP- и STOMP-путями.
      */
+    public Mono<Boolean> isMemberReactive(long chatId, String userId) {
+        return members(chatId)
+                .timeout(membershipTimeout())
+                .map(members -> {
+                    if (members.isEmpty()) {
+                        log.warn("Проверка членства: пустой список участников чата {} — отказ", chatId);
+                        return false;
+                    }
+                    return members.stream().anyMatch(u -> String.valueOf(u.getId()).equals(userId));
+                })
+                .defaultIfEmpty(false)
+                .onErrorResume(e -> {
+                    log.warn("Проверка членства для чата {} не удалась — отказ (fail-closed)", chatId, e);
+                    return Mono.just(false);
+                });
+    }
+
     public boolean isMember(long chatId, String userId) {
-        try {
-            List<DataTransferService.UserDataRequest> members = members(chatId).block(membershipTimeout());
-            if (members == null || members.isEmpty()) {
-                log.warn("Проверка членства: пустой список участников чата {} — отказ", chatId);
-                return false;
-            }
-            return members.stream().anyMatch(u -> String.valueOf(u.getId()).equals(userId));
-        } catch (Exception e) {
-            log.warn("Проверка членства для чата {} не удалась — отказ (fail-closed)", chatId, e);
-            return false;
-        }
+        return Boolean.TRUE.equals(isMemberReactive(chatId, userId).block());
     }
 }

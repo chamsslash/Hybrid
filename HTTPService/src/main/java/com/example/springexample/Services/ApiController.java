@@ -8,6 +8,7 @@ import com.google.gson.JsonParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -39,6 +40,7 @@ public class ApiController {
 
     private final ReactiveGrpcClient reactiveGrpcClient;
     private final ImageStorageService imageStorageService;
+    private final ChatMembershipService chatMembershipService;
 
     /**
      * Прокси-отдача картинок из MinIO (beads 6s0). Ключ может содержать слэши
@@ -101,43 +103,67 @@ public class ApiController {
         };
     }
 
+    /**
+     * Членство проверяется ПЕРВЫМ звеном цепочки, до любого обращения к данным чата
+     * (beads 7f7). Раньше Authentication здесь был, но использовался только чтобы
+     * подставить в ответ своё имя и аватарку, а chatId брался из query-параметра и уходил
+     * в gRPC без единой проверки: любой залогиненный читал всю историю и список участников
+     * ЛЮБОГО чата, просто поменяв id в адресной строке. Идентификаторы чатов —
+     * последовательные bigint, так что перебор всей системы был тривиален.
+     *
+     * Проверка встроена в ту же цепочку, что и остальные вызовы, а не сделана отдельным
+     * блокирующим вызовом перед ней: метод по-прежнему блокируется ровно один раз, второй
+     * .block() в общем пуле уже приводил к таймаутам (beads 8wh).
+     *
+     * Отказ — 403 без тела. Fail-closed-семантику (ошибка gRPC, таймаут, пустой список,
+     * несуществующий чат) целиком держит ChatMembershipService — единственный источник
+     * ответа на вопрос о членстве, тот же, что у STOMP-пути (beads g9x).
+     */
     @GetMapping("/chat")
-    public Callable<Map<String, Object>> chat(Authentication auth,
-                                              @RequestParam("id") long chatId,
-                                              @RequestParam(value = "title", defaultValue = "") String title) {
+    public Callable<ResponseEntity<Map<String, Object>>> chat(Authentication auth,
+                                                              @RequestParam("id") long chatId,
+                                                              @RequestParam(value = "title", defaultValue = "") String title) {
         String userId = auth.getName();
-        return () -> {
-            DataTransferService.ChatData chatData = DataTransferService.ChatData.newBuilder()
-                    .setChatId(chatId).setTitle(title).build();
+        return () -> chatMembershipService.isMemberReactive(chatId, userId)
+                .flatMap(isMember -> {
+                    if (!isMember) {
+                        log.warn("GET /api/chat?id={} отклонён: пользователь {} не участник чата", chatId, userId);
+                        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<Map<String, Object>>build());
+                    }
 
-            Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId).onErrorReturn("");
-            Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
-            Mono<List<String>> membersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData)
-                    .onErrorReturn(List.of());
-            Mono<String> chatImageMono = reactiveGrpcClient.reactiveGetImageUrl(chatId).onErrorReturn("");
-            Mono<String> myImageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId)).onErrorReturn("");
+                    DataTransferService.ChatData chatData = DataTransferService.ChatData.newBuilder()
+                            .setChatId(chatId).setTitle(title).build();
 
-            return Mono.zip(usernameMono, chatResponseMono, membersMono, chatImageMono, myImageMono)
-                    .flatMap(tuple -> {
-                        JsonObject chatResp = JsonParser.parseString(tuple.getT2()).getAsJsonObject();
-                        Mono<List<MessageEvent>> messagesMono =
-                                "500".equals(chatResp.get("status").getAsString())
-                                        ? Mono.just(List.of())
-                                        : reactiveGrpcClient.reactiveGetAllMessages(chatData)
-                                            .onErrorReturn(List.of());
-                        return messagesMono.map(messages -> {
-                            Map<String, Object> model = new HashMap<>();
-                            model.put("userId", userId);
-                            model.put("username", tuple.getT1());
-                            model.put("chatId", chatId);
-                            model.put("title", title);
-                            model.put("members", tuple.getT3());
-                            model.put("chatImageUrl", tuple.getT4());
-                            model.put("myImageUrl", tuple.getT5());
-                            model.put("messages", messages);
-                            return model;
-                        });
-                    }).block();
-        };
+                    Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId).onErrorReturn("");
+                    Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
+                    Mono<List<String>> membersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData)
+                            .onErrorReturn(List.of());
+                    Mono<String> chatImageMono = reactiveGrpcClient.reactiveGetImageUrl(chatId).onErrorReturn("");
+                    Mono<String> myImageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId)).onErrorReturn("");
+
+                    return Mono.zip(usernameMono, chatResponseMono, membersMono, chatImageMono, myImageMono)
+                            .flatMap(tuple -> {
+                                JsonObject chatResp = JsonParser.parseString(tuple.getT2()).getAsJsonObject();
+                                Mono<List<MessageEvent>> messagesMono =
+                                        "500".equals(chatResp.get("status").getAsString())
+                                                ? Mono.just(List.of())
+                                                : reactiveGrpcClient.reactiveGetAllMessages(chatData)
+                                                    .onErrorReturn(List.of());
+                                return messagesMono.map(messages -> {
+                                    Map<String, Object> model = new HashMap<>();
+                                    model.put("userId", userId);
+                                    model.put("username", tuple.getT1());
+                                    model.put("chatId", chatId);
+                                    model.put("title", title);
+                                    model.put("members", tuple.getT3());
+                                    model.put("chatImageUrl", tuple.getT4());
+                                    model.put("myImageUrl", tuple.getT5());
+                                    model.put("messages", messages);
+                                    return model;
+                                });
+                            })
+                            .map(ResponseEntity::ok);
+                })
+                .block();
     }
 }
