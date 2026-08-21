@@ -110,6 +110,14 @@ authservice:
   google:
     clientId: local-google-client-id
     # clientSecret comes from the app Secret (secrets.googleClientSecret)
+  # initContainer wait-for-schema: держит под в Init, пока Liquibase-Job не создаст
+  # схему. Без него ddl-auto: validate на свежей установке (hook post-install)
+  # уводит под в CrashLoopBackOff. См. Hybrid-kubernetes-non-local-2cm.
+  schemaWait:
+    enabled: true
+    image: postgres:15    # нужен только клиент psql
+    table: users          # опорная таблица baseline v1 (001-create-users.yaml)
+    intervalSeconds: 2    # пауза между попытками
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
@@ -183,6 +191,15 @@ messegerparody:
     enabled: true
     backoffLimit: 1
     waitImage: postgres:15
+
+  # initContainer wait-for-schema: держит под в Init, пока Liquibase-Job не создаст
+  # схему. Без него ddl-auto: validate на свежей установке (hook post-install)
+  # уводит под в CrashLoopBackOff. См. Hybrid-kubernetes-non-local-2cm.
+  schemaWait:
+    enabled: true
+    image: postgres:15    # нужен только клиент psql
+    table: users          # опорная таблица baseline v1 (001-create-users.yaml)
+    intervalSeconds: 2    # пауза между попытками
 
   env:
     kafkaBootstrap: kafka:9092

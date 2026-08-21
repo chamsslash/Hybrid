@@ -14,6 +14,55 @@ spec:
       labels:
         app: messegerparody
     spec:
+{{- if .Values.schemaWait.enabled }}
+      # Схему создаёт Job messegerparody-liquibase (hook post-install,pre-upgrade),
+      # а Hibernate в этом сервисе работает с ddl-auto: validate и ничего не создаёт.
+      # На СВЕЖЕЙ установке отрабатывает ветка post-install, то есть Job стартует
+      # ПОСЛЕ основных ресурсов, и под приложения успевает подняться раньше схемы —
+      # validate не находит таблиц и уводит под в CrashLoopBackOff до отработки Job.
+      # Поэтому ждём схему здесь: порядок становится детерминированным на обоих
+      # путях (install и upgrade), а не зависит от рестарт-backoff.
+      # Ждём именно таблицу, а не pg_isready: последний отвечает лишь «сервер
+      # принимает соединения», схемы при этом может ещё не быть.
+      # Опорная таблица — baseline v1 (001-create-users.yaml).
+      # См. Hybrid-kubernetes-non-local-2cm.
+      initContainers:
+        - name: wait-for-schema
+          image: "{{ .Values.schemaWait.image | default "postgres:15" }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              # psql молча падает и когда сервер ещё не поднят, и когда таблицы нет,
+              # поэтому один цикл покрывает оба состояния. to_regclass возвращает
+              # NULL для отсутствующей таблицы и не бросает ошибку.
+              until psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
+                    -tAc "SELECT to_regclass('public.${WAIT_TABLE}') IS NOT NULL" 2>/dev/null \
+                    | grep -qx t; do
+                echo "Waiting for schema: table ${WAIT_TABLE} in ${DB_HOST}:${DB_PORT}/${DB_NAME}..."
+                sleep "${WAIT_INTERVAL}"
+              done
+              echo "Schema is ready: table ${WAIT_TABLE} exists."
+          env:
+            - name: DB_HOST
+              value: "{{ .Values.env.dbHost }}"
+            - name: DB_PORT
+              value: "{{ .Values.env.dbPort }}"
+            - name: DB_NAME
+              value: "{{ .Values.env.dbName }}"
+            - name: DB_USER
+              value: "{{ .Values.env.dbUser }}"
+            - name: WAIT_TABLE
+              value: "{{ .Values.schemaWait.table | default "users" }}"
+            - name: WAIT_INTERVAL
+              value: "{{ .Values.schemaWait.intervalSeconds | default 2 }}"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
+{{- end }}
       containers:
         - name: messegerparody
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
