@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 15 | 89 | 2 | 91 |
+| HTTPService | 17 | 99 | 2 | 101 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **22** | **114** | **4** | **118** |
+| **Итого** | **24** | **124** | **4** | **128** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
