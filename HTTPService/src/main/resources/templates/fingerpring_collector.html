@@ -46,7 +46,9 @@
                 setAccessToken(response.data.accessToken);
             }
 
-            // 4. УСПЕХ! Куки уже выставлены сервером, просто редиректим дальше
+            // 4. УСПЕХ! Куки уже выставлены сервером, просто редиректим дальше.
+            // Страница вне SPA (свой Thymeleaf-документ, роутера нет), поэтому уход на returnUrl —
+            // смена документа: токен из памяти теряется и добирается silent refresh'ем уже в шелле.
             console.log("Tokens refreshed");
             console.log(`Редирект на: ${returnUrl}`);
             window.location.href = returnUrl;

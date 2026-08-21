@@ -63,11 +63,14 @@ export async function mount(params) {
     // отдаёт голую страницу 401 вместо приложения. Доступ проверяем на клиенте:
     // без живой refresh-сессии уводим на /welcome, чтобы аноним не видел форму.
     // Сама мутация защищена auth_request на /reactive/api/createchat.
+    // Уводим клиентским переходом: /welcome — такой же роут этого же shell'а,
+    // и терять тут нечего (ensureAccessToken упал — значит токена в памяти и не было),
+    // а window.location.href стоил бы лишней полной перезагрузки app-shell.
     try {
         await ensureAccessToken();
     } catch (e) {
         console.error("createchat bootstrap failed:", e);
-        window.location.href = "/welcome";
+        await navigate("/welcome");
         return;
     }
 
