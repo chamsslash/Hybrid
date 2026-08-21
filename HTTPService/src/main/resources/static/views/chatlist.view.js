@@ -162,7 +162,14 @@ function connectStomp(token) {
 
     const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
     imagesStomp.connect(authHeaders, () => {
-        imagesStomp.subscribe(`/mutual/chat_list/image_chat_channel`, (msg) => {
+        // Пер-юзерный адрес (beads bwh). Раньше здесь был глобальный
+        // /mutual/chat_list/image_chat_channel — заметьте chat_list через подчёркивание:
+        // он не подходил ни под один префикс интерцептора и потому пропускался
+        // allow-by-default, раздавая chatId и ключи MinIO всех чатов системы.
+        // Теперь сервер веером раскладывает событие по участникам чата, как typing-статусы,
+        // а список чатов слушает один свой адрес — плитки появляются динамически, и
+        // подписываться на каждый чат отдельно пришлось бы по мере их добавления.
+        imagesStomp.subscribe(`/mutual/chatlist/image/${user_id}`, (msg) => {
             const message = JSON.parse(msg.body);
             const target = document.getElementById(`chat-img-${message.targetId}`);
             // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).

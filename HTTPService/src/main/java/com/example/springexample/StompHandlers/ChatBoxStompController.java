@@ -190,14 +190,42 @@ public class ChatBoxStompController {
                 err -> log.error("Не удалось получить участников чата {} — статус набора не разослан", chatId, err)
         );
     }
+    /**
+     * Аватарка пользователя (событие userimage топика "Images") — на пер-юзерный адрес
+     * (beads bwh). Раньше это был глобальный /mutual/chat/image_message_channel: один адрес
+     * на всю систему, откуда любой аутентифицированный подписчик вычитывал targetId и
+     * objectKey каждой загруженной картинки. Per-chat адрес здесь невозможен в принципе:
+     * targetId события userimage — это userId (WEBFLUX_Service.Upload_image(..., "userimage")
+     * при регистрации), чата в этом событии нет вообще. Отсюда пер-юзерное семейство
+     * /mutual/user_image/, закрытое проверкой личности в StompAuthChannelInterceptor.
+     */
     public void UploadMessageImageFromKafka(ImageUploadDTO imageUploadDTO) {
-        template.convertAndSend("/mutual/chat/image_message_channel", imageUploadDTO);
-
+        String userId = imageUploadDTO.canonicalTargetId();
+        if (userId == null) {
+            log.warn("Событие userimage с некорректным targetId {} — рассылки нет",
+                    imageUploadDTO.getTargetId());
+            return;
+        }
+        template.convertAndSend("/mutual/user_image/" + userId, imageUploadDTO);
     }
 
+    /**
+     * Аватарка чата (событие chatimage) — на адрес самого чата (beads bwh), для открытой
+     * страницы чата. Раньше — глобальный /mutual/chat/image_chat_channel, который вдобавок
+     * был синтаксически неотличим от /mutual/chat/{chatId} и потому держал в интерцепторе
+     * поимённое исключение из проверки членства. Здесь targetId — это именно chatId
+     * (WEBFLUX_Service.Upload_image(..., "chatimage") при создании чата), так что подписку
+     * на новый адрес закрывает обычная проверка участия.
+     * Второй получатель того же события — список чатов; его веером раскладывает по
+     * участникам ChatListStompController, см. KafkaConsumer.listenImagesEvents.
+     */
     public void UploadChatImageFromKafka(ImageUploadDTO imageUploadDTO) {
-        template.convertAndSend("/mutual/chat/image_chat_channel", imageUploadDTO);
-
-
+        String chatId = imageUploadDTO.canonicalTargetId();
+        if (chatId == null) {
+            log.warn("Событие chatimage с некорректным targetId {} — рассылки нет",
+                    imageUploadDTO.getTargetId());
+            return;
+        }
+        template.convertAndSend("/mutual/chat_image/" + chatId, imageUploadDTO);
     }
 }
