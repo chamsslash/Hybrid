@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 14 | 72 | 2 | 74 |
+| HTTPService | 15 | 77 | 2 | 79 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **21** | **97** | **4** | **101** |
+| **Итого** | **22** | **102** | **4** | **106** |
 
 CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-тесты всех трёх модулей (AuthService, HTTPService, MessegerParody). Integration (`*IT`) в CI по умолчанию не запускаются (нужен Docker-раннер + `-Dgroups=integration`).
 
@@ -154,7 +154,7 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`successWithoutTitleReturnsOnlyChatId`** — ответ без `title` (`id=7`) → тело содержит `"chatId":7`, поле `title` отсутствует. Зачем: опциональность `title` в ответе не должна ломать сериализацию.
 
 ### `Services/ChatMembershipServiceTest` — `unit` — проверка членства в чате, fail-closed (beads g9x)
-`ChatMembershipService` с замоканным `ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub`. Отвечает на вопрос «состоит ли пользователь в чате» — источник, от которого в следующих задачах зависит STOMP-интерцептор.
+`ChatMembershipService` с замоканным `ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub`. Отвечает на вопрос «состоит ли пользователь в чате» — источник, от которого зависят STOMP-интерцептор, `ChatBoxStompController` и (с beads 7f7) `ApiController`. Правила отказа живут в одном месте — реактивном `isMemberReactive`; блокирующий `isMember` с beads 7f7 стал тонкой обёрткой над ним, поэтому все тесты ниже стерегут обе формы сразу.
 
 - **`membersReturnsUsersWithIdAndUsername`** — стаб возвращает `UserListResponse` с участниками `id=7,9`. Проверяет: `members(5L)` отдаёт список из 2 `UserDataRequest` с корректными `id`/`username` (`7`/`"user-7"`). Зачем: базовый контракт метода `members()`, на который опирается всё остальное.
 - **`isMemberTrueWhenUserPresent`** — участники `7,9`, проверяем `userId="9"` → `true`. Зачем: happy path проверки членства.
@@ -162,6 +162,15 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`isMemberFalseOnEmptyMemberList`** — gRPC вернул пустой список участников → `false`. Зачем: fail-closed — пустой список участников не должен трактоваться как «доступ всем».
 - **`isMemberFalseWhenGrpcFails`** — стаб отдаёт `Mono.error` (MessegerParody недоступен) → `false`, без исключения наружу. Зачем: fail-closed при ошибке gRPC — недоступность бэкенда не должна открывать доступ.
 - **`isMemberFalseOnTimeout`** — стаб зависает (`Mono.never()`), таймаут укорочен до 100мс через переопределение package-private `membershipTimeout()` → `false`. Зачем: fail-closed по таймауту (в проде — ровно `Duration.ofSeconds(5)`); тест не ждёт реальные 5 секунд.
+
+### `Services/ApiControllerChatAccessTest` — `unit` — контроль доступа к истории чата по HTTP (beads 7f7)
+`ApiController.chat` (`GET /api/chat`) с замоканным `ReactiveGrpcClient` и **настоящим** `ChatMembershipService` поверх замоканного gRPC-стаба: тесты обязаны стеречь fail-closed целиком, от ответа MessegerParody до HTTP-статуса, а не доверять заглушке самой проверки. Замоканный `ReactiveGrpcClient` служит детектором утечки — на нём проверяется, что за данными чужого чата не ушло ни одного вызова. Сценарии повторяют живое подтверждение из тикета: аккаунт `sunny` (`id=4`) состоит только в чате 3 и ходит за чатом 1.
+
+- **`memberGetsChatHistoryAndMembers`** — `sunny` (`id=4`) есть среди участников чата 3 (`4,7`), gRPC отдаёт полный набор данных чата. Проверяет: `200 OK`, в теле `chatId=3`, `username="sunny"`, список `members` и одно сообщение в `messages`. Зачем: фикс не должен ломать штатный сценарий — участник получает ровно то же, что и до правки.
+- **`outsiderGetsForbiddenAndNoChatDataIsFetched`** — `sunny` запрашивает чат 1, участники которого `1,2,7`. Проверяет: `403 FORBIDDEN`, тело пустое, и `verifyNoInteractions(reactiveGrpcClient)` — ни история, ни список участников, ни картинка чата не запрашивались вовсе. Зачем: **центральный сторож тикета 7f7** — раньше `Authentication` использовался только чтобы подставить в ответ своё имя и аватарку, а `chatId` уходил из query-параметра в gRPC без единой проверки членства, и любой залогиненный читал полную историю любого чата, поменяв id в URL (подтверждено живьём и через `/api/chat`, и через штатный UI). Отказ обязан случаться ДО побочных эффектов, поэтому проверяется не только статус, но и отсутствие вызовов.
+- **`membershipGrpcFailureIsForbiddenNotOpenDoor`** — стаб членства отдаёт `Mono.error` (MessegerParody недоступен). Проверяет: `403`, gRPC за данными чата не вызывался. Зачем: fail-closed на HTTP-пути — недоступность бэкенда не должна открывать чужую переписку.
+- **`emptyMemberListIsForbidden`** — стаб членства вернул пустой `UserListResponse`. Проверяет: `403`, gRPC за данными чата не вызывался. Зачем: пустой список участников — не «доступ всем»; та же трактовка, что на STOMP-пути.
+- **`unknownChatIdIsForbiddenNotServerError`** — несуществующий чат (`id=999999`), стаб членства завершается пустым `Mono` без ответа вовсе. Проверяет: исключения нет (`assertDoesNotThrow`), статус `403`, gRPC за данными чата не вызывался. Зачем: acceptance-критерий 7f7 «несуществующий chatId → отказ, не 500» — раньше такой запрос уходил в данные чата и падал `StatusRuntimeException: UNKNOWN` на `.block()`.
 
 ### `StompHandlers/ChatBoxStompControllerTest` — `unit` — авторство сообщения и статуса набора текста из принципала и адреса, проверка членства (beads g9x)
 `ChatBoxStompController.HandleChatMessage` и `HandleChangeOfUserStatus` с замоканными `KafkaProducer`, `SimpMessagingTemplate`, `ChatMembershipService`, `ChatListStompController` и реактивным Redis-стеком (`ReactiveRedisTemplate`/`ReactiveListOperations`/`ReactiveSetOperations`), поля контроллера подставлены `ReflectionTestUtils`. Кроме авторства, контроллер с этим рефакторингом (g9x) стал единственным местом, где на SEND проверяется членство в чате: отправитель отсутствует в списке участников из `members(chatId)` → разбор фрейма прерывается без единого побочного эффекта. Оба метода также стали единственным местом строгой валидации формата `chatId` (`\d+`) на SEND-пути и канонизации его в побочных эффектах (адреса рассылки, Redis-ключ, `chat_id` в DTO) — обе обязанности раньше частично покрывал `parseChatIdOrDeny` в интерцепторе, но перенос проверки членства унёс их без замены (регрессия, закрытая тем же тикетом g9x).
