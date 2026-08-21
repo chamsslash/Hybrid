@@ -19,9 +19,11 @@ import org.springframework.util.StringUtils;
  * Аутентификация WebSocket на уровне STOMP (beads 58).
  * SockJS-handshake не несёт Authorization-заголовок, поэтому ingress его не проверяет —
  * клиент обязан передать access-токен в заголовках STOMP CONNECT.
- * Подписки на /private/** разрешены только на собственный userId.
- * Подписка на адреса конкретного чата разрешена только его участникам (beads g9x);
- * членство проверяется через ChatMembershipService, при недоступности проверки — отказ.
+ * SUBSCRIBE устроен deny-by-default (beads bwh): адрес обязан подойти под одно из
+ * известных семейств — пер-юзерное (хвост равен своему userId) или чат-скоуп (хвост
+ * равен chatId, требуется членство), — иначе отказ. Белый список и аудит подписок
+ * фронта, на котором он основан, — ниже, у PER_USER_PREFIXES/PER_CHAT_PREFIXES.
+ * Членство проверяется через ChatMembershipService, при недоступности проверки — отказ.
  * На SEND проверка членства сюда намеренно НЕ вынесена: {@code ChatBoxStompController}
  * и так вызывает {@code ChatMembershipService.members(chatId)} за списком получателей
  * веерной рассылки, так что интерцептор дублировал бы тот же gRPC-вызов вторым разом
@@ -79,19 +81,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "Wildcard subscriptions are not allowed");
                 }
-                if (isPerUserDestination(destination)) {
-                    if (!destination.endsWith("/" + userId)) {
-                        log.warn("SUBSCRIBE to foreign per-user destination {} by user {}", destination, userId);
-                        throw new org.springframework.security.access.AccessDeniedException(
-                                "Cannot subscribe to another user's destination");
-                    }
-                }
-                Long chatId = subscriptionChatId(destination);
-                if (chatId != null && !chatMembershipService.isMember(chatId, userId)) {
-                    log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
-                    throw new org.springframework.security.access.AccessDeniedException(
-                            "Not a member of chat " + chatId);
-                }
+                authorizeSubscription(destination, userId);
             }
             case SEND -> {
                 if (accessor.getUser() == null) {
@@ -116,44 +106,121 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
-     * Пер-юзерные STOMP-назначения оканчиваются на "/{userId}" и должны совпадать
-     * с аутентифицированным пользователем. Кроме всего /private/** сюда входят
-     * chatlist-каналы на /mutual, адресованные конкретному userId, — иначе любой
-     * аутентифицированный клиент мог бы подписаться на чужой userId.
-     * Общие каналы (/mutual/.../typing_statuses_channel, image-каналы, чат-скоуп
-     * по chat_id) под эти префиксы не попадают и остаются широковещательными.
+     * Белый список семейств адресов SUBSCRIBE (beads bwh). Всё, что не подошло ни под
+     * PER_USER_PREFIXES, ни под PER_CHAT_PREFIXES, — отказ.
+     *
+     * До bwh логика была обратной: отклонялись только адреса четырёх известных семейств,
+     * а любой другой адрес проходил. Живьём на стенде (2026-08-21, аккаунт sunny id=4)
+     * подписка на выдуманный на месте /mutual/chat_list/anything была ALLOWED — за ним нет
+     * никакого обработчика, и он всё равно проходил. Под тем же allow-by-default жили три
+     * глобальных канала картинок, по которым летел ImageUploadDTO{targetType,targetId,
+     * objectKey} по ВСЕМ чатам системы: подписчик собирал id чужих чатов и ключи объектов
+     * MinIO, а дальше скачивал их через /api/images (beads e1o). Цена ошибки несимметрична:
+     * лишний отказ виден сразу и чинится одной строкой, лишний доступ не виден никак.
+     *
+     * АУДИТ ПОДПИСОК ФРОНТА (grep '.subscribe(' по static/views/*.js, 2026-08-21) — это
+     * и есть исчерпывающее основание белого списка, других подписчиков у брокера нет:
+     *   chatlist.view.js:129  /mutual/chatlist/change_chatpreview/{userId}  превью чата
+     *   chatlist.view.js:150  /mutual/chatlist/list_update/{userId}         новый чат в списке
+     *   chatlist.view.js:165  /mutual/chatlist/image/{userId}               аватарка чата в списке
+     *                         (было /mutual/chat_list/image_chat_channel, глобальный)
+     *   chatlist.view.js:179  /mutual/chatlist/typing/{userId}              «печатает» в списке
+     *   chat.view.js:246      /mutual/chat/{chatId}                         сообщения чата
+     *   chat.view.js:253      /mutual/typing/{chatId}                       «печатает» в чате
+     *   chat.view.js:266      /mutual/chat_image/{chatId}                   аватарка открытого чата
+     *                         (было /mutual/chat/image_chat_channel, глобальный)
+     * Подписка chat.view.js:267 на /mutual/chat/image_message_channel удалена: у события
+     * userimage targetId — это userId, а не chatId (WEBFLUX_Service.Upload_image при
+     * регистрации), привязать такой адрес к чату невозможно. Событие уехало на пер-юзерный
+     * /mutual/user_image/{userId}; фронт его не слушает — обработчик и так был мёртвым,
+     * см. отдельную заметку в chat.view.js.
+     *
+     * Регрессию аудита стережёт everyFrontendSubscriptionFromAuditPasses: новая подписка
+     * во фронте обязана появиться и здесь, и в том тесте, иначе deny-by-default отрежет её
+     * молча — единственный реальный риск этой схемы.
+     */
+
+    /**
+     * Семейства, где хвост адреса — userId: подписаться можно только на собственный.
+     * Хвост сверяется ЦЕЛИКОМ, а не endsWith("/" + userId), как было до bwh: тот вариант
+     * пропускал /mutual/chatlist/typing/42/9 — знакомый префикс, чужой userId в середине
+     * и свой в конце. Брокер такой адрес никогда не наполнит, но deny-by-default обязан
+     * отвечать «нет» на всё, чего система не рассылает, а не только на незнакомые префиксы.
      */
     private static final String[] PER_USER_PREFIXES = {
             "/private/",
             "/mutual/chatlist/change_chatpreview/",
             "/mutual/chatlist/list_update/",
             "/mutual/chatlist/notify/",
-            "/mutual/chatlist/typing/"
+            "/mutual/chatlist/typing/",
+            "/mutual/chatlist/image/",
+            "/mutual/user_image/"
     };
 
-    private static boolean isPerUserDestination(String destination) {
-        if (!StringUtils.hasText(destination)) {
-            return false;
-        }
-        for (String prefix : PER_USER_PREFIXES) {
+    /**
+     * Семейства, где хвост адреса — chatId: подписаться может только участник чата.
+     * /mutual/chat_image/ отделён от /mutual/chat/ подчёркиванием намеренно. Раньше канал
+     * аватарки жил как /mutual/chat/image_chat_channel и был синтаксически неотличим от
+     * /mutual/chat/{chatId} — ровно из-за этой коллизии и завёлся поимённый список
+     * NON_CHAT_MUTUAL_CHAT_SUFFIXES, дыра в проверке членства. Список удалён вместе с
+     * коллизией: теперь под /mutual/chat/ не бывает ничего, кроме числового chatId.
+     */
+    private static final String[] PER_CHAT_PREFIXES = {
+            "/mutual/chat/",
+            "/mutual/typing/",
+            "/mutual/chat_image/"
+    };
+
+    /** Префикс из списка, под который подошёл адрес, либо null. */
+    private static String matchingPrefix(String[] prefixes, String destination) {
+        for (String prefix : prefixes) {
             if (destination.startsWith(prefix)) {
-                return true;
+                return prefix;
             }
         }
-        return false;
+        return null;
     }
 
-    private static final String SUB_CHAT_PREFIX = "/mutual/chat/";
-    private static final String SUB_TYPING_PREFIX = "/mutual/typing/";
-
     /**
-     * Глобальные каналы, живущие под префиксом /mutual/chat/ и не относящиеся к чатам.
-     * Список поимённый намеренно: всё остальное под этим префиксом обязано быть числовым
-     * chatId, иначе отказ. Иначе следующий добавленный глобальный канал молча оказался бы
-     * без проверки членства.
+     * Единственная точка решения «пускать ли SUBSCRIBE»: сначала пер-юзерные семейства,
+     * затем чат-скоуп, затем безусловный отказ. Порядок между двумя списками произволен —
+     * префиксы не пересекаются (/mutual/chatlist/ и /mutual/chat_image/ расходятся с
+     * /mutual/chat/ уже на 13-м символе), — но зафиксирован, чтобы будущий префикс,
+     * случайно попавший в оба списка, разрешался предсказуемо.
      */
-    private static final java.util.Set<String> NON_CHAT_MUTUAL_CHAT_SUFFIXES =
-            java.util.Set.of("image_chat_channel", "image_message_channel");
+    private void authorizeSubscription(String destination, String userId) {
+        if (!StringUtils.hasText(destination)) {
+            log.warn("SUBSCRIBE без адреса отклонён: пользователь {}", userId);
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "SUBSCRIBE requires a destination");
+        }
+
+        String perUserPrefix = matchingPrefix(PER_USER_PREFIXES, destination);
+        if (perUserPrefix != null) {
+            if (!destination.substring(perUserPrefix.length()).equals(userId)) {
+                log.warn("SUBSCRIBE to foreign per-user destination {} by user {}", destination, userId);
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Cannot subscribe to another user's destination");
+            }
+            return;
+        }
+
+        String perChatPrefix = matchingPrefix(PER_CHAT_PREFIXES, destination);
+        if (perChatPrefix != null) {
+            long chatId = parseChatIdOrDeny(destination, perChatPrefix);
+            if (!chatMembershipService.isMember(chatId, userId)) {
+                log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Not a member of chat " + chatId);
+            }
+            return;
+        }
+
+        log.warn("SUBSCRIBE на неизвестный адрес {} отклонён: пользователь {} (deny-by-default, beads bwh)",
+                destination, userId);
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Unknown subscription destination: " + destination);
+    }
 
     /**
      * Разбирает chatId из хвоста адреса. Пустой хвост, нечисловой или не влезающий
@@ -175,21 +242,4 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
     }
 
-    /** chatId подписки, требующей проверки членства, либо null если адрес к чатам не относится. */
-    private static Long subscriptionChatId(String destination) {
-        if (!StringUtils.hasText(destination)) {
-            return null;
-        }
-        if (destination.startsWith(SUB_TYPING_PREFIX)) {
-            return parseChatIdOrDeny(destination, SUB_TYPING_PREFIX);
-        }
-        if (destination.startsWith(SUB_CHAT_PREFIX)) {
-            String tail = destination.substring(SUB_CHAT_PREFIX.length());
-            if (NON_CHAT_MUTUAL_CHAT_SUFFIXES.contains(tail)) {
-                return null;
-            }
-            return parseChatIdOrDeny(destination, SUB_CHAT_PREFIX);
-        }
-        return null;
-    }
 }

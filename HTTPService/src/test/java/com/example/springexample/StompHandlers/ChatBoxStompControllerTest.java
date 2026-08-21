@@ -256,6 +256,61 @@ class ChatBoxStompControllerTest {
     }
 
     /**
+     * beads bwh: аватарка чата уезжает на адрес самого чата, а не в глобальный канал.
+     * Раньше это был /mutual/chat/image_chat_channel — один адрес на всю систему, откуда
+     * любой подписчик вычитывал chatId и objectKey чужих чатов. Теперь адрес несёт chatId,
+     * и подписаться на него может только участник (проверку делает StompAuthChannelInterceptor).
+     */
+    @Test
+    void chatImageEventGoesToPerChatAddress() {
+        controller().UploadChatImageFromKafka(
+                new com.example.springexample.ImageUploadDTO("chatimage", "5", "chatimage/5/uuid.jpg"));
+
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat_image/5"), Mockito.any(Object.class));
+        Mockito.verify(template, Mockito.never())
+                .convertAndSend(Mockito.eq("/mutual/chat/image_chat_channel"), Mockito.any(Object.class));
+    }
+
+    /**
+     * beads bwh: у события userimage targetId — это userId (аватарка при регистрации,
+     * WEBFLUX_Service.Upload_image(..., "userimage")), а НЕ chatId, поэтому per-chat адрес
+     * для него невозможен в принципе. Уезжает на пер-юзерный адрес, закрытый той же
+     * проверкой личности, что и остальные /mutual/...-каналы конкретного пользователя.
+     */
+    @Test
+    void userImageEventGoesToPerUserAddress() {
+        controller().UploadMessageImageFromKafka(
+                new com.example.springexample.ImageUploadDTO("userimage", "42", "userimage/42/uuid.png"));
+
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/user_image/42"), Mockito.any(Object.class));
+        Mockito.verify(template, Mockito.never())
+                .convertAndSend(Mockito.eq("/mutual/chat/image_message_channel"), Mockito.any(Object.class));
+    }
+
+    /**
+     * targetId из Kafka — внешние данные, в адрес он попадает подстановкой. Нечисловой
+     * targetId не должен порождать адрес вида /mutual/chat_image/../.. — рассылки нет вовсе.
+     * Ведущие нули канонизируются, иначе "007" уехал бы на /mutual/chat_image/007, а
+     * участники чата 7 слушают /mutual/chat_image/7 (сценарий 007 из beads g9x).
+     */
+    @Test
+    void malformedImageTargetIdIsNotBroadcastAndLeadingZeroesAreCanonicalized() {
+        ChatBoxStompController c = controller();
+
+        c.UploadChatImageFromKafka(
+                new com.example.springexample.ImageUploadDTO("chatimage", "../7", "chatimage/x/uuid.jpg"));
+        c.UploadMessageImageFromKafka(
+                new com.example.springexample.ImageUploadDTO("userimage", "", "userimage/x/uuid.png"));
+
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+
+        c.UploadChatImageFromKafka(
+                new com.example.springexample.ImageUploadDTO("chatimage", "007", "chatimage/007/uuid.jpg"));
+
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat_image/7"), Mockito.any(Object.class));
+    }
+
+    /**
      * Время сообщения обязано фиксироваться в момент прихода фрейма, а не в момент возврата
      * gRPC-вызова members(chatId) (beads 525). Порядок ответов gRPC ничем не гарантирован:
      * на живом стенде 10 сообщений подряд от одного клиента разъехались на 90 мс и осели в БД

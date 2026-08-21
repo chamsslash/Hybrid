@@ -96,13 +96,23 @@ class StompAuthChannelInterceptorTest {
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/typing/77"), null));
     }
 
-    /** Стережёт ловушку: глобальные картиночные каналы живут под тем же префиксом. */
+    /**
+     * beads bwh: прежде этот тест утверждал ОБРАТНОЕ — что три глобальных картиночных
+     * канала проходят без проверки членства. Именно то поведение и было уязвимостью:
+     * по ним летел ImageUploadDTO{targetType,targetId,objectKey} по ВСЕМ чатам системы,
+     * так что любой аутентифицированный пользователь собирал id чужих чатов и ключи
+     * объектов MinIO. Каналы переехали на per-chat/per-user адреса, а сами эти три
+     * адреса обязаны остаться закрытыми навсегда — тест развёрнут, а не удалён,
+     * чтобы старый контракт не вернулся вместе с откатом фронта.
+     */
     @Test
-    void subscribeToGlobalImageChannelsPassesWithoutMembershipCheck() {
-        assertNotNull(interceptor.preSend(
+    void subscribeToLegacyGlobalImageChannelsIsDenied() {
+        assertThrows(AccessDeniedException.class, () -> interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chat/image_chat_channel"), null));
-        assertNotNull(interceptor.preSend(
+        assertThrows(AccessDeniedException.class, () -> interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chat/image_message_channel"), null));
+        assertThrows(AccessDeniedException.class, () -> interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat_list/image_chat_channel"), null));
 
         Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
     }
@@ -113,6 +123,99 @@ class StompAuthChannelInterceptorTest {
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(
                         frame(StompCommand.SUBSCRIBE, "/mutual/chat/new_global_channel"), null));
+    }
+
+    /**
+     * Центральный сторож beads bwh. Адрес выдуман на месте, обработчика за ним нет —
+     * живьём на стенде (аккаунт sunny, id=4) он был ALLOWED, потому что не подходил ни
+     * под один известный префикс и проваливался в allow-by-default. Теперь незнакомое
+     * семейство адресов — отказ, и membership по нему даже не опрашивается.
+     */
+    @Test
+    void subscribeToInventedDestinationIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chat_list/anything"), null));
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/whatever"), null));
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/topic/news"), null));
+
+        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
+
+    /** Канал аватарки чата, в котором пользователь состоит, — обычная подписка участника. */
+    @Test
+    void subscribeToOwnChatImageChannelPasses() {
+        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat_image/5"), null));
+    }
+
+    /** beads bwh, acceptance 1: канал картинок ЧУЖОГО чата закрыт той же проверкой членства. */
+    @Test
+    void subscribeToForeignChatImageChannelIsDenied() {
+        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chat_image/77"), null));
+    }
+
+    @Test
+    void subscribeToForeignChatlistImageChannelIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/image/42"), null));
+    }
+
+    @Test
+    void subscribeToForeignUserImageChannelIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/user_image/42"), null));
+    }
+
+    /**
+     * Пер-юзерный адрес обязан ЗАКАНЧИВАТЬСЯ на свой userId, а не просто содержать его
+     * в конце: прежняя проверка была endsWith("/" + userId), и "/mutual/chatlist/typing/42/9"
+     * её проходил — очередной выдуманный адрес, проскочивший бы и мимо deny-by-default,
+     * потому что префикс-то знакомый. Хвост сверяется целиком (beads bwh).
+     */
+    @Test
+    void subscribeToPerUserDestinationWithExtraSegmentsIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(
+                        frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/typing/42/9"), null));
+    }
+
+    /**
+     * Регрессия аудита фронта (beads bwh, acceptance 3/4). Deny-by-default опасен ровно
+     * одним — молча отрезать живую подписку. Здесь перечислены ВСЕ адреса, на которые
+     * подписывается приложение после переезда картиночных каналов: 4 из chatlist.view.js
+     * и 3 из chat.view.js. Список синхронизирован с белым списком в интерцепторе; если
+     * фронт заведёт новую подписку, она обязана появиться и здесь, и там.
+     */
+    @Test
+    void everyFrontendSubscriptionFromAuditPasses() {
+        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+
+        // chatlist.view.js — пер-юзерные каналы списка чатов
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/change_chatpreview/9"), null));
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/list_update/9"), null));
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/image/9"), null));
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chatlist/typing/9"), null));
+
+        // chat.view.js — каналы конкретного чата, пользователь в нём состоит
+        assertNotNull(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null));
+        assertNotNull(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/typing/5"), null));
+        assertNotNull(interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat_image/5"), null));
     }
 
     @Test

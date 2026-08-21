@@ -42,7 +42,6 @@ let user_image = null;
 let typingUsers = [];
 let stompClient = null;
 let typingTimeout = null;
-const pendingImages = new Set();
 
 let stomp = null;
 let ac = null;
@@ -155,17 +154,20 @@ function sendChatMessage() {
     input.value = "";
 }
 
-function updateImage(msg, prefix) {
+// Канал уже привязан к открытому чату (/mutual/chat_image/{chat_id}, beads bwh), поэтому
+// искать элемент по targetId не нужно — обновляем аватарку в шапке этого чата.
+// Прежний updateImage(msg, prefix) собирал id как `${prefix}${message.targetId}` и искал
+// chat_img-{id} / img-{id}. Таких id нет ни в CHAT_HTML, ни в appendChatMessage: шапка —
+// это #chat-header-avatar, а аватарки сообщений рисуются инлайн, без id. Обработчик всегда
+// получал target === null и молча ничего не делал; вместе с ним умерли pendingImages и
+// #global-spinner, которых тоже нет в разметке. Оставлять этот код после переезда каналов
+// было бы хуже, чем починить: он выглядел бы рабочим подписчиком нового адреса.
+function updateChatHeaderAvatar(msg) {
     const message = JSON.parse(msg.body);
-    const target = document.getElementById(`${prefix}${message.targetId}`);
+    const target = document.getElementById('chat-header-avatar');
     // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
     if (target && message.objectKey && message.objectKey !== 'pending') {
         target.innerHTML = policy.createHTML(avatarHtml(message.objectKey));
-        pendingImages.delete(String(message.targetId));
-        if (pendingImages.size === 0) {
-            const globalSpinner = document.getElementById('global-spinner');
-            if (globalSpinner) globalSpinner.style.display = 'none';
-        }
     }
 }
 
@@ -263,8 +265,14 @@ function connectStomp(token) {
 
     const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
     imagesStomp.connect(authHeaders, () => {
-        imagesStomp.subscribe(`/mutual/chat/image_chat_channel`, (msg) => updateImage(msg, 'chat_img-'));
-        imagesStomp.subscribe(`/mutual/chat/image_message_channel`, (msg) => updateImage(msg, 'img-'));
+        // Адрес несёт chat_id (beads bwh). Раньше здесь были два ГЛОБАЛЬНЫХ канала —
+        // /mutual/chat/image_chat_channel и /mutual/chat/image_message_channel, — по которым
+        // прилетали события картинок всех чатов системы: chatId и ключи объектов MinIO
+        // раздавались любому, кто подписался. Теперь адрес чат-скоупный, и SUBSCRIBE на него
+        // проходит только для участника (StompAuthChannelInterceptor).
+        // Второго канала не стало: у события userimage targetId — это userId, а не chatId,
+        // привязать его к чату нечем, и оно уехало на пер-юзерный /mutual/user_image/{userId}.
+        imagesStomp.subscribe(`/mutual/chat_image/${chat_id}`, updateChatHeaderAvatar);
     });
 }
 
@@ -279,7 +287,6 @@ export async function mount(params) {
     typingUsers = [];
     stompClient = null;
     typingTimeout = null;
-    pendingImages.clear();
 
     stomp = createStompRegistry();
     ac = new AbortController();
