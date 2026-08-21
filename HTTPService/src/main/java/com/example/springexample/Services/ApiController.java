@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.regex.Pattern;
 
 /**
  * JSON API для SPA-шеллов (beads 56).
@@ -42,25 +43,149 @@ public class ApiController {
     private final ImageStorageService imageStorageService;
     private final ChatMembershipService chatMembershipService;
 
+    /** Префикс ключа для аватарки пользователя: userimage/&lt;userId&gt;/&lt;uuid&gt;.&lt;ext&gt;. */
+    private static final String USER_IMAGE_PREFIX = "userimage";
+    /** Префикс ключа для картинки чата: chatimage/&lt;chatId&gt;/&lt;uuid&gt;.&lt;ext&gt;. */
+    private static final String CHAT_IMAGE_PREFIX = "chatimage";
+    /** Идентификатор в ключе — только десятичные цифры, как их пишут производители ключей. */
+    private static final Pattern TARGET_ID = Pattern.compile("\\d+");
+
     /**
      * Прокси-отдача картинок из MinIO (beads 6s0). Ключ может содержать слэши
      * (&lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;), поэтому используется {*key}.
+     *
+     * Владение объектом (beads e1o). Раньше Authentication здесь не было вовсе: ключ
+     * приходил от клиента и уходил в MinIO без единой проверки, поэтому любой залогиненный
+     * скачивал ЛЮБОЙ объект бакета. Подтверждено живьём на стенде kind: аккаунт sunny
+     * (id=4), состоящий только в чате 3, забрал аватарки пользователей 10, 11 и 12,
+     * которых в текущей БД не существует вовсе. Перебирать ключи даже не требовалось —
+     * они сами приезжают по глобальным каналам картинок в STOMP (смежный тикет).
+     *
+     * Правило владения выводится из префикса ключа — другого признака принадлежности у нас
+     * нет, ключи строятся только в двух местах (WEBFLUX_Service.Upload_image для
+     * userimage/chatimage и CustomOAuth2UserService.Upload_image для userimage при
+     * Google-OAuth), и оба пишут ровно &lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;:
+     *
+     *  - userimage/... — отдаётся любому аутентифицированному. Это осознанное решение,
+     *    а не недосмотр: аватарки участников видны и в списке чатов, и в списке участников
+     *    чата, а чтобы ответить «есть ли у нас общий чат», пришлось бы на КАЖДЫЙ запрос
+     *    картинки обходить весь граф чатов обоих пользователей. Утечка здесь — факт
+     *    существования аватарки, а не содержимое переписки.
+     *  - chatimage/&lt;chatId&gt;/... — только участникам этого чата. Это и есть содержимое
+     *    переписки, ради которого заведён тикет.
+     *  - всё остальное — отказ. Fail-closed: неизвестный префикс, кривой ключ, попытка
+     *    выйти вверх через ".." или лишний уровень вложенности не разбираются «как-нибудь»,
+     *    а отвергаются до обращения к MinIO.
+     *
+     * Отказ — 403 без тела, как у /api/chat (beads 7f7) и /AiAssist (beads dz5).
+     *
+     * Проверка членства встроена в ту же цепочку, что и чтение объекта: метод по-прежнему
+     * блокируется ровно один раз, второй .block() в общем пуле уже приводил к таймаутам
+     * (beads 8wh). Fail-closed-семантику проверки (ошибка gRPC, таймаут, пустой список
+     * участников, несуществующий чат) целиком держит ChatMembershipService — единственный
+     * источник ответа о членстве, тот же, что у HTTP- и STOMP-путей (beads g9x).
      */
     @GetMapping("/images/{*key}")
-    public Callable<ResponseEntity<byte[]>> image(@PathVariable("key") String key) {
-        String objectKey = key.startsWith("/") ? key.substring(1) : key;
-        return () -> imageStorageService.getObject(objectKey)
-                .map(obj -> ResponseEntity.ok()
-                        .contentType(obj.contentType() != null
-                                ? MediaType.parseMediaType(obj.contentType())
-                                : MediaType.APPLICATION_OCTET_STREAM)
-                        .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePrivate())
-                        .body(obj.data()))
-                .onErrorResume(e -> {
-                    log.warn("image fetch failed for {}: {}", objectKey, e.getMessage());
-                    return Mono.just(ResponseEntity.notFound().build());
+    public Callable<ResponseEntity<byte[]>> image(Authentication auth, @PathVariable("key") String key) {
+        // Страховка на случай, если запрос дойдёт сюда мимо MvcJwtAuthFilter: отказываем
+        // сами, а не падаем с NPE на auth.getName().
+        String userId = auth != null ? auth.getName() : null;
+        String objectKey = canonicalObjectKey(key);
+        return () -> authorizeObjectAccess(objectKey, userId)
+                .flatMap(allowed -> {
+                    if (!allowed) {
+                        log.warn("GET /api/images/{} отклонён для пользователя {}", key, userId);
+                        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).<byte[]>build());
+                    }
+                    return imageStorageService.getObject(objectKey)
+                            .map(obj -> ResponseEntity.ok()
+                                    .contentType(obj.contentType() != null
+                                            ? MediaType.parseMediaType(obj.contentType())
+                                            : MediaType.APPLICATION_OCTET_STREAM)
+                                    .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePrivate())
+                                    .body(obj.data()))
+                            .onErrorResume(e -> {
+                                log.warn("image fetch failed for {}: {}", objectKey, e.getMessage());
+                                return Mono.just(ResponseEntity.notFound().<byte[]>build());
+                            });
                 })
                 .block();
+    }
+
+    /**
+     * Приводит путь из URL к ключу MinIO и отвергает всё, что не является ключом,
+     * который мы сами могли записать. Возвращает null, если разобрать не удалось —
+     * вызывающий трактует null как отказ (fail-closed), а не как «проверить нечего».
+     *
+     * Требуется ровно три непустых сегмента: оба производителя ключей пишут
+     * &lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;, а UUID слэшей не содержит.
+     * Любая другая глубина — либо мусор, либо попытка адресовать соседний префикс,
+     * поэтому строгое «ровно три» дешевле и безопаснее, чем «не меньше трёх».
+     *
+     * Сегменты "." и ".." отвергаются: Spring декодирует %2e%2e ещё до маршрутизации,
+     * так что обход каталога пришёл бы сюда уже в открытом виде. Обратный слэш
+     * запрещён отдельно — в ключах MinIO его нет, а в качестве разделителя его
+     * трактуют некоторые клиенты.
+     */
+    private static String canonicalObjectKey(String rawKey) {
+        if (rawKey == null) {
+            return null;
+        }
+        String key = rawKey;
+        while (key.startsWith("/")) {
+            key = key.substring(1);
+        }
+        if (key.isEmpty() || key.indexOf('\\') >= 0) {
+            return null;
+        }
+        String[] segments = key.split("/", -1);
+        if (segments.length != 3) {
+            return null;
+        }
+        for (String segment : segments) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)) {
+                return null;
+            }
+        }
+        return key;
+    }
+
+    /**
+     * Отвечает, вправе ли пользователь читать объект. Для аватарок ответ известен сразу
+     * и gRPC не тревожится вовсе, для картинок чата вопрос уходит в ChatMembershipService.
+     */
+    private Mono<Boolean> authorizeObjectAccess(String objectKey, String userId) {
+        if (objectKey == null || userId == null) {
+            return Mono.just(false);
+        }
+        String[] segments = objectKey.split("/", -1);
+        String prefix = segments[0];
+        String targetId = segments[1];
+        if (!TARGET_ID.matcher(targetId).matches()) {
+            return Mono.just(false);
+        }
+
+        if (USER_IMAGE_PREFIX.equals(prefix)) {
+            return Mono.just(true);
+        }
+        if (CHAT_IMAGE_PREFIX.equals(prefix)) {
+            long chatId;
+            try {
+                chatId = Long.parseLong(targetId);
+            } catch (NumberFormatException tooLongForLong) {
+                // "\d+" пропускает числа, не помещающиеся в long; без catch это был бы 500.
+                return Mono.just(false);
+            }
+            // Членство спрашивается про chatId, а объект читается по сырому сегменту ключа —
+            // они обязаны означать одно и то же. "003" проходит "\d+" и авторизовался бы как
+            // чат 3, поэтому неканоническая запись id отвергается (тот же сценарий 007, что
+            // и в beads g9x/dz5, но здесь он ещё и расщепил бы объект на два разных ключа).
+            if (!String.valueOf(chatId).equals(targetId)) {
+                return Mono.just(false);
+            }
+            return chatMembershipService.isMemberReactive(chatId, userId);
+        }
+        return Mono.just(false);
     }
 
     @GetMapping("/me")
