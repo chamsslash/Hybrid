@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 21 | 154 | 2 | 156 |
+| HTTPService | 22 | 165 | 2 | 167 |
 | MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **28** | **179** | **4** | **183** |
+| **Итого** | **29** | **190** | **4** | **194** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -128,6 +128,17 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`authLoginThrowsAuthResponseExceptionWhenUserMissing`** — login вернул `status=404` → `AuthResponseException("404", ...)`.
 - **`authLoginReturnsResponseOnSuccess`** — `status=200` → возвращается ответ. Зачем: типизированный проброс не-200 статусов на фронт (внятные сообщения).
 
+### `Metrics/GrpcRequestsMetricTest` — `unit` — замер исходящих gRPC-вызовов (beads cwo)
+`GrpcRequestsMetric` поверх `SimpleMeterRegistry` (и `PrometheusMeterRegistry` в одном тесте), Spring-контекст не поднимается. Класс — единственная точка, где HTTPService считает свои gRPC-вызовы: исторический счётчик `grpc_calls_counter` плюс новый таймер `grpc_call_duration` с тегами `method`/`outcome`. Тесты стерегут не сам факт наличия метрики, а её пригодность как измерительного прибора для тикета 8wh (редкие отказы проверки членства по таймауту 5 с): без хвоста распределения и без разделения «дошло медленно» / «не дождались» тот тикет не разобрать.
+
+- **`assemblingMonoWithoutSubscriptionCountsNothing`** — вызов `measure(...)` собран, но никто на него не подписался. Проверяет: таймера с тегом метода в реестре нет вовсе, счётчик `grpc_calls_counter` остался нулём. Зачем: **центральный сторож тикета cwo** — до фикса `ReactiveGrpcClient` дёргал `increment()` в теле метода, ДО возврата `Mono`, то есть считал сборку цепочки, а не вызов; неподписанная цепочка накручивала счётчик, и число вызовов было выдумкой.
+- **`successfulCallIsTimedWithMethodTag`** — подписка на успешный вызов с тегом `getnewest`. Проверяет: в таймере `grpc_call_duration{method=getnewest,outcome=success}` ровно одна запись с неотрицательной длительностью, серии `outcome=error` нет, счётчик вырос на 1. Зачем: базовый контракт — латентность пишется под именем метода, а не сливается в одно общее число.
+- **`failedCallGoesToErrorOutcome`** — вызов завершается `Mono.error`. Проверяет: запись ушла в `outcome=error`, серия `success` пуста, счётчик всё равно вырос. Зачем: ошибка не должна теряться из замеров — иначе в 8wh неотличимо «вызовов не было» от «все упали».
+- **`timedOutCallGoesToCancelOutcome`** — `Mono.never()` под замером, сверху `.timeout(50мс)`. Проверяет: запись ушла в `outcome=cancel`, серий `success`/`error` нет. Зачем: таймаут стоит НАД замером и гасит вызов отменой, а не ошибкой; именно эта серия отвечает на вопрос 8wh «отвалилось по таймауту», и смешивать её с `success` нельзя.
+- **`eachSubscriptionIsCountedSeparately`** — одна и та же собранная цепочка подписана дважды. Проверяет: 2 записи в таймере и 2 в счётчике. Зачем: замер живёт на подписке (`Mono.defer`), поэтому переиспользование `Mono` считается честно — это обратная сторона того же бага, что и в первом тесте.
+- **`latencyIsExposedAsPrometheusHistogramNotOnlyAverage`** — замер на настоящем `PrometheusMeterRegistry` (в приложении стоит именно он, actuator `/prometheus`), затем разбор текста `scrape()`. Проверяет: в выдаче есть `grpc_call_duration_seconds_bucket` с метками `method="members"`/`outcome="success"` и по-прежнему есть `grpc_calls_counter_total`. Зачем: (1) требование тикета — латентность распределением, а не средним: бакеты percentile-гистограммы материализует только реестр с агрегируемыми перцентилями, на `SimpleMeterRegistry` они пусты, поэтому проверка идёт на проде-реестре; (2) исторический счётчик обязан остаться на месте — на него могли смотреть снаружи.
+- **`legacyIncrementStillFeedsOldCounter`** — старый `increment()` без аргументов. Проверяет: `grpc_calls_counter{type=GrpcMetric}` вырос. Зачем: метод остаётся в API ради `AuthGrpc`, который на него завязан и в периметр тикета не входил.
+
 ### `Services/ImageStorageServiceIT` — `integration` (Docker) — MinIO round-trip реактивный (beads se2)
 `ImageStorageService` (реактивный) против `MinIOContainer`, проверка через `StepVerifier`.
 
@@ -186,7 +197,7 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`createChatShellStaysGetOnlyOnPublicPath`** — `GET /createchat` матчится роутером шелла, `POST /createchat` — нет. Зачем: публичный путь остаётся только read-only рендером app-shell.
 
 ### `Services/ChatMembershipServiceTest` — `unit` — проверка членства в чате, fail-closed (beads g9x)
-`ChatMembershipService` с замоканным `ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub`. Отвечает на вопрос «состоит ли пользователь в чате» — источник, от которого зависят STOMP-интерцептор, `ChatBoxStompController` и (с beads 7f7) `ApiController`. Правила отказа живут в одном месте — реактивном `isMemberReactive`; блокирующий `isMember` с beads 7f7 стал тонкой обёрткой над ним, поэтому все тесты ниже стерегут обе формы сразу.
+`ChatMembershipService` с замоканным `ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub` и настоящим `GrpcRequestsMetric` поверх `SimpleMeterRegistry` (beads cwo — метрика инжектится в сервис, поэтому у конструктора два аргумента). Отвечает на вопрос «состоит ли пользователь в чате» — источник, от которого зависят STOMP-интерцептор, `ChatBoxStompController` и (с beads 7f7) `ApiController`. Правила отказа живут в одном месте — реактивном `isMemberReactive`; блокирующий `isMember` с beads 7f7 стал тонкой обёрткой над ним, поэтому все тесты ниже стерегут обе формы сразу.
 
 - **`membersReturnsUsersWithIdAndUsername`** — стаб возвращает `UserListResponse` с участниками `id=7,9`. Проверяет: `members(5L)` отдаёт список из 2 `UserDataRequest` с корректными `id`/`username` (`7`/`"user-7"`). Зачем: базовый контракт метода `members()`, на который опирается всё остальное.
 - **`isMemberTrueWhenUserPresent`** — участники `7,9`, проверяем `userId="9"` → `true`. Зачем: happy path проверки членства.
@@ -194,6 +205,10 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`isMemberFalseOnEmptyMemberList`** — gRPC вернул пустой список участников → `false`. Зачем: fail-closed — пустой список участников не должен трактоваться как «доступ всем».
 - **`isMemberFalseWhenGrpcFails`** — стаб отдаёт `Mono.error` (MessegerParody недоступен) → `false`, без исключения наружу. Зачем: fail-closed при ошибке gRPC — недоступность бэкенда не должна открывать доступ.
 - **`isMemberFalseOnTimeout`** — стаб зависает (`Mono.never()`), таймаут укорочен до 100мс через переопределение package-private `membershipTimeout()` → `false`. Зачем: fail-closed по таймауту (в проде — ровно `Duration.ofSeconds(5)`); тест не ждёт реальные 5 секунд.
+- **`membersRecordsLatencyUnderItsOwnMethodTag`** (beads cwo) — успешный `members(5L)`. Проверяет: в таймере `grpc_call_duration{method=members,outcome=success}` ровно одна запись, серии `error` нет. Зачем: после g9x это самый горячий gRPC в системе (по вызову на каждое сообщение и на каждое typing-событие), но он не считался вообще; тег `members` намеренно отделён от `getAllUsersByChatId`, которым ходит `ReactiveGrpcClient` за списком чатов, — RPC один и тот же, но смешивать горячий путь с холодным нельзя, иначе латентность из 8wh нечитаема.
+- **`membersLatencyIsCountedOnSubscriptionNotOnAssembly`** (beads cwo) — `members(5L)` вызван, но результат не подписан. Проверяет: записей в таймере нет. Зачем: замер обязан считать вызов, а не сборку реактивной цепочки.
+- **`failedMembershipCallIsRecordedAsError`** (beads cwo) — стаб отдаёт `Mono.error`. Проверяет: `isMember` по-прежнему `false` (fail-closed не тронут) И запись ушла в `outcome=error`. Зачем: fail-closed гасит ошибку внутри сервиса, и без отдельной серии в метрике отказ был бы полностью невидим снаружи.
+- **`timedOutMembershipCallIsRecordedAsCancelled`** (beads cwo) — стаб зависает, таймаут укорочен до 100мс. Проверяет: `false` И запись в `outcome=cancel`, серий `success`/`error` нет. Зачем: **ради этой серии тикет и делался** — 8wh про то, что проверка изредка отваливается по таймауту 5 с и молча отказывает легитимному участнику; теперь такой отказ виден в метрике отдельно от медленного, но успешного вызова.
 
 ### `Services/ApiControllerChatAccessTest` — `unit` — контроль доступа к истории чата по HTTP (beads 7f7)
 `ApiController.chat` (`GET /api/chat`) с замоканным `ReactiveGrpcClient` и **настоящим** `ChatMembershipService` поверх замоканного gRPC-стаба: тесты обязаны стеречь fail-closed целиком, от ответа MessegerParody до HTTP-статуса, а не доверять заглушке самой проверки. Замоканный `ReactiveGrpcClient` служит детектором утечки — на нём проверяется, что за данными чужого чата не ушло ни одного вызова. Сценарии повторяют живое подтверждение из тикета: аккаунт `sunny` (`id=4`) состоит только в чате 3 и ходит за чатом 1.

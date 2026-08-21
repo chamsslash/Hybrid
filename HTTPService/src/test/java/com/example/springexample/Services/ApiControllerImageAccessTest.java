@@ -1,6 +1,8 @@
 package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.Metrics.GrpcRequestsMetric;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -38,8 +40,10 @@ class ApiControllerImageAccessTest {
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub stub =
             Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class);
 
+    private final GrpcRequestsMetric grpcMetric = new GrpcRequestsMetric(new SimpleMeterRegistry());
+
     private final ApiController controller =
-            new ApiController(grpc, imageStorage, new ChatMembershipService(stub));
+            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric));
 
     private static final Authentication SUNNY =
             new UsernamePasswordAuthenticationToken("4", null, List.of());
@@ -123,7 +127,7 @@ class ApiControllerImageAccessTest {
     void membershipTimeoutIsForbidden() throws Exception {
         membersOfChatAre(Mono.never());
         ApiController fastController = new ApiController(grpc, imageStorage,
-                new ChatMembershipService(stub) {
+                new ChatMembershipService(stub, grpcMetric) {
                     @Override
                     Duration membershipTimeout() {
                         return Duration.ofMillis(200);

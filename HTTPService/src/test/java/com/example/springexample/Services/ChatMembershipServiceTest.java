@@ -1,6 +1,9 @@
 package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.Metrics.GrpcRequestsMetric;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import reactor.ReactorReactiveTransferServiceGrpc;
@@ -16,7 +19,17 @@ class ChatMembershipServiceTest {
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub stub =
             Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class);
 
-    private final ChatMembershipService service = new ChatMembershipService(stub);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+    private final GrpcRequestsMetric metric = new GrpcRequestsMetric(registry);
+
+    private final ChatMembershipService service = new ChatMembershipService(stub, metric);
+
+    private Timer membersTimer(String outcome) {
+        return registry.find(GrpcRequestsMetric.CALL_TIMER)
+                .tags("method", "members", "outcome", outcome)
+                .timer();
+    }
 
     private static DataTransferService.UserListResponse responseWith(long... ids) {
         DataTransferService.UserListResponse.Builder b =
@@ -80,7 +93,7 @@ class ChatMembershipServiceTest {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.never());
 
-        ChatMembershipService fastService = new ChatMembershipService(stub) {
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
             @Override
             Duration membershipTimeout() {
                 return Duration.ofMillis(100);
@@ -88,5 +101,59 @@ class ChatMembershipServiceTest {
         };
 
         assertFalse(fastService.isMember(5L, "9"));
+    }
+
+    @Test
+    void membersRecordsLatencyUnderItsOwnMethodTag() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L, 9L)));
+
+        service.members(5L).block();
+
+        assertNotNull(membersTimer("success"));
+        assertEquals(1L, membersTimer("success").count());
+        assertNull(membersTimer("error"));
+    }
+
+    @Test
+    void membersLatencyIsCountedOnSubscriptionNotOnAssembly() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L)));
+
+        service.members(5L);
+
+        assertNull(membersTimer("success"));
+    }
+
+    @Test
+    void failedMembershipCallIsRecordedAsError() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new IllegalStateException("messegerparody недоступен")));
+
+        assertFalse(service.isMember(5L, "9"));
+
+        assertNotNull(membersTimer("error"));
+        assertEquals(1L, membersTimer("error").count());
+        assertNull(membersTimer("success"));
+    }
+
+    @Test
+    void timedOutMembershipCallIsRecordedAsCancelled() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.never());
+
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
+            @Override
+            Duration membershipTimeout() {
+                return Duration.ofMillis(100);
+            }
+        };
+
+        assertFalse(fastService.isMember(5L, "9"));
+
+        assertNotNull(membersTimer("cancel"));
+        assertEquals(1L, membersTimer("cancel").count());
+        assertNull(membersTimer("success"));
+        assertNull(membersTimer("error"));
     }
 }
