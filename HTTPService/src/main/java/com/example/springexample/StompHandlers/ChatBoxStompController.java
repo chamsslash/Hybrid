@@ -68,6 +68,15 @@ public class ChatBoxStompController {
         // канонический вид уже распарсенного числа, а не сырую строку chatId.
         final String canonicalChatId = String.valueOf(chat);
         final String senderId = principal.getName();
+        // Время фиксируется здесь, в момент прихода фрейма, а НЕ внутри колбэка members()
+        // (beads 525). Внутри колбэка оно означало бы момент возврата gRPC round-trip, порядок
+        // которого между параллельными вызовами ничем не гарантирован: на живом стенде 10
+        // сообщений подряд от одного клиента разъехались на 90 мс и сохранились в порядке
+        // 03,01,06,05,08,10,07,09,04,02. Инверсия персистентная — история чата сортируется
+        // по time_stamp, поэтому переживала перезагрузку страницы и рестарт пода.
+        // Порядок между РАЗНЫМИ отправителями по-прежнему определяется временем прихода
+        // на сервер — это нормально и здесь не решается.
+        final String serverTimestamp = java.time.Instant.now().toString();
 
         if (chatMessageDTO.getUser_id() != null && !senderId.equals(chatMessageDTO.getUser_id())) {
             log.warn("Тело фрейма разошлось с принципалом: тело user_id={}, принципал={} — берём принципал",
@@ -90,7 +99,9 @@ public class ChatBoxStompController {
                     chatMessageDTO.setChat_id(canonicalChatId);
                     chatMessageDTO.setUser_id(senderId);
                     chatMessageDTO.setUsername(username);
-                    chatMessageDTO.setTimestamp(java.time.Instant.now().toString());
+                    // Клиентское значение из тела фрейма затирается так же, как user_id/chat_id/
+                    // username (beads g9x) — иначе клиент выбирал бы себе место в истории.
+                    chatMessageDTO.setTimestamp(serverTimestamp);
 
                     template.convertAndSend("/mutual/chat/" + canonicalChatId, chatMessageDTO);
                     kafkaProducer.send(gson.toJson(chatMessageDTO));
