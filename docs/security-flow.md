@@ -7,8 +7,11 @@
   - SPA хранит access **только в памяти (JS)** и отправляет его в `Authorization: Bearer <access>`.
 - **Refresh JWT** длинный и используется только для обновления access, хранится в **HttpOnly cookie**.
 - **Refresh‑сессия** хранится в Redis и привязана к fingerprint‑метаданным.
-- **Единственная точка доверия для обычных HTTP API** — ingress/nginx: он валидирует access и выставляет заголовки; backend **не валидирует JWT сам**, а доверяет `X-User-ID`, `X-Authorities`, `X-Jti`, `X-Sid`.
-  - **Исключение — WebSocket/STOMP** (раздел 11): SockJS‑хендшейк не несёт HTTP-заголовков, поэтому ingress не может его проверить через `auth_request`. Для этого пути backend **сам** валидирует access‑JWT (`AccessTokenVerifier`), в отличие от остальных HTTP API.
+- **Личность и ревокация проверяются в разных местах** (beads 1fs):
+  - **личность** (`userId`, `authorities`) backend определяет **сам**, по RSA-подписи access-JWT из `Authorization: Bearer` (`AccessTokenVerifier`) — и на HTTP (`MvcJwtAuthFilter`, `ReactiveHybridAuthFilter`), и на STOMP CONNECT (`StompAuthChannelInterceptor`);
+  - **ревокация** остаётся на ingress: `auth_request` → `/jwtcheck` проверяет, что refresh-сессия по `sid` ещё жива в Redis. Локально приложение этого сделать не может — у него нет доступа к Redis-сессиям.
+- Заголовки `X-User-ID`/`X-Authorities` **больше не источник личности**. Раньше backend строил `Authentication` прямо из них, и доверенными их делала только топология ingress: на путях `http-public` те же заголовки шли от клиента насквозь, так что перенос одного пути между ingress'ами тихо превращал их в дыру аутентификации. Значения при этом не изменились — `/jwtcheck` выводит `X-User-ID` из `claims.getSubject()`, то есть ровно из того же `sub`, что теперь читает `AccessTokenVerifier`.
+  - **Исключение — WebSocket/STOMP** (раздел 11): SockJS‑хендшейк не несёт `Authorization`, поэтому ingress не может проверить его через `auth_request` и ревокация на этом пути не работает — аутентификация целиком на STOMP CONNECT.
 
 ## 2) Где происходит проверка
 - Ingress делает `auth_request` в `AuthService /jwtcheck`.
