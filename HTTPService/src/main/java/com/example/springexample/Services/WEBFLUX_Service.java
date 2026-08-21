@@ -53,6 +53,8 @@ public class WEBFLUX_Service {
     @Autowired
     GeminiService geminiService;
     @Autowired
+    ChatMembershipService chatMembershipService;
+    @Autowired
     AuthGrpc authGrpc;
     @Autowired
     TokensResolver tokensResolver;
@@ -418,13 +420,83 @@ public class WEBFLUX_Service {
     // Spring MVC трактует Mono<String>/String как ИМЯ ВЬЮХИ для рендера шаблоном —
     // отсюда "class path resource [templates/<текст ответа>.html] cannot be opened"
     // при любом реальном тексте ответа (был баг ДО фикса 6i5, не связан с ним).
+    //
+    // Тип ответа — Mono<ResponseEntity<String>>, а не Mono<String> (beads dz5): отказ в
+    // доступе обязан быть настоящим статусом 403. Прежний хендлер на любой проблеме
+    // отдавал 200 с текстом в теле, и авторизационный отказ, оформленный так же, клиент
+    // не отличил бы от ответа ассистента. Фронт (chat.view.js#requestAIResponse) от этого
+    // не ломается: axios-интерцептор перехватывает только 401 (обновление токена),
+    // а 403 уходит в .catch и показывается тостом об ошибке.
     @PostMapping(path = "/AiAssist")
     @ResponseBody
-    public Mono<String> aiAssistHandler(@RequestPart("TargetUsername") String targetUsername,
+    public Mono<ResponseEntity<String>> aiAssistHandler(Principal principal,
+                                            @RequestPart("TargetUsername") String targetUsername,
                                             @RequestPart("chat_id") String chatId) {
+        // Principal раньше в сигнатуре ОТСУТСТВОВАЛ — хендлер физически не знал, кто его
+        // вызвал, и читал Redis-контекст любого чата по chat_id из тела (beads dz5).
+        if (principal == null) {
+            log.warn("AiAssist: запрос без принципала — отказ");
+            return Mono.just(aiAssistForbidden());
+        }
+        // Строгая валидация формата и канонизация — как в ChatBoxStompController (beads g9x):
+        // голый Long.parseLong принимает "+7"/"-5", а "003" дал бы отдельный Redis-ключ
+        // newmessages-003 вместо newmessages-3. "\\d+" пропускает и число длиннее long,
+        // поэтому parseLong обёрнут в try: исключение здесь превратилось бы в 500.
+        // Отказ — ДО чтения Redis и до gRPC-вызова.
+        if (chatId == null || !chatId.matches("\\d+")) {
+            log.warn("AiAssist: chatId {} не в каноническом числовом формате — отказ", chatId);
+            return Mono.just(aiAssistForbidden());
+        }
+        final long chat;
+        try {
+            chat = Long.parseLong(chatId);
+        } catch (NumberFormatException ex) {
+            log.warn("AiAssist: chatId {} не помещается в long — отказ", chatId);
+            return Mono.just(aiAssistForbidden());
+        }
+        final String canonicalChatId = String.valueOf(chat);
+        final String userId = principal.getName();
 
+        // Проверка членства встроена в реактивную цепочку, а не через block(): хендлер
+        // выполняется в общем пуле, и блокирующее ожидание gRPC там уже приводило к
+        // деградации (beads 8wh). Fail-closed: ошибка gRPC, таймаут и пустой список
+        // участников одинаково означают «не участник» — отказываем, а не делаем вид,
+        // что проверка прошла.
+        return chatMembershipService.members(chat)
+                .timeout(chatMembershipService.membershipTimeout())
+                .map(members -> members.stream()
+                        .anyMatch(u -> String.valueOf(u.getId()).equals(userId)))
+                .onErrorResume(err -> {
+                    log.warn("AiAssist: проверка членства в чате {} не удалась — отказ (fail-closed)",
+                            canonicalChatId, err);
+                    return Mono.just(false);
+                })
+                .defaultIfEmpty(false)
+                .flatMap(isMember -> {
+                    if (!isMember) {
+                        log.warn("AiAssist по чату {} отклонён: пользователь {} не найден среди участников",
+                                canonicalChatId, userId);
+                        return Mono.just(aiAssistForbidden());
+                    }
+                    return generateAssistantAnswer(targetUsername, canonicalChatId);
+                });
+    }
+
+    private ResponseEntity<String> aiAssistForbidden() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.TEXT_PLAIN)
+                .body("Нет доступа к этому чату.");
+    }
+
+    /**
+     * Сам ассистент: вызывается только после подтверждённого членства (beads dz5).
+     * Все ошибки генерации по-прежнему отдаются как 200 с текстом — это ответ
+     * ассистента «не получилось», а не отказ в доступе, и фронт показывает его
+     * пользователю как подсказку.
+     */
+    private Mono<ResponseEntity<String>> generateAssistantAnswer(String targetUsername, String canonicalChatId) {
         return Mono.defer(() -> {
-                    ChatContextService contextService = new ChatContextService(rredisTemplate, chatId);
+                    ChatContextService contextService = new ChatContextService(rredisTemplate, canonicalChatId);
 
                     return contextService.getFullContext()
                             .switchIfEmpty(Mono.error(new IllegalStateException("Контекст чата пуст...")))
@@ -455,13 +527,15 @@ public class WEBFLUX_Service {
                             })
                             .flatMap(geminiService::GetAssistantAnswer);
                 })
+                .map(ResponseEntity::ok)
                 .onErrorResume(IllegalStateException.class, ex -> {
                     log.warn("Не удалось сгенерировать ответ: {}", ex.getMessage());
-                    return Mono.just(ex.getMessage());
+                    return Mono.just(ResponseEntity.ok(ex.getMessage()));
                 })
                 .onErrorResume(Exception.class, ex -> {
                     log.error("Произошла непредвиденная ошибка при обработке /AiAssist", ex);
-                    return Mono.just("Извините, сервис временно недоступен. Не удалось сгенерировать ответ.");
+                    return Mono.just(ResponseEntity.ok(
+                            "Извините, сервис временно недоступен. Не удалось сгенерировать ответ."));
                 });
     }
 
