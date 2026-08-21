@@ -1,5 +1,6 @@
 import { navigate } from "/router.js";
 import api from "/axios.js";
+import { ensureAccessToken } from "/auth.js";
 
 // Вью создания чата (перенесена из static/chatcreate.js под контракт mount/unmount SPA-роутера).
 // Разметка формы — из templates/chatcreatepage.html.
@@ -57,6 +58,19 @@ export async function mount(params) {
     ac = new AbortController();
     userCount = 0;
 
+    // Шелл /reactive/createchat публичен на ingress (beads 52u) — иначе обычная
+    // навигация (F5, закладка, прямая ссылка) не несёт Authorization и nginx
+    // отдаёт голую страницу 401 вместо приложения. Доступ проверяем на клиенте:
+    // без живой refresh-сессии уводим на /welcome, чтобы аноним не видел форму.
+    // Сама мутация защищена auth_request на /reactive/api/createchat.
+    try {
+        await ensureAccessToken();
+    } catch (e) {
+        console.error("createchat bootstrap failed:", e);
+        window.location.href = "/welcome";
+        return;
+    }
+
     const app = document.getElementById("app");
     app.innerHTML = policy.createHTML(CREATECHAT_HTML);
 
@@ -71,7 +85,7 @@ export async function mount(params) {
 
         try {
             // api-интерцептор приложит Authorization и сделает refresh+retry на 401
-            await api.post("/reactive/createchat", formData);
+            await api.post("/reactive/api/createchat", formData);
             navigate("/reactive/chatlist");
         } catch (error) {
             console.error('Ошибка отправки:', error);

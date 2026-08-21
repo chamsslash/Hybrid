@@ -376,7 +376,8 @@ public class WEBFLUX_Service {
 
     /**
      * SPA-шелл страницы создания чата: отдаёт единый app-shell, клиентская
-     * вью рисует форму и шлёт POST /reactive/createchat.
+     * вью рисует форму и шлёт POST /reactive/api/createchat.
+     * Сам шелл публичен (beads 52u) — сессию проверяет клиентская вью.
      */
     public Mono<ServerResponse> renderCreateChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
         Map<String, Object> model = new HashMap<>();
