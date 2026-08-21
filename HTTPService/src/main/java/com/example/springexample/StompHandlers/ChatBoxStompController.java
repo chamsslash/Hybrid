@@ -53,6 +53,9 @@ public class ChatBoxStompController {
     @MessageMapping("/chat/send/{chatId}")
     public void HandleChatMessage(@DestinationVariable String chatId,
                                   Principal principal,
+                                  @org.springframework.messaging.handler.annotation.Header(
+                                          name = com.example.springexample.StompFrameTimestampInterceptor.SERVER_TIMESTAMP_HEADER,
+                                          required = false) String frameTimestamp,
                                   com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
         // Строгая валидация формата: на SEND StompAuthChannelInterceptor больше не парсит
         // chatId (beads g9x, проверка перенесена сюда), а голый Long.parseLong принимает
@@ -68,15 +71,21 @@ public class ChatBoxStompController {
         // канонический вид уже распарсенного числа, а не сырую строку chatId.
         final String canonicalChatId = String.valueOf(chat);
         final String senderId = principal.getName();
-        // Время фиксируется здесь, в момент прихода фрейма, а НЕ внутри колбэка members()
-        // (beads 525). Внутри колбэка оно означало бы момент возврата gRPC round-trip, порядок
-        // которого между параллельными вызовами ничем не гарантирован: на живом стенде 10
-        // сообщений подряд от одного клиента разъехались на 90 мс и сохранились в порядке
-        // 03,01,06,05,08,10,07,09,04,02. Инверсия персистентная — история чата сортируется
-        // по time_stamp, поэтому переживала перезагрузку страницы и рестарт пода.
+        // Время фрейма приходит заголовком от StompFrameTimestampInterceptor (beads 525),
+        // который снимает его в потоке сессии, ДО раздачи фрейма в пул обработчиков.
+        // Снимать Instant.now() здесь нельзя: clientInboundChannel раскидывает вызовы
+        // @MessageMapping по пулу потоков, поэтому порядок входа в хендлер не совпадает с
+        // порядком прихода фреймов. Первая попытка фикса 525 снимала время именно здесь —
+        // разброс упал с 90 мс до 7 мс (gRPC-round-trip ушёл из-под времени), но 10 сообщений
+        // подряд всё равно приходили вперемешку, что и показала живая проверка.
+        // Инверсия персистентная: история чата сортируется по time_stamp.
+        // Fallback на локальное время — на случай, если фрейм пришёл мимо интерцептора
+        // (иной канал, тест): лучше слегка неупорядоченное время, чем пустое.
         // Порядок между РАЗНЫМИ отправителями по-прежнему определяется временем прихода
         // на сервер — это нормально и здесь не решается.
-        final String serverTimestamp = java.time.Instant.now().toString();
+        final String serverTimestamp = (frameTimestamp != null && !frameTimestamp.isBlank())
+                ? frameTimestamp
+                : java.time.Instant.now().toString();
 
         if (chatMessageDTO.getUser_id() != null && !senderId.equals(chatMessageDTO.getUser_id())) {
             log.warn("Тело фрейма разошлось с принципалом: тело user_id={}, принципал={} — берём принципал",

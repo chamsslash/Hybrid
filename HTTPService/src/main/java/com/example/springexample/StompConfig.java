@@ -14,6 +14,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class StompConfig implements WebSocketMessageBrokerConfigurer {
 
     private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
+    private final StompFrameTimestampInterceptor stompFrameTimestampInterceptor;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -24,8 +25,10 @@ public class StompConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        // Аутентификация access-токеном на CONNECT + контроль подписок (beads 58)
-        registration.interceptors(stompAuthChannelInterceptor);
+        // Порядок важен: время фрейма снимается ПЕРВЫМ, ещё в потоке сессии, до любых
+        // проверок и до раздачи фрейма в пул обработчиков (beads 525). Аутентификация
+        // access-токеном на CONNECT + контроль подписок — следом (beads 58, g9x).
+        registration.interceptors(stompFrameTimestampInterceptor, stompAuthChannelInterceptor);
     }
 
     @Override

@@ -69,7 +69,7 @@ class ChatBoxStompControllerTest {
 
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, forged);
+        controller().HandleChatMessage("5", principal, null, forged);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
@@ -91,7 +91,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, dto);
+        controller().HandleChatMessage("5", principal, null, dto);
 
         ArgumentCaptor<java.util.ArrayList<String>> ids = ArgumentCaptor.forClass(java.util.ArrayList.class);
         Mockito.verify(chatListController).ChangeChatPreview(ids.capture(), Mockito.any());
@@ -107,7 +107,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, dto);
+        controller().HandleChatMessage("5", principal, null, dto);
 
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
@@ -153,7 +153,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, dto);
+        controller().HandleChatMessage("5", principal, null, dto);
 
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
@@ -190,7 +190,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("+7", principal, dto);
+        controller().HandleChatMessage("+7", principal, null, dto);
 
         Mockito.verify(membership, Mockito.never()).members(Mockito.anyLong());
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
@@ -213,7 +213,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("007", principal, dto);
+        controller().HandleChatMessage("007", principal, null, dto);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/7"), sent.capture());
@@ -283,7 +283,7 @@ class ChatBoxStompControllerTest {
         for (int i = 0; i < total; i++) {
             ChatMessageDTO dto = new ChatMessageDTO();
             dto.setText(String.format("ord-%02d", i + 1));
-            controller.HandleChatMessage("5", principal, dto);
+            controller.HandleChatMessage("5", principal, null, dto);
             Thread.sleep(2);
         }
 
@@ -330,7 +330,7 @@ class ChatBoxStompControllerTest {
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
         Instant beforeCall = Instant.now();
 
-        controller().HandleChatMessage("5", principal, forged);
+        controller().HandleChatMessage("5", principal, null, forged);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
@@ -339,5 +339,53 @@ class ChatBoxStompControllerTest {
         assertNotEquals("1999-01-01T00:00:00Z", actual, "время из тела фрейма обязано быть затёрто сервером");
         assertFalse(Instant.parse(actual).isBefore(beforeCall),
                 "сервер проставляет время не раньше момента обработки фрейма");
+    }
+
+    /**
+     * Время сообщения берётся из заголовка, который проставил StompFrameTimestampInterceptor
+     * в потоке сессии (beads 525). Хендлер снимать время сам не имеет права: вызовы
+     * @MessageMapping раскидываются по пулу clientInboundChannel, и порядок входа в хендлер
+     * не совпадает с порядком прихода фреймов — живая проверка первой версии фикса показала
+     * ровно это (разброс упал с 90 мс до 7 мс, но порядок остался вперемешку).
+     */
+    @Test
+    void timestampComesFromFrameHeaderNotFromHandlerEntry() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, "2020-05-05T05:05:05Z", dto);
+
+        ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
+        assertEquals("2020-05-05T05:05:05Z", sent.getValue().getTimestamp(),
+                "хендлер обязан использовать время фрейма, а не снимать своё");
+    }
+
+    /**
+     * Fallback: фрейм пришёл без заголовка (иной канал, прямой вызов) — время всё равно
+     * серверное и не раньше момента обработки. Пустой timestamp сломал бы сортировку
+     * истории (ORDER BY time_stamp), поэтому пустым он остаться не может (beads 525).
+     */
+    @Test
+    void missingFrameTimestampFallsBackToServerTime() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+        Instant beforeCall = Instant.now();
+
+        controller().HandleChatMessage("5", principal, "   ", dto);
+
+        ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
+        String actual = sent.getValue().getTimestamp();
+        assertNotNull(actual, "время не может остаться пустым — по нему сортируется история");
+        assertFalse(Instant.parse(actual).isBefore(beforeCall));
     }
 }
