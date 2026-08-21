@@ -1,6 +1,8 @@
 package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.Metrics.GrpcRequestsMetric;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.example.springexample.MessageEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -31,8 +33,10 @@ class ApiControllerChatAccessTest {
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub stub =
             Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class);
 
+    private final GrpcRequestsMetric grpcMetric = new GrpcRequestsMetric(new SimpleMeterRegistry());
+
     private final ApiController controller =
-            new ApiController(grpc, imageStorage, new ChatMembershipService(stub));
+            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric));
 
     private static final Authentication SUNNY =
             new UsernamePasswordAuthenticationToken("4", null, List.of());

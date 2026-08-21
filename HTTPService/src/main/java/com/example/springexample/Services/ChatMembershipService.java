@@ -1,6 +1,7 @@
 package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.Metrics.GrpcRequestsMetric;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,13 +18,22 @@ import java.util.List;
  * ChatListStompController -> SimpMessagingTemplate -> брокерная конфигурация ->
  * StompConfig -> StompAuthChannelInterceptor. Интерцептор зависит от этого сервиса,
  * поэтому через ReactiveGrpcClient получился бы цикл и контекст Spring не поднялся бы.
+ * GrpcRequestsMetric в этот цикл не входит — он знает только про MeterRegistry.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChatMembershipService {
 
+    /**
+     * Тег метрики для этого вызова. Отдельный от {@code getAllUsersByChatId} нарочно:
+     * RPC тот же, но горячий путь проверки членства меряется сам по себе (beads 8wh).
+     */
+    static final String METRIC_METHOD = "members";
+
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub reactiveStub;
+
+    private final GrpcRequestsMetric grpcRequestsMetric;
 
     /** Вынесено в метод, чтобы тест мог укоротить ожидание, не ломая продовое значение. */
     Duration membershipTimeout() {
@@ -31,8 +41,9 @@ public class ChatMembershipService {
     }
 
     public Mono<List<DataTransferService.UserDataRequest>> members(long chatId) {
-        return reactiveStub.getAllUsersByChatId(
-                        DataTransferService.ChatData.newBuilder().setChatId(chatId).build())
+        return grpcRequestsMetric.measure(METRIC_METHOD,
+                        reactiveStub.getAllUsersByChatId(
+                                DataTransferService.ChatData.newBuilder().setChatId(chatId).build()))
                 .map(DataTransferService.UserListResponse::getUsersList);
     }
 
