@@ -13,6 +13,8 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <grpc.version>1.58.0</grpc.version>
+        <testcontainers.version>1.19.7</testcontainers.version>
+        <excludedGroups>integration</excludedGroups>
     </properties>
 
     <parent>
@@ -28,6 +30,13 @@
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
                 <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -125,6 +134,19 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <!-- Тесты с @Tag("integration") требуют Docker (Testcontainers) и в обычный
+                     `mvn test` не входят — как в HTTPService и AuthService. Значение вынесено
+                     в property, а не зашито: зашитое нельзя снять из CLI, и запустить
+                     integration-тест становится невозможно вообще. Запуск явно:
+                     `mvn test -Dtest=<Класс>IT -DexcludedGroups=`. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0</version>
+                <configuration>
+                    <excludedGroups>${excludedGroups}</excludedGroups>
+                </configuration>
             </plugin>
 
         </plugins>
@@ -237,6 +259,23 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers: Postgres-интеграция вставки сообщений (beads myl) — уникальность
+             message_id обеспечивает БД, а не Java, поэтому мока репозитория недостаточно. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

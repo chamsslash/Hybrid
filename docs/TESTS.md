@@ -20,7 +20,7 @@
 
 - **Тип `unit`** — быстрый, всё замокано (Mockito), запускается всегда в `mvn test`.
 - **Тип `reactive-unit`** — unit на WebFlux/Reactor через `StepVerifier`/mock-серверные примитивы, тоже в обычном `mvn test`.
-- **Тип `integration` (`*IT`, `@Tag("integration")`)** — Testcontainers, **требует Docker**. Исключён из обычного `mvn test` через surefire `excludedGroups=integration`; запуск явно: `mvn test -Dgroups=integration`.
+- **Тип `integration` (`*IT`, `@Tag("integration")`)** — Testcontainers, **требует Docker**. Из обычного `mvn test` выпадает дважды: суффикс `*IT` не подходит под surefire-шаблоны имён (`*Test`, `Test*`, `*Tests`), и сверху стоит `excludedGroups=integration`. Запуск явно: `mvn test -Dtest=<Класс>IT -DexcludedGroups=` — нужны **оба** ключа, `-Dtest` пробивает шаблон имён, `-DexcludedGroups=` снимает фильтр по тегу. В `HTTPService`/`AuthService` значение `excludedGroups` зашито в pom и из CLI не снимается, поэтому их `*IT` этой командой пока не запускаются (`Tests run: 0`); в `MessegerParody` оно вынесено в property и переопределяется. На Docker Engine 29+ к команде добавляется `-Dapi.version=1.44`: docker-java внутри Testcontainers 1.19.7 договаривается на API 1.32, который движок уже не принимает.
 - Сборка/прогон — **только JDK21** (на JDK25 Mockito ломается). `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 
 ## Сводка
@@ -29,8 +29,8 @@
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
 | HTTPService | 21 | 156 | 2 | 158 |
-| MessegerParody | 2 | 8 | 0 | 8 |
-| **Итого** | **28** | **181** | **4** | **185** |
+| MessegerParody | 3 | 10 | 3 | 13 |
+| **Итого** | **29** | **183** | **7** | **190** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -323,12 +323,14 @@ Round-trip `ImageUploadDTO` через Gson.
 
 ## MessegerParody
 
-### `KafkaConsumerTest` — `unit` — парсинг топика Images (beads se2)
-`KafkaConsumer.listenOauthImage` с замоканным `ImageUrlPersistenceService`.
+### `KafkaConsumerTest` — `unit` — парсинг топиков Images (beads se2) и Messages (beads myl)
+`KafkaConsumer.listenOauthImage` с замоканным `ImageUrlPersistenceService` и `listenChatMessages` с замоканным `ReactiveRepository`.
 
 - **`parsesUserimageContractAndDelegatesToPersistenceService`** — событие `userimage` → `persistImageUrl("userimage","42","userimage/42/uuid.png")`.
 - **`parsesChatimageContractAndDelegatesToPersistenceService`** — событие `chatimage` → соответствующий вызов.
 - **`ignoresExtraFieldsNotInContract`** — лишнее поле `extra` игнорируется, распарсенные три поля переданы. Зачем: устойчивость consumer к расширению контракта.
+- **`serverMessageIdFromPayloadReachesRepository`** (beads myl) — событие топика `Messages` с полем `message_id="1111…"` (плюс `chat_id`, `user_id`, `timestamp`, `text`). Проверяет: `reactiveRepository.insertMessage(5L, 9L, "привет", Instant.parse(...), "1111…")` — идентификатор доезжает до репозитория пятым аргументом. Зачем: имя JSON-поля — **единственная** связь между `HTTPService/StompHandlers/ChatMessageDTO` и `MessegerParody/ChatMessageDTO` (Java-классы сервисы не шарят). Разъедься эти имена — Gson молча положит `null`, `ON CONFLICT` перестанет что-либо ловить, и защита от дублей выключится, ничего видимо не сломав: логи чистые, тесты с моком репозитория зелёные, дубли в истории вернутся.
+- **`legacyPayloadWithoutMessageIdPassesNullToRepository`** (beads myl) — событие того же топика **без** `message_id` (записи из бэклога, сделанные до этой ветки). Проверяет: `insertMessage(..., null)` — консьюмер передаёт `null` как есть и не падает. Зачем: генерировать id на стороне консьюмера нельзя — на каждой переигровке он получался бы новым, и идемпотентность стала бы фикцией; отбрасывать такие записи тоже нельзя — они настоящие. Единственный корректный вариант — вставить без защиты от дублей (репозиторий пишет про это `log.warn`), и тест фиксирует именно его.
 
 ### `Services/ImageUrlPersistenceServiceTest` — `unit` — обе ветки персиста ключа (beads se2)
 `ImageUrlPersistenceService` с замоканными `UserRepBase` (JPA) и `ReactiveChatRepository` (R2DBC).
@@ -338,3 +340,12 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`chatimageBranchPersistsObjectKeyOnChat`** — `chatimage` → у найденного чата проставляется `imageUrl`, `save`; user-репозиторий не трогается.
 - **`chatimageBranchThrowsWhenChatMissing`** — чата нет → `RuntimeException`, `save` не вызывается. Зачем: не терять картинку молча для несуществующего чата.
 - **`unknownTargetTypeThrows`** — неизвестный `targetType` → `RuntimeException`. Зачем: защита от неизвестных типов событий.
+
+### `R2DBC_Repositories/MessageIdempotencyIT` — `integration` — идемпотентность вставки сообщения на живом Postgres (beads myl)
+`ReactiveRepository.insertMessage` против реального Postgres 15 в Testcontainers. Схема поднимается **тем же** `db.changelog-master.yaml`, что и в проде (`SpringLiquibase` по JDBC-соединению контейнера), поэтому тест стережёт не только SQL репозитория, но и саму миграцию `changes/v2/001-message-idempotency.yaml`: без колонки `message_id` и уникального индекса `ux_message_message_id` запрос `ON CONFLICT (message_id)` упал бы на «no unique or exclusion constraint matching». Работа идёт через `DatabaseClient` поверх r2dbc-соединения к тому же контейнеру; перед каждым тестом `TRUNCATE ... RESTART IDENTITY CASCADE` и посев одной строки в `users` и `chat` (у `message` внешние ключи на обе — без них INSERT падал бы на FK, а не на проверяемом).
+
+Юнит-теста с моком репозитория здесь принципиально недостаточно: уникальность обеспечивает индекс Postgres, а не Java-код, и мок подтвердил бы ровно то, что сам же и запрограммирован подтверждать.
+
+- **`replayedMessageWithSameIdLeavesSingleRow`** — две подряд вставки с одинаковым `message_id`. Проверяет: в `message` ровно одна строка. Зачем: **центральный сторож тикета myl** — Kafka даёт at-least-once, и переигранная запись (под убит после коммита в Postgres, но до коммита офсета; ребаланс группы по таймауту poll; обрыв на ответе драйвера с последующим `@RetryableTopic`) приходит в консьюмер вторым разом с тем же телом. Дубль в истории необратим: живьём пользователь видит сообщение один раз, а после перезагрузки страницы — два.
+- **`identicalTextWithDifferentIdsInsertsBothRows`** — две вставки с одинаковым текстом, но разными `message_id`. Проверяет: обе строки на месте. Зачем: обратная сторона того же контракта — два одинаковых сообщения подряд от одного человека это нормальный сценарий, а не дубль. Дедупликация обязана идти по id, а не по содержимому; тест не даст «оптимизировать» её в сравнение текста, при котором второе «ага» пользователя тихо пропадало бы.
+- **`legacyMessageWithoutIdIsStillInserted`** — две вставки с `messageId = null`. Проверяет: обе строки на месте, исключения нет. Зачем: у записей из бэклога топика id нет и взяться ему неоткуда — они обязаны вставляться по-прежнему, а не ронять консьюмер в ретраи и DLT. Заодно фиксирует, почему колонка nullable: в Postgres уникальный индекс допускает сколько угодно NULL, поэтому легаси-строки не конфликтуют друг с другом, а защита от дублей просто на них не распространяется (репозиторий отмечает это `log.warn`).

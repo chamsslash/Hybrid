@@ -67,11 +67,11 @@ artifactId — `DatabaseModule` (исторический, не переимен
 
 ## Kafka
 
-- **Consumer**, `KafkaConsumer.java`: слушает **только** топик `Images`
-  (`@KafkaListener(topics = "Images")`, `@RetryableTopic(attempts = "3")`,
-  consumer group `messegerparody-consumer`). Топик `Events` в сервисе не
-  используется — его читает HTTPService (см. `docs/HTTPService.md`), в
-  MessegerParody для него нет ни листенера, ни упоминаний.
+- **Consumer**, `KafkaConsumer.java`: слушает два топика — `Images` и
+  `Messages` (consumer group `messegerparody-consumer` на оба). Топик `Events`
+  в сервисе не используется — его читает HTTPService (см.
+  `docs/HTTPService.md`), в MessegerParody для него нет ни листенера, ни
+  упоминаний.
 - Контракт события `Images` (см. комментарий в `KafkaConsumer.java`):
   ```json
   { "targetType": "userimage"|"chatimage", "targetId": "<id>", "objectKey": "<key>" }
@@ -80,6 +80,36 @@ artifactId — `DatabaseModule` (исторический, не переимен
   которая по `targetType` пишет `objectKey` (короткий MinIO object key, не URL)
   либо в `User.imageUrl` (через JPA `UserRepBase`), либо в `r2dbc_chat.imageUrl`
   (через R2DBC `ReactiveChatRepository`).
+- Контракт события `Messages` (`listenChatMessages`, зеркало
+  `HTTPService/StompHandlers/ChatMessageDTO` — сервисы не шарят Java-классы,
+  только имена JSON-полей):
+  ```json
+  { "type": "message", "message_id": "<uuid>", "chat_id": "<id>",
+    "user_id": "<id>", "username": "<имя>", "timestamp": "<ISO-8601>",
+    "text": "<текст>", "imageurl": "<key|null>" }
+  ```
+  Всё, что влияет на запись в БД, проставляет сервер в
+  `ChatBoxStompController.HandleChatMessage`, а не клиент (инвариант beads
+  g9x). Обработка — `ReactiveRepository.insertMessage`, синхронно
+  (`.block(Duration.ofSeconds(15))`, таймаут обязателен: без него исчерпанный
+  r2dbc-пул навсегда остановил бы `poll()` единственного потока контейнера и
+  выбил бы консьюмер из группы). `@RetryableTopic(attempts = "7")` с
+  экспоненциальным backoff, после исчерпания — топик `Messages-dlt`;
+  детерминированные ошибки разбора (`NumberFormatException`,
+  `DateTimeParseException`, `NullPointerException`, `JsonSyntaxException`)
+  через `exclude` уходят в DLT сразу, без шести бессмысленных ретраев.
+- **Идемпотентность вставки** (beads myl). Гарантия Kafka здесь at-least-once:
+  под, убитый после коммита в Postgres, но до коммита офсета; ребаланс группы
+  по таймауту `poll`; обрыв на ответе драйвера с последующим ретраем — каждый
+  сценарий переигрывает уже записанное сообщение. Отличить повтор по
+  содержимому нельзя (два одинаковых сообщения подряд от одного человека —
+  нормальный сценарий), поэтому естественный ключ приходит снаружи:
+  `message_id` генерирует HTTPService один раз, до рассылки, и одно и то же
+  значение уходит и в realtime-эхо, и в Kafka. `insertMessage` вставляет с
+  `ON CONFLICT (message_id) DO NOTHING` — переигровка становится no-op.
+  Записи **без** `message_id` (бэклог топика, сделанный до этой ветки)
+  вставляются по-старому, с `log.warn`: защиты от дублей для них нет и быть не
+  может — сгенерированный на консьюмере id был бы на каждой переигровке новым.
 - **Producer**, `KafkaProducer.java`: тонкая обёртка `send(String event)` над
   `KafkaTemplate`, публикует в топик `Images`. Судя по коду сервиса, реально не
   вызывается ни из одного места в MessegerParody — producer существует как
@@ -89,9 +119,10 @@ artifactId — `DatabaseModule` (исторический, не переимен
 ## Liquibase-миграции
 
 Master-changelog: `src/main/resources/db/changelog/db.changelog-master.yaml`,
-подключает baseline `changes/v1/` — организация по релизам (следующий релиз
-добавляет `changes/v2/`, не трогая `v1/`), четыре файла, 9 changeSet'ов
-суммарно:
+подключает baseline `changes/v1/` и релиз `changes/v2/` — организация по
+релизам: `v1/` заморожен, его файлы не правятся (changeSet'ы уже применены на
+существующих БД, правка сломала бы их checksum), новое едет отдельным файлом в
+следующем каталоге. Пять файлов, 11 changeSet'ов суммарно:
 
 1. `changes/v1/001-create-users.yaml` (1 changeSet) — создаёт `users`. Раньше
    эту таблицу заводил Hibernate через `spring.jpa.hibernate.ddl-auto: update`
@@ -108,6 +139,14 @@ Master-changelog: `src/main/resources/db/changelog/db.changelog-master.yaml`,
    `users`/`chat`.
 4. `changes/v1/004-create-user-chat.yaml` (4 changeSet'а) — создаёт
    `user_chat`, составной PK и FK на `users`/`chat`.
+5. `changes/v2/001-message-idempotency.yaml` (2 changeSet'а, beads myl) —
+   добавляет `message.message_id VARCHAR(64)` и уникальный индекс
+   `ux_message_message_id`. Колонка **nullable** намеренно: у строк, записанных
+   до миграции, и у записей из бэклога топика идентификатора нет и взяться ему
+   неоткуда, а в Postgres уникальный индекс допускает сколько угодно NULL — то
+   есть легаси-строки не конфликтуют друг с другом, просто не защищены от
+   дублей. `VARCHAR`, а не `UUID`: в БД это непрозрачный идентификатор,
+   происхождение которого знает только HTTPService.
 
 Ни один из changeSet'ов **не** имеет `preConditions` — это осознанное решение,
 не упущение: `preConditions` дали бы `MARK_RAN` на уже существующей легаси-
@@ -148,6 +187,40 @@ kubectl delete pod -n hybrid-platform -l app=postgres
 
 После этого под пересоздаётся с пустым `emptyDir`, и следующий прогон
 Liquibase-джобы создаёт схему с нуля по `changes/v1/`.
+
+### Первый старт на окружении с непустым топиком `Messages`: сброс офсетов
+
+Отдельная от предыдущей и **разовая** операционная процедура (beads myl).
+Consumer group `messegerparody-consumer` стартует с
+`auto-offset-reset: earliest`, а Kafka в кластере переживает пересоздание пода
+postgres. Значит на окружении, где топик `Messages` уже непустой, а БД только
+что сброшена, первый старт консьюмера переигрывает **весь** накопленный
+бэклог: старые сообщения приезжают в свежую историю чатов.
+
+`message_id` от этого не спасает — записи в бэклоге сделаны до его появления,
+у них его нет, и дедуплицировать их нечем (см. «Идемпотентность вставки»
+выше). Штормa ретраев при этом не будет: сообщения старого формата с мусорными
+или несовместимыми полями отсекает `exclude` в `@RetryableTopic`
+(`DateTimeParseException` и остальные детерминированные ошибки разбора уходят
+в `Messages-dlt` сразу, а не после шести попыток), — но сами по себе валидные
+старые записи вставятся.
+
+Кодом это не решается и решаться не должно: консьюмер не может отличить
+«старое сообщение, которое уже видели» от «старого сообщения, которое ещё не
+записали». Перед первым стартом сервиса на таком окружении офсеты группы
+переводятся на конец топика вручную:
+
+```bash
+kubectl exec -n hybrid-platform deploy/kafka -- \
+  kafka-consumer-groups.sh --bootstrap-server kafka:9092 \
+  --group messegerparody-consumer --topic Messages \
+  --reset-offsets --to-latest --execute
+```
+
+Команда требует, чтобы группа была неактивна, — то есть выполнять её нужно
+до старта пода MessegerParody (`--dry-run` вместо `--execute` показывает, куда
+именно сдвинутся офсеты, ничего не меняя). На чистом окружении, где топик
+создаётся с нуля, процедура не нужна.
 
 ## Конфигурация и деплой
 
@@ -197,6 +270,17 @@ Liquibase-джобы создаёт схему с нуля по `changes/v1/`.
 - `Services/ImageUrlPersistenceServiceTest` — обе ветки
   `persistImageUrl` (JPA-запись через `UserRepBase`, R2DBC-запись через
   `ReactiveChatRepository`) с замоканными репозиториями.
+
+Integration (Testcontainers, требует Docker, в обычный `mvn test` не входит):
+
+- `R2DBC_Repositories/MessageIdempotencyIT` — `insertMessage` против реального
+  Postgres со схемой, накатанной тем же `db.changelog-master.yaml`, что и в
+  проде: повтор с тем же `message_id` даёт одну строку, одинаковый текст с
+  разными id — две, вставка без id (легаси-формат) по-прежнему проходит.
+  Мока репозитория тут недостаточно: уникальность обеспечивает индекс
+  Postgres, а не Java-код.
+
+Полный реестр с описанием каждого теста — `docs/TESTS.md`.
 
 Как и у остальных Java-модулей проекта, `mvn test` требует JDK21 (на JDK25
 ломается Mockito) — используй `/jtest` или выставленный `JAVA_HOME` на JDK21.
