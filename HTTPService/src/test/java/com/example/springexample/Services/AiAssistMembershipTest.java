@@ -22,8 +22,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.security.Principal;
-import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -49,7 +49,6 @@ class AiAssistMembershipTest {
     }
 
     private WEBFLUX_Service service(ReactiveRedisTemplate<String, String> redis) {
-        Mockito.when(membership.membershipTimeout()).thenReturn(Duration.ofMillis(200));
         WEBFLUX_Service service = new WEBFLUX_Service();
         ReflectionTestUtils.setField(service, "rredisTemplate", redis);
         ReflectionTestUtils.setField(service, "chatMembershipService", membership);
@@ -150,7 +149,13 @@ class AiAssistMembershipTest {
 
     @Test
     void membershipTimeoutIsRefusedFailClosed() {
-        Mockito.when(membership.members(3L)).thenReturn(Mono.never());
+        // Внешнего .timeout() в этом пути больше нет (beads 8wh) — таймаут и повтор
+        // теперь целиком внутри members(). Здесь members() замокан напрямую, поэтому
+        // реальный таймаут не воспроизвести; вместо этого симулируем его исход —
+        // ошибку, которую members() отдаёт наружу, когда её собственный таймаут истёк
+        // и повтор не спас (java.util.concurrent.TimeoutException после исчерпания
+        // Retry). Свойство под проверкой то же самое: таймаут — это fail-closed, а не 200.
+        Mockito.when(membership.members(3L)).thenReturn(Mono.error(new TimeoutException()));
         ReactiveRedisTemplate<String, String> redis = untouchedRedis();
 
         assertEquals(HttpStatus.FORBIDDEN, call(service(redis), SUNNY, "3").getStatusCode());

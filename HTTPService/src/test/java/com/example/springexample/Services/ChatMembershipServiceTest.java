@@ -33,6 +33,32 @@ class ChatMembershipServiceTest {
                 .timer();
     }
 
+    /**
+     * Ждёт до 500 мс появления записи с данным исходом (beads 8wh, после Retry.fixedDelay).
+     * Нужно только для success/error: у Reactor doFinally для ON_COMPLETE/ON_ERROR
+     * выполняет коллбэк ПОСЛЕ того, как терминальный сигнал уже ушёл вниз по цепочке —
+     * то есть уже РАЗБУДИЛ .block() в вызывающем потоке. Пока ретрай был мгновенным
+     * (Retry.max, без задержки), вся вторая попытка выполнялась синхронно в том же
+     * потоке, что и .block(), и гонки не было. С Retry.fixedDelay вторая попытка уходит
+     * на поток Schedulers.parallel(), и запись метрики может физически ещё не случиться
+     * в момент, когда .block() уже вернул значение в тестовом потоке. Для cancel это не
+     * нужно (см. timedOutAttemptIsRecordedAsCancelledInHistogram) — там doFinally
+     * снимается синхронно внутри cancel(), до отправки ошибки вниз по цепочке.
+     */
+    private Timer awaitMembersTimer(String outcome) {
+        long deadlineNanos = System.nanoTime() + Duration.ofMillis(500).toNanos();
+        Timer timer;
+        while ((timer = membersTimer(outcome)) == null && System.nanoTime() < deadlineNanos) {
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return timer;
+    }
+
     private static DataTransferService.UserListResponse responseWith(long... ids) {
         DataTransferService.UserListResponse.Builder b =
                 DataTransferService.UserListResponse.newBuilder();
@@ -119,6 +145,17 @@ class ChatMembershipServiceTest {
     }
 
     @Test
+    void deadlineExceededIsRetriedOnceAndSucceeds() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.DEADLINE_EXCEEDED)))
+                .thenReturn(Mono.just(responseWith(9L)));
+
+        assertEquals(MembershipDecision.MEMBER, service.decide(5L, "9").block());
+        Mockito.verify(stub, Mockito.times(2))
+                .getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class));
+    }
+
+    @Test
     void deterministicFailureIsNotRetried() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.error(new StatusRuntimeException(Status.INVALID_ARGUMENT)));
@@ -152,6 +189,26 @@ class ChatMembershipServiceTest {
     }
 
     @Test
+    void decideBlockingReturnsUnknownWhenOuterGuardFiresFirst() {
+        // membershipTimeout() намеренно НЕ укорочен: внутренняя реактивная цепочка должна
+        // ещё висеть, когда истечёт именно blockingGuard(). Иначе (как в предыдущем тесте,
+        // где укорочен membershipTimeout()) до catch(RuntimeException) в decideBlocking
+        // дело не доходит — исключение уже погашено внутри самой цепочки, а не на внешней
+        // границе .block(blockingGuard()). Стережёт код, который иначе никогда не исполняется.
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.never());
+
+        ChatMembershipService guarded = new ChatMembershipService(stub, metric) {
+            @Override
+            Duration blockingGuard() {
+                return Duration.ofMillis(50);
+            }
+        };
+
+        assertEquals(MembershipDecision.UNKNOWN, guarded.decideBlocking(5L, "9"));
+    }
+
+    @Test
     void everyAttemptLandsInHistogramSeparately() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.error(new StatusRuntimeException(Status.UNAVAILABLE)))
@@ -161,8 +218,9 @@ class ChatMembershipServiceTest {
 
         assertNotNull(membersTimer("error"));
         assertEquals(1, membersTimer("error").count());
-        assertNotNull(membersTimer("success"));
-        assertEquals(1, membersTimer("success").count());
+        Timer success = awaitMembersTimer("success");
+        assertNotNull(success);
+        assertEquals(1, success.count());
     }
 
     @Test

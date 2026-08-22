@@ -463,8 +463,13 @@ public class WEBFLUX_Service {
         // деградации (beads 8wh). Fail-closed: ошибка gRPC, таймаут и пустой список
         // участников одинаково означают «не участник» — отказываем, а не делаем вид,
         // что проверка прошла.
+        //
+        // Внешнего .timeout() здесь больше нет (beads 8wh): таймаут на попытку и один
+        // повтор теперь живут внутри members(). Внешний таймер на ту же величину
+        // взводился в тот же момент t=0, что и внутренний, и срывал всю цепочку ровно
+        // тогда, когда внутренняя переходила ко второй попытке, — ретрай на этом пути
+        // был мёртв, а бюджет ожидания молча сжимался с прежних 5 с до 2 с.
         return chatMembershipService.members(chat)
-                .timeout(chatMembershipService.membershipTimeout())
                 .map(members -> members.stream()
                         .anyMatch(u -> String.valueOf(u.getId()).equals(userId)))
                 .onErrorResume(err -> {

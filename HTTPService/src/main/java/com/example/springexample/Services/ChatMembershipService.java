@@ -37,7 +37,13 @@ public class ChatMembershipService {
      */
     static final String METRIC_METHOD = "members";
 
-    /** Одна повторная попытка. Итого максимум две, потолок 4 с — меньше прежних 5 с. */
+    /**
+     * Одна повторная попытка с задержкой 100 мс (beads 8wh): {@code Retry.max} без задержки
+     * повторяет мгновенно, а для {@code UNAVAILABLE} от лежащего канала мгновенный повтор
+     * попадает в то же самое состояние — пользы ноль, а нагрузка на умирающий бэкенд
+     * удваивается, причём на самом горячем gRPC-вызове системы. Потолок — 2х2.1 с = 4.1 с,
+     * по-прежнему меньше внешней границы {@link #blockingGuard()} в 5 с.
+     */
     static final long MEMBERSHIP_RETRIES = 1;
 
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub reactiveStub;
@@ -79,13 +85,18 @@ public class ChatMembershipService {
         // Вызов стаба обёрнут в Mono.defer нарочно: без этого reactiveStub.getAllUsersByChatId(...)
         // выполняется один раз при сборке цепочки (Java вычисляет аргумент до вызова measure()),
         // и retryWhen просто пересматривает уже готовый (и уже упавший) Mono вместо повторного
-        // gRPC-вызова — ретрай существовал бы только на бумаге.
+        // вызова. В сгенерированном reactor-grpc сам getAllUsersByChatId ленивый и
+        // переподписываемый (ClientCalls.oneToOne), так что в проде повторная подписка,
+        // скорее всего, и без этой обёртки выпустила бы новый RPC — но полагаться на эту
+        // деталь реализации стаба нельзя, а с моком Mockito в тестах (который отдаёт один
+        // заранее собранный Mono) без defer ретрай не работает вовсе. Обёртка делает
+        // повторный вызов явным и не зависящим от того, кто именно стоит за стабом.
         return grpcRequestsMetric.measure(METRIC_METHOD,
                         Mono.defer(() -> reactiveStub.getAllUsersByChatId(
                                 DataTransferService.ChatData.newBuilder().setChatId(chatId).build())))
                 .timeout(membershipTimeout())
                 .map(DataTransferService.UserListResponse::getUsersList)
-                .retryWhen(Retry.max(MEMBERSHIP_RETRIES)
+                .retryWhen(Retry.fixedDelay(MEMBERSHIP_RETRIES, Duration.ofMillis(100))
                         .filter(ChatMembershipService::isTransient));
     }
 
