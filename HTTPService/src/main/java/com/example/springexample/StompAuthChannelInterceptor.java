@@ -32,6 +32,10 @@ import org.springframework.util.StringUtils;
  * общего пула {@code clientInboundChannel}, которым обслуживаются вообще все STOMP-команды
  * всех сессий, включая CONNECT — заминка MessegerParody без единой ошибки в логах вешает
  * весь WebSocket-ярус. Проверка перенесена в контроллер, где список участников уже под рукой.
+ * Цену того переноса — отказ перестал рвать сессию, и серия отказов стала бесплатной для
+ * клиента — добирает стоп-кран на SEND (beads isf): контроллер отмечает отказ в
+ * {@code StompDenialCounter}, интерцептор после порога отклоняет фрейм ДО разбора, без
+ * дублирующего gRPC-вызова.
  */
 @Slf4j
 @Component
@@ -40,6 +44,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private final AccessTokenVerifier accessTokenVerifier;
     private final ChatMembershipService chatMembershipService;
+    private final StompDenialCounter denialCounter;
 
     /**
      * Тот же матчер, что использует {@code DefaultSubscriptionRegistry} простого брокера
@@ -68,6 +73,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                             "STOMP CONNECT requires valid Authorization header");
                 }
                 accessor.setUser(auth);
+                // Запись счётчика отказов заводится здесь и только здесь (beads isf):
+                // инкремент из контроллера прилетает с потока пула обработчиков и может
+                // опоздать за разрывом сессии — создавать запись ему нельзя, иначе она
+                // останется в карте навсегда, убирать её уже некому.
+                denialCounter.register(accessor.getSessionId());
             }
             case SUBSCRIBE -> {
                 if (accessor.getUser() == null) {
@@ -87,6 +97,20 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 if (accessor.getUser() == null) {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "SEND requires authenticated session");
+                }
+                // Стоп-кран на серию отказов (beads isf). Отказ по членству живёт в
+                // контроллере и сессию не рвёт, поэтому серия ничем не ограничена: каждый
+                // фрейм стоит одного getAllUsersByChatId в MessegerParody. После порога
+                // отклоняем ДО пропуска фрейма — то есть без единого лишнего gRPC-вызова.
+                // Отказ здесь = ERROR-фрейм + разрыв сессии, ровно то поведение, которое
+                // было до переноса проверки членства в контроллер (beads g9x).
+                // Разрыв не бан: переподключение даёт новую сессию с чистым счётчиком, см.
+                // javadoc StompDenialCounter — это осознанно, а не дырявый бан.
+                if (denialCounter.isOverLimit(accessor.getSessionId())) {
+                    log.warn("SEND отклонён: сессия {} набрала {} отказов подряд, разрываем",
+                            accessor.getSessionId(), StompDenialCounter.MAX_DENIALS_PER_SESSION);
+                    throw new org.springframework.security.access.AccessDeniedException(
+                            "Too many denied SEND frames in this session");
                 }
                 String destination = accessor.getDestination();
                 if (!StringUtils.hasText(destination) || !destination.startsWith("/app/")) {
@@ -129,6 +153,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      *   chat.view.js:253      /mutual/typing/{chatId}                       «печатает» в чате
      *   chat.view.js:266      /mutual/chat_image/{chatId}                   аватарка открытого чата
      *                         (было /mutual/chat/image_chat_channel, глобальный)
+     *   chat.view.js          /private/{userId}                             отбивка отказа на SEND
+     *                         (beads isf; семейство /private/ уже было в PER_USER_PREFIXES)
      * Подписка chat.view.js:267 на /mutual/chat/image_message_channel удалена: у события
      * userimage targetId — это userId, а не chatId (WEBFLUX_Service.Upload_image при
      * регистрации), привязать такой адрес к чату невозможно. Событие уехало на пер-юзерный

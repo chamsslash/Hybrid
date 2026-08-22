@@ -36,6 +36,8 @@ public class ChatBoxStompController {
     com.example.springexample.StompHandlers.ChatListStompController chatListController;
     @Autowired
     ChatMembershipService chatMembershipService;
+    @Autowired
+    com.example.springexample.StompDenialCounter denialCounter;
     public ChatBoxStompController(KafkaProducer kafkaProducer) {
         this.kafkaProducer = kafkaProducer;
     }
@@ -49,6 +51,9 @@ public class ChatBoxStompController {
      * отправителя в списке нет — он не член чата, разбор фрейма прерывается без побочных
      * эффектов. StompAuthChannelInterceptor эту проверку на SEND намеренно не делает —
      * дублировала бы тот же gRPC-вызов и блокировала пул clientInboundChannel (beads g9x).
+     * Отказ не бесшумный (beads isf): отправитель получает отбивку на /private/{userId},
+     * а сам отказ отмечается в StompDenialCounter — по нему интерцептор рвёт сессию, если
+     * отказы пошли серией.
      */
     @MessageMapping("/chat/send/{chatId}")
     public void HandleChatMessage(@DestinationVariable String chatId,
@@ -56,6 +61,9 @@ public class ChatBoxStompController {
                                   @org.springframework.messaging.handler.annotation.Header(
                                           name = com.example.springexample.StompFrameTimestampInterceptor.SERVER_TIMESTAMP_HEADER,
                                           required = false) String frameTimestamp,
+                                  @org.springframework.messaging.handler.annotation.Header(
+                                          name = org.springframework.messaging.simp.SimpMessageHeaderAccessor.SESSION_ID_HEADER,
+                                          required = false) String sessionId,
                                   com.example.springexample.StompHandlers.ChatMessageDTO chatMessageDTO) {
         // Строгая валидация формата: на SEND StompAuthChannelInterceptor больше не парсит
         // chatId (beads g9x, проверка перенесена сюда), а голый Long.parseLong принимает
@@ -101,6 +109,11 @@ public class ChatBoxStompController {
                     if (senderUsername.isEmpty()) {
                         log.warn("SEND в чат {} отклонён: пользователь {} не найден среди участников",
                                 chatId, senderId);
+                        // Отбивка отправителю + счётчик отказов (beads isf): раньше здесь был
+                        // только этот log.warn, и пользователь со старой вкладкой терял текст
+                        // молча, а серия отказов ничем не ограничивалась.
+                        denyToSender(sessionId, senderId, canonicalChatId, "NOT_A_MEMBER",
+                                "Вы не участник этого чата — сообщение не отправлено");
                         return;
                     }
                     String username = senderUsername.get();
@@ -141,7 +154,15 @@ public class ChatBoxStompController {
                                     .collect(Collectors.toCollection(ArrayList::new)),
                             chatListShortObjDTO);
                 },
-                err -> log.error("Не удалось получить участников чата {} — сообщение не отправлено", chatId, err)
+                err -> {
+                    log.error("Не удалось получить участников чата {} — сообщение не отправлено", chatId, err);
+                    // Сообщение теряется ровно так же, как при отказе по членству, значит и
+                    // отбивка нужна такая же (beads isf). В счётчик отказов эта ветка НЕ идёт:
+                    // это отказ сервера, а не клиента, и рвать по нему сессии значило бы
+                    // превращать заминку MessegerParody в отключение живых пользователей.
+                    sendErrorToSender(senderId, canonicalChatId, "MEMBERSHIP_UNAVAILABLE",
+                            "Сервис чатов недоступен — сообщение не отправлено");
+                }
         );
     }
     /**
@@ -156,6 +177,9 @@ public class ChatBoxStompController {
     @MessageMapping("/chat/user_statuses/{chatId}")
     public void HandleChangeOfUserStatus(@DestinationVariable String chatId,
                                          Principal principal,
+                                         @org.springframework.messaging.handler.annotation.Header(
+                                                 name = org.springframework.messaging.simp.SimpMessageHeaderAccessor.SESSION_ID_HEADER,
+                                                 required = false) String sessionId,
                                          com.example.springexample.StompHandlers.StatusUserDTO statusDto) {
         // Строгая валидация формата: на SEND StompAuthChannelInterceptor больше не парсит
         // chatId (beads g9x, проверка перенесена сюда), а голый Long.parseLong принимает
@@ -181,6 +205,11 @@ public class ChatBoxStompController {
                     if (senderUsername.isEmpty()) {
                         log.warn("SEND статуса набора текста в чат {} отклонён: пользователь {} не найден среди участников",
                                 chatId, senderId);
+                        // Отбивки нет намеренно (beads isf): статус набора — фоновое событие,
+                        // пользователь его осознанно не отправлял, и тост на каждое нажатие
+                        // клавиши был бы шумом. В счётчик отказов фрейм идёт: стоит он ровно
+                        // того же gRPC-вызова, что и сообщение, и повторять его можно так же долго.
+                        denialCounter.recordDenial(sessionId);
                         return;
                     }
                     String username = senderUsername.get();
@@ -234,5 +263,64 @@ public class ChatBoxStompController {
             return;
         }
         template.convertAndSend("/mutual/chat_image/" + chatId, imageUploadDTO);
+    }
+
+    /**
+     * Отказ, который клиент может повторять: отбивка отправителю + отметка в счётчике сессии
+     * (beads isf). Счётчик читает StompAuthChannelInterceptor и после порога рвёт сессию —
+     * иначе серия отказов не стоит клиенту ничего, а серверу стоит gRPC-вызова на каждый фрейм.
+     */
+    private void denyToSender(String sessionId, String senderId, String chatId,
+                              String code, String message) {
+        denialCounter.recordDenial(sessionId);
+        sendErrorToSender(senderId, chatId, code, message);
+    }
+
+    /**
+     * Отбивка уходит на /private/{userId} — семейство уже закрыто проверкой личности в
+     * PER_USER_PREFIXES, так что чужую отбивку никто не прочитает. Персональный адрес, а не
+     * адрес чата: в /mutual/chat/{id} её увидели бы все участники.
+     */
+    private void sendErrorToSender(String senderId, String chatId, String code, String message) {
+        ChatErrorDTO error = new ChatErrorDTO();
+        error.setChat_id(chatId);
+        error.setCode(code);
+        error.setMessage(message);
+        template.convertAndSend("/private/" + senderId, error);
+    }
+
+    /**
+     * Сторож от бесшумных падений (beads isf): до этого тикета в репозитории не было
+     * ни одного обработчика ошибок STOMP, и любое необработанное исключение внутри
+     * {@code @MessageMapping} тонуло так же тихо, как отказ по членству — клиент терял
+     * сообщение и не узнавал об этом.
+     * Наружу идёт нейтральный текст: сообщение исключения может нести внутренности (строки
+     * подключения, имена таблиц), подробности остаются в логе.
+     * Область действия — синхронная часть хендлеров этого контроллера. Ошибки внутри
+     * subscribe(...) сюда не попадают: они приходят на другом потоке и обрабатываются
+     * собственной веткой err -> у каждой подписки.
+     */
+    @org.springframework.messaging.handler.annotation.MessageExceptionHandler(Exception.class)
+    public void handleUncaughtStompException(
+            Exception ex,
+            Principal principal,
+            @org.springframework.messaging.handler.annotation.Header(
+                    name = org.springframework.messaging.simp.SimpMessageHeaderAccessor.DESTINATION_HEADER,
+                    required = false) String destination) {
+        log.error("Необработанное исключение в STOMP-хендлере, адрес {}", destination, ex);
+        if (principal == null) {
+            return;
+        }
+        sendErrorToSender(principal.getName(), chatIdFromDestination(destination), "INTERNAL_ERROR",
+                "Не удалось обработать сообщение — попробуйте ещё раз");
+    }
+
+    /** Хвост адреса /app/chat/send/{chatId}: нужен фронту, чтобы понять, в каком чате отказ. */
+    private static String chatIdFromDestination(String destination) {
+        if (destination == null) {
+            return null;
+        }
+        String tail = destination.substring(destination.lastIndexOf('/') + 1);
+        return tail.matches("\\d+") ? tail : null;
     }
 }
