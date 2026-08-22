@@ -2,6 +2,8 @@ package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -57,50 +59,110 @@ class ChatMembershipServiceTest {
     }
 
     @Test
-    void isMemberTrueWhenUserPresent() {
+    void decideReturnsMemberWhenUserPresent() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.just(responseWith(7L, 9L)));
 
-        assertTrue(service.isMember(5L, "9"));
+        assertEquals(MembershipDecision.MEMBER, service.decide(5L, "9").block());
     }
 
     @Test
-    void isMemberFalseWhenUserAbsent() {
+    void decideReturnsNotMemberWhenUserAbsent() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.just(responseWith(7L, 9L)));
 
-        assertFalse(service.isMember(5L, "42"));
+        assertEquals(MembershipDecision.NOT_MEMBER, service.decide(5L, "42").block());
     }
 
     @Test
-    void isMemberFalseOnEmptyMemberList() {
+    void decideReturnsNotMemberOnEmptyMemberList() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.just(responseWith()));
 
-        assertFalse(service.isMember(5L, "9"));
+        assertEquals(MembershipDecision.NOT_MEMBER, service.decide(5L, "9").block());
     }
 
     @Test
-    void isMemberFalseWhenGrpcFails() {
+    void decideReturnsUnknownOnTimeout() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
-                .thenReturn(Mono.error(new IllegalStateException("messegerparody недоступен")));
+                .thenReturn(Mono.never());
 
-        assertFalse(service.isMember(5L, "9"));
+        // Укороченный таймаут по уже существующему в этом файле образцу: иначе тест ждёт
+        // 4 секунды (2 с на попытку x 2 попытки — таймаут транзиентен и повторяется).
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
+            @Override
+            Duration membershipTimeout() {
+                return Duration.ofMillis(50);
+            }
+        };
+
+        assertEquals(MembershipDecision.UNKNOWN, fastService.decide(5L, "9").block());
     }
 
     @Test
-    void isMemberFalseOnTimeout() {
+    void decideReturnsUnknownOnGrpcError() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.INTERNAL)));
+
+        assertEquals(MembershipDecision.UNKNOWN, service.decide(5L, "9").block());
+    }
+
+    @Test
+    void transientFailureIsRetriedOnceAndSucceeds() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.UNAVAILABLE)))
+                .thenReturn(Mono.just(responseWith(9L)));
+
+        assertEquals(MembershipDecision.MEMBER, service.decide(5L, "9").block());
+        Mockito.verify(stub, Mockito.times(2))
+                .getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class));
+    }
+
+    @Test
+    void deterministicFailureIsNotRetried() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.INVALID_ARGUMENT)));
+
+        assertEquals(MembershipDecision.UNKNOWN, service.decide(5L, "9").block());
+        Mockito.verify(stub, Mockito.times(1))
+                .getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class));
+    }
+
+    @Test
+    void isMemberReactiveMapsUnknownToFalse() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.INTERNAL)));
+
+        assertEquals(Boolean.FALSE, service.isMemberReactive(5L, "9").block());
+    }
+
+    @Test
+    void decideBlockingReturnsUnknownInsteadOfThrowing() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.never());
 
         ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
             @Override
             Duration membershipTimeout() {
-                return Duration.ofMillis(100);
+                return Duration.ofMillis(50);
             }
         };
 
-        assertFalse(fastService.isMember(5L, "9"));
+        assertEquals(MembershipDecision.UNKNOWN, fastService.decideBlocking(5L, "9"));
+    }
+
+    @Test
+    void everyAttemptLandsInHistogramSeparately() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.UNAVAILABLE)))
+                .thenReturn(Mono.just(responseWith(9L)));
+
+        service.decide(5L, "9").block();
+
+        assertNotNull(membersTimer("error"));
+        assertEquals(1, membersTimer("error").count());
+        assertNotNull(membersTimer("success"));
+        assertEquals(1, membersTimer("success").count());
     }
 
     @Test
@@ -125,35 +187,4 @@ class ChatMembershipServiceTest {
         assertNull(membersTimer("success"));
     }
 
-    @Test
-    void failedMembershipCallIsRecordedAsError() {
-        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
-                .thenReturn(Mono.error(new IllegalStateException("messegerparody недоступен")));
-
-        assertFalse(service.isMember(5L, "9"));
-
-        assertNotNull(membersTimer("error"));
-        assertEquals(1L, membersTimer("error").count());
-        assertNull(membersTimer("success"));
-    }
-
-    @Test
-    void timedOutMembershipCallIsRecordedAsCancelled() {
-        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
-                .thenReturn(Mono.never());
-
-        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
-            @Override
-            Duration membershipTimeout() {
-                return Duration.ofMillis(100);
-            }
-        };
-
-        assertFalse(fastService.isMember(5L, "9"));
-
-        assertNotNull(membersTimer("cancel"));
-        assertEquals(1L, membersTimer("cancel").count());
-        assertNull(membersTimer("success"));
-        assertNull(membersTimer("error"));
-    }
 }

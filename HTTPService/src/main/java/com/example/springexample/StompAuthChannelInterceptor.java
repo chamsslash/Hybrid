@@ -1,6 +1,7 @@
 package com.example.springexample;
 
 import com.example.springexample.Services.ChatMembershipService;
+import com.example.springexample.Services.MembershipDecision;
 import com.example.springexample.Utils.AccessTokenVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -234,7 +235,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String perChatPrefix = matchingPrefix(PER_CHAT_PREFIXES, destination);
         if (perChatPrefix != null) {
             long chatId = parseChatIdOrDeny(destination, perChatPrefix);
-            if (!chatMembershipService.isMember(chatId, userId)) {
+            if (chatMembershipService.decideBlocking(chatId, userId) != MembershipDecision.MEMBER) {
                 log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
                 throw new org.springframework.security.access.AccessDeniedException(
                         "Not a member of chat " + chatId);

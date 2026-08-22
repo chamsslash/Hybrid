@@ -1,6 +1,7 @@
 package com.example.springexample;
 
 import com.example.springexample.Services.ChatMembershipService;
+import com.example.springexample.Services.MembershipDecision;
 import com.example.springexample.Utils.AccessTokenVerifier;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -52,33 +53,33 @@ class StompAuthChannelInterceptorTest {
     void sendToOwnChatPassesWithoutMembershipCheck() {
         assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/5"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
     void sendToForeignChatPassesInterceptorWithoutMembershipCheck() {
         assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/77"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
     void sendTypingStatusPassesInterceptorWithoutMembershipCheck() {
         assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/user_statuses/77"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
     void subscribeToOwnChatPasses() {
-        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+        Mockito.when(membership.decideBlocking(5L, "9")).thenReturn(MembershipDecision.MEMBER);
 
         assertNotNull(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null));
     }
 
     @Test
     void subscribeToForeignChatIsDenied() {
-        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+        Mockito.when(membership.decideBlocking(77L, "9")).thenReturn(MembershipDecision.NOT_MEMBER);
 
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/77"), null));
@@ -96,12 +97,12 @@ class StompAuthChannelInterceptorTest {
                 () -> interceptor.preSend(
                         frame(StompCommand.SUBSCRIBE, "/mutual/chat/99999999999999999999"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     @Test
     void subscribeToForeignTypingChannelIsDenied() {
-        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+        Mockito.when(membership.decideBlocking(77L, "9")).thenReturn(MembershipDecision.NOT_MEMBER);
 
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/typing/77"), null));
@@ -125,7 +126,7 @@ class StompAuthChannelInterceptorTest {
         assertThrows(AccessDeniedException.class, () -> interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chat_list/image_chat_channel"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     /** Неизвестный нечисловой хвост под /mutual/chat/ — отказ, а не тихий проход. */
@@ -152,13 +153,13 @@ class StompAuthChannelInterceptorTest {
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/topic/news"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     /** Канал аватарки чата, в котором пользователь состоит, — обычная подписка участника. */
     @Test
     void subscribeToOwnChatImageChannelPasses() {
-        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+        Mockito.when(membership.decideBlocking(5L, "9")).thenReturn(MembershipDecision.MEMBER);
 
         assertNotNull(interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chat_image/5"), null));
@@ -167,7 +168,7 @@ class StompAuthChannelInterceptorTest {
     /** beads bwh, acceptance 1: канал картинок ЧУЖОГО чата закрыт той же проверкой членства. */
     @Test
     void subscribeToForeignChatImageChannelIsDenied() {
-        Mockito.when(membership.isMember(77L, "9")).thenReturn(false);
+        Mockito.when(membership.decideBlocking(77L, "9")).thenReturn(MembershipDecision.NOT_MEMBER);
 
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(
@@ -210,7 +211,7 @@ class StompAuthChannelInterceptorTest {
      */
     @Test
     void everyFrontendSubscriptionFromAuditPasses() {
-        Mockito.when(membership.isMember(5L, "9")).thenReturn(true);
+        Mockito.when(membership.decideBlocking(5L, "9")).thenReturn(MembershipDecision.MEMBER);
 
         // chatlist.view.js — пер-юзерные каналы списка чатов
         assertNotNull(interceptor.preSend(
@@ -251,7 +252,7 @@ class StompAuthChannelInterceptorTest {
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/**"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     /** C1: глобальный "поймать всё" шаблон добирает и /private/**, отклоняется той же проверкой. */
@@ -267,7 +268,7 @@ class StompAuthChannelInterceptorTest {
         assertThrows(AccessDeniedException.class,
                 () -> interceptor.preSend(frame(StompCommand.SEND, "/mutual/chat/77"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     /** C2: SEND напрямую на /private/{userId} — тот же обход, подделка личного сообщения. */
@@ -283,7 +284,7 @@ class StompAuthChannelInterceptorTest {
         assertNotNull(interceptor.preSend(
                 frame(StompCommand.SEND, "/app/some/other/handler"), null));
 
-        Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(membership, Mockito.never()).decideBlocking(Mockito.anyLong(), Mockito.anyString());
     }
 
     /** CONNECT с валидным токеном — он же заводит запись сессии в счётчике отказов (beads isf). */
