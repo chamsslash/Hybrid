@@ -38,6 +38,8 @@ public class ChatBoxStompController {
     ChatMembershipService chatMembershipService;
     @Autowired
     com.example.springexample.StompDenialCounter denialCounter;
+    @Autowired
+    StompErrorNotifier errorNotifier;
     public ChatBoxStompController(KafkaProducer kafkaProducer) {
         this.kafkaProducer = kafkaProducer;
     }
@@ -277,16 +279,12 @@ public class ChatBoxStompController {
     }
 
     /**
-     * Отбивка уходит на /private/{userId} — семейство уже закрыто проверкой личности в
-     * PER_USER_PREFIXES, так что чужую отбивку никто не прочитает. Персональный адрес, а не
-     * адрес чата: в /mutual/chat/{id} её увидели бы все участники.
+     * Отбивка уходит на /private/{userId}. Механика переехала в StompErrorNotifier
+     * (beads 8wh): тот же способ отправки понадобился интерцептору, а две копии
+     * разъехались бы. Метод остаётся точкой вызова внутри контроллера.
      */
     private void sendErrorToSender(String senderId, String chatId, String code, String message) {
-        ChatErrorDTO error = new ChatErrorDTO();
-        error.setChat_id(chatId);
-        error.setCode(code);
-        error.setMessage(message);
-        template.convertAndSend("/private/" + senderId, error);
+        errorNotifier.sendToUser(senderId, chatId, code, message);
     }
 
     /**

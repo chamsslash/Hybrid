@@ -32,6 +32,7 @@ class ChatBoxStompControllerTest {
     private final ChatListStompController chatListController = Mockito.mock(ChatListStompController.class);
     private final com.example.springexample.StompDenialCounter denialCounter =
             Mockito.mock(com.example.springexample.StompDenialCounter.class);
+    private final StompErrorNotifier errorNotifier = Mockito.mock(StompErrorNotifier.class);
     @SuppressWarnings("unchecked")
     private final ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
 
@@ -51,6 +52,7 @@ class ChatBoxStompControllerTest {
         ReflectionTestUtils.setField(c, "chatListController", chatListController);
         ReflectionTestUtils.setField(c, "chatMembershipService", membership);
         ReflectionTestUtils.setField(c, "denialCounter", denialCounter);
+        ReflectionTestUtils.setField(c, "errorNotifier", errorNotifier);
         return c;
     }
 
@@ -466,12 +468,11 @@ class ChatBoxStompControllerTest {
 
         controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
-        ArgumentCaptor<ChatErrorDTO> sent = ArgumentCaptor.forClass(ChatErrorDTO.class);
-        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), sent.capture());
-        assertEquals("error", sent.getValue().getType(), "фронт отличает отбивку от прочего трафика по type");
-        assertEquals("5", sent.getValue().getChat_id());
-        assertEquals("NOT_A_MEMBER", sent.getValue().getCode());
-        assertNotNull(sent.getValue().getMessage(), "тост показывает текст из отбивки");
+        // Форма и адрес отбивки (type/chat_id) проверяются отдельно, в
+        // notifierSendsErrorToPersonalDestination — здесь контроллер лишь обязан позвать
+        // notifier с правильными аргументами (beads 8wh).
+        Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
+                Mockito.eq("NOT_A_MEMBER"), Mockito.notNull());
 
         Mockito.verify(template, Mockito.never())
                 .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
@@ -493,10 +494,8 @@ class ChatBoxStompControllerTest {
 
         controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
-        ArgumentCaptor<ChatErrorDTO> sent = ArgumentCaptor.forClass(ChatErrorDTO.class);
-        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), sent.capture());
-        assertEquals("MEMBERSHIP_UNAVAILABLE", sent.getValue().getCode());
-        assertEquals("5", sent.getValue().getChat_id());
+        Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
+                Mockito.eq("MEMBERSHIP_UNAVAILABLE"), Mockito.notNull());
     }
 
     /**
@@ -570,11 +569,10 @@ class ChatBoxStompControllerTest {
                 new IllegalStateException("jdbc:postgresql://user:hunter2@db/messeger"),
                 principal, "/app/chat/send/5");
 
-        ArgumentCaptor<ChatErrorDTO> sent = ArgumentCaptor.forClass(ChatErrorDTO.class);
-        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), sent.capture());
-        assertEquals("INTERNAL_ERROR", sent.getValue().getCode());
-        assertEquals("5", sent.getValue().getChat_id(), "чат берётся из адреса фрейма");
-        assertFalse(sent.getValue().getMessage().contains("hunter2"),
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
+                Mockito.eq("INTERNAL_ERROR"), messageCaptor.capture());
+        assertFalse(messageCaptor.getValue().contains("hunter2"),
                 "текст исключения наружу не уезжает — там бывают внутренности вроде строки подключения");
     }
 
@@ -634,5 +632,26 @@ class ChatBoxStompControllerTest {
         Map<String, Object> json = new com.google.gson.Gson().fromJson(payload.getValue(), Map.class);
         assertEquals(broadcastId, json.get("message_id"),
                 "имя поля в JSON и само значение обязаны совпасть с разосланным эхо");
+    }
+
+    /**
+     * StompErrorNotifier — отдельный владелец отправки отбивок (beads 8wh), вынесенный из
+     * контроллера, потому что тот же механизм понадобился StompAuthChannelInterceptor.
+     * Проверяется напрямую, в обход контроллера: адрес, форма ChatErrorDTO и то, что все
+     * четыре параметра доходят до шаблона без потерь.
+     */
+    @Test
+    void notifierSendsErrorToPersonalDestination() {
+        SimpMessagingTemplate template = Mockito.mock(SimpMessagingTemplate.class);
+        StompErrorNotifier notifier = new StompErrorNotifier(template);
+
+        notifier.sendToUser("9", "5", "SUBSCRIPTION_UNAVAILABLE", "текст");
+
+        ArgumentCaptor<ChatErrorDTO> captor = ArgumentCaptor.forClass(ChatErrorDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), captor.capture());
+        assertEquals("error", captor.getValue().getType());
+        assertEquals("5", captor.getValue().getChat_id());
+        assertEquals("SUBSCRIPTION_UNAVAILABLE", captor.getValue().getCode());
+        assertEquals("текст", captor.getValue().getMessage());
     }
 }
