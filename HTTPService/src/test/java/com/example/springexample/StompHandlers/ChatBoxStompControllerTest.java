@@ -30,6 +30,8 @@ class ChatBoxStompControllerTest {
     private final SimpMessagingTemplate template = Mockito.mock(SimpMessagingTemplate.class);
     private final ChatMembershipService membership = Mockito.mock(ChatMembershipService.class);
     private final ChatListStompController chatListController = Mockito.mock(ChatListStompController.class);
+    private final com.example.springexample.StompDenialCounter denialCounter =
+            Mockito.mock(com.example.springexample.StompDenialCounter.class);
     @SuppressWarnings("unchecked")
     private final ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
 
@@ -48,6 +50,7 @@ class ChatBoxStompControllerTest {
         ReflectionTestUtils.setField(c, "redisTemplate", redis);
         ReflectionTestUtils.setField(c, "chatListController", chatListController);
         ReflectionTestUtils.setField(c, "chatMembershipService", membership);
+        ReflectionTestUtils.setField(c, "denialCounter", denialCounter);
         return c;
     }
 
@@ -69,7 +72,7 @@ class ChatBoxStompControllerTest {
 
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, null, forged);
+        controller().HandleChatMessage("5", principal, null, "sess-1", forged);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
@@ -91,7 +94,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, null, dto);
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
         ArgumentCaptor<java.util.ArrayList<String>> ids = ArgumentCaptor.forClass(java.util.ArrayList.class);
         Mockito.verify(chatListController).ChangeChatPreview(ids.capture(), Mockito.any());
@@ -107,9 +110,10 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, null, dto);
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
-        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+        // Отбивка отправителю на /private/9 (beads isf) — единственное, что теперь уходит наружу.
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
@@ -128,7 +132,7 @@ class ChatBoxStompControllerTest {
 
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChangeOfUserStatus("5", principal, forged);
+        controller().HandleChangeOfUserStatus("5", principal, "sess-1", forged);
 
         ArgumentCaptor<StatusUserDTO> sent = ArgumentCaptor.forClass(StatusUserDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/typing/5"), sent.capture());
@@ -153,9 +157,10 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, null, dto);
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
-        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+        // Отбивка отправителю на /private/9 (beads isf) — единственное, что теперь уходит наружу.
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
@@ -171,7 +176,7 @@ class ChatBoxStompControllerTest {
         dto.setStatus("START");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChangeOfUserStatus("5", principal, dto);
+        controller().HandleChangeOfUserStatus("5", principal, "sess-1", dto);
 
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
@@ -190,7 +195,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("+7", principal, null, dto);
+        controller().HandleChatMessage("+7", principal, null, "sess-1", dto);
 
         Mockito.verify(membership, Mockito.never()).members(Mockito.anyLong());
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
@@ -213,7 +218,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("007", principal, null, dto);
+        controller().HandleChatMessage("007", principal, null, "sess-1", dto);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/7"), sent.capture());
@@ -230,7 +235,7 @@ class ChatBoxStompControllerTest {
         dto.setStatus("START");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChangeOfUserStatus("007", principal, dto);
+        controller().HandleChangeOfUserStatus("007", principal, "sess-1", dto);
 
         ArgumentCaptor<StatusUserDTO> sent = ArgumentCaptor.forClass(StatusUserDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/typing/7"), sent.capture());
@@ -246,7 +251,7 @@ class ChatBoxStompControllerTest {
         dto.setStatus("START");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChangeOfUserStatus("5", principal, dto);
+        controller().HandleChangeOfUserStatus("5", principal, "sess-1", dto);
 
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chatlist/typing/9"), Mockito.any(Object.class));
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chatlist/typing/7"), Mockito.any(Object.class));
@@ -338,7 +343,7 @@ class ChatBoxStompControllerTest {
         for (int i = 0; i < total; i++) {
             ChatMessageDTO dto = new ChatMessageDTO();
             dto.setText(String.format("ord-%02d", i + 1));
-            controller.HandleChatMessage("5", principal, null, dto);
+            controller.HandleChatMessage("5", principal, null, "sess-1", dto);
             Thread.sleep(2);
         }
 
@@ -385,7 +390,7 @@ class ChatBoxStompControllerTest {
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
         Instant beforeCall = Instant.now();
 
-        controller().HandleChatMessage("5", principal, null, forged);
+        controller().HandleChatMessage("5", principal, null, "sess-1", forged);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
@@ -412,7 +417,7 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, "2020-05-05T05:05:05Z", dto);
+        controller().HandleChatMessage("5", principal, "2020-05-05T05:05:05Z", "sess-1", dto);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
@@ -435,12 +440,141 @@ class ChatBoxStompControllerTest {
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
         Instant beforeCall = Instant.now();
 
-        controller().HandleChatMessage("5", principal, "   ", dto);
+        controller().HandleChatMessage("5", principal, "   ", "sess-1", dto);
 
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
         String actual = sent.getValue().getTimestamp();
         assertNotNull(actual, "время не может остаться пустым — по нему сортируется история");
         assertFalse(Instant.parse(actual).isBefore(beforeCall));
+    }
+
+    /**
+     * beads isf, центральный сторож. Отказ по членству до этого тикета был одним log.warn:
+     * пользователь со старой вкладкой (его убрали из чата) писал в пустоту, а фронт чистил
+     * поле ввода сразу после send — текст пропадал бесследно. Отбивка уходит персонально
+     * отправителю и НЕ должна попасть в адрес чата: туда её увидели бы все участники.
+     */
+    @Test
+    void membershipDenialSendsFeedbackToSenderOnly() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(7L, "Оля"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        ArgumentCaptor<ChatErrorDTO> sent = ArgumentCaptor.forClass(ChatErrorDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), sent.capture());
+        assertEquals("error", sent.getValue().getType(), "фронт отличает отбивку от прочего трафика по type");
+        assertEquals("5", sent.getValue().getChat_id());
+        assertEquals("NOT_A_MEMBER", sent.getValue().getCode());
+        assertNotNull(sent.getValue().getMessage(), "тост показывает текст из отбивки");
+
+        Mockito.verify(template, Mockito.never())
+                .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
+    }
+
+    /**
+     * Вторая ветка потери сообщения (beads isf): список участников не получен (MessegerParody
+     * недоступен). Сообщение теряется ровно так же, значит и отбивка нужна такая же —
+     * иначе пользователь молча теряет текст при любой заминке gRPC.
+     */
+    @Test
+    void membershipLookupFailureSendsFeedbackToSender() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.error(new IllegalStateException("messegerparody недоступен")));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        ArgumentCaptor<ChatErrorDTO> sent = ArgumentCaptor.forClass(ChatErrorDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), sent.capture());
+        assertEquals("MEMBERSHIP_UNAVAILABLE", sent.getValue().getCode());
+        assertEquals("5", sent.getValue().getChat_id());
+    }
+
+    /**
+     * Стоп-кран beads isf: отказ по членству — это то, что аутентифицированный клиент может
+     * повторять бесконечно, каждый раз оплачивая серверу gRPC-вызов. Контроллер обязан
+     * отметить его в счётчике сессии, иначе StompAuthChannelInterceptor не сможет оборвать серию.
+     */
+    @Test
+    void membershipDenialIsCountedAgainstSession() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(7L, "Оля"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        Mockito.verify(denialCounter).recordDenial("sess-1");
+    }
+
+    /**
+     * Недоступность MessegerParody в счётчик НЕ идёт (beads isf): это отказ сервера, а не
+     * клиента, и считать его против сессии значило бы рвать соединения всем живым
+     * пользователям после пятого сообщения на время любой заминки gRPC.
+     */
+    @Test
+    void membershipLookupFailureIsNotCountedAgainstSession() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.error(new IllegalStateException("messegerparody недоступен")));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        Mockito.verifyNoInteractions(denialCounter);
+    }
+
+    /**
+     * Статус набора текста — фоновое событие, пользователь его осознанно не отправлял, и
+     * отбивка на каждое нажатие клавиши превратилась бы в поток тостов. Но фрейм стоит
+     * ровно того же gRPC-вызова, что и сообщение, поэтому в счётчик отказов он идёт (beads isf).
+     */
+    @Test
+    void typingDenialSendsNoFeedbackButIsCountedAgainstSession() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(7L, "Оля"))));
+
+        StatusUserDTO dto = new StatusUserDTO();
+        dto.setStatus("START");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChangeOfUserStatus("5", principal, "sess-1", dto);
+
+        Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
+        Mockito.verify(denialCounter).recordDenial("sess-1");
+    }
+
+    /**
+     * До beads isf в репозитории не было ни одного @MessageExceptionHandler: любое
+     * необработанное исключение в @MessageMapping тонуло так же бесшумно, как отказ по
+     * членству. Отправителю уходит нейтральная отбивка, внутренности исключения — только в лог.
+     */
+    @Test
+    void uncaughtHandlerExceptionSendsNeutralFeedbackWithoutInternals() {
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().handleUncaughtStompException(
+                new IllegalStateException("jdbc:postgresql://user:hunter2@db/messeger"),
+                principal, "/app/chat/send/5");
+
+        ArgumentCaptor<ChatErrorDTO> sent = ArgumentCaptor.forClass(ChatErrorDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), sent.capture());
+        assertEquals("INTERNAL_ERROR", sent.getValue().getCode());
+        assertEquals("5", sent.getValue().getChat_id(), "чат берётся из адреса фрейма");
+        assertFalse(sent.getValue().getMessage().contains("hunter2"),
+                "текст исключения наружу не уезжает — там бывают внутренности вроде строки подключения");
     }
 }

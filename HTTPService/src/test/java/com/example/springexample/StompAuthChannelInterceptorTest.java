@@ -19,13 +19,24 @@ class StompAuthChannelInterceptorTest {
 
     private final AccessTokenVerifier verifier = Mockito.mock(AccessTokenVerifier.class);
     private final ChatMembershipService membership = Mockito.mock(ChatMembershipService.class);
+    private final StompDenialCounter denialCounter = new StompDenialCounter();
     private final StompAuthChannelInterceptor interceptor =
-            new StompAuthChannelInterceptor(verifier, membership);
+            new StompAuthChannelInterceptor(verifier, membership, denialCounter);
 
     /** Фрейм от аутентифицированного пользователя с userId="9". */
     private static Message<byte[]> frame(StompCommand command, String destination) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
         accessor.setDestination(destination);
+        accessor.setUser(new UsernamePasswordAuthenticationToken("9", null, List.of()));
+        accessor.setLeaveMutable(true);
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    /** Тот же фрейм, но с идентификатором STOMP-сессии — ключом счётчика отказов. */
+    private static Message<byte[]> frame(StompCommand command, String destination, String sessionId) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
+        accessor.setDestination(destination);
+        accessor.setSessionId(sessionId);
         accessor.setUser(new UsernamePasswordAuthenticationToken("9", null, List.of()));
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
@@ -216,6 +227,9 @@ class StompAuthChannelInterceptorTest {
         assertNotNull(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/typing/5"), null));
         assertNotNull(interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chat_image/5"), null));
+
+        // chat.view.js — персональная отбивка отказа на SEND (beads isf)
+        assertNotNull(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/private/9"), null));
     }
 
     @Test
@@ -270,5 +284,51 @@ class StompAuthChannelInterceptorTest {
                 frame(StompCommand.SEND, "/app/some/other/handler"), null));
 
         Mockito.verify(membership, Mockito.never()).isMember(Mockito.anyLong(), Mockito.anyString());
+    }
+
+    /** CONNECT с валидным токеном — он же заводит запись сессии в счётчике отказов (beads isf). */
+    private Message<byte[]> connectFrame(String sessionId) {
+        Mockito.when(verifier.verify(Mockito.anyString()))
+                .thenReturn(new UsernamePasswordAuthenticationToken("9", null, List.of()));
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.setSessionId(sessionId);
+        accessor.setNativeHeader("Authorization", "Bearer valid");
+        accessor.setLeaveMutable(true);
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    /**
+     * Стоп-кран beads isf. Отказ по членству живёт в контроллере и наружу отдаёт только
+     * отбивку — сессию он не рвёт, поэтому серия отказов ничем не ограничена: каждый фрейм
+     * стоит одного getAllUsersByChatId в MessegerParody. После порога интерцептор обязан
+     * отклонить SEND сам, ДО пропуска фрейма, то есть без единого обращения к членству.
+     */
+    @Test
+    void sendIsDeniedAfterDenialThresholdWithoutTouchingMembership() {
+        interceptor.preSend(connectFrame("sess-1"), null);
+
+        for (int i = 1; i < StompDenialCounter.MAX_DENIALS_PER_SESSION; i++) {
+            denialCounter.recordDenial("sess-1");
+            assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/77", "sess-1"), null),
+                    "до порога фрейм обязан проходить: легитимный рассинхрон даёт один-два отказа");
+        }
+        denialCounter.recordDenial("sess-1");
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/77", "sess-1"), null));
+
+        Mockito.verifyNoInteractions(membership);
+    }
+
+    /** Счётчик чужой сессии не рвёт нашу: ключ — именно sessionId, а не пользователь. */
+    @Test
+    void denialsOfAnotherSessionDoNotDenySend() {
+        interceptor.preSend(connectFrame("sess-1"), null);
+        interceptor.preSend(connectFrame("sess-2"), null);
+        for (int i = 0; i < StompDenialCounter.MAX_DENIALS_PER_SESSION; i++) {
+            denialCounter.recordDenial("sess-1");
+        }
+
+        assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/5", "sess-2"), null));
     }
 }

@@ -44,6 +44,13 @@ let typingUsers = [];
 let stompClient = null;
 let typingTimeout = null;
 
+// Текст последнего отправленного сообщения (beads isf). Поле ввода чистится сразу после
+// send, потому что STOMP ничего не подтверждает; если сервер отказал (нас убрали из чата,
+// MessegerParody недоступен), текст возвращается сюда из отбивки на /private/{user_id}.
+// Корреляции «эхо подтвердило доставку → можно чистить» здесь нет намеренно: она требует
+// сквозного идентификатора сообщения, которого в контракте нет.
+let pendingText = '';
+
 let stomp = null;
 let ac = null;
 
@@ -153,7 +160,24 @@ function sendChatMessage() {
         imageurl: user_image
     };
     stompClient.send(`/app/chat/send/${chat_id}`, {}, JSON.stringify(message));
+    pendingText = text;
     input.value = "";
+}
+
+// Отбивка отказа с /private/{user_id} (beads isf). Раньше отказ на SEND был одним log.warn
+// на сервере: сообщение не доходило никуда, а поле ввода уже было очищено — текст пропадал
+// бесследно, и пользователь об этом не узнавал.
+function handleChatError(msg) {
+    const error = JSON.parse(msg.body);
+    if (error.type !== 'error') return;
+    showToast(error.message || 'Сообщение не отправлено', 'error');
+
+    const input = document.getElementById('messageInput');
+    // Не затираем то, что пользователь успел набрать заново, пока летела отбивка.
+    if (input && pendingText && !input.value.trim()) {
+        input.value = pendingText;
+    }
+    pendingText = '';
 }
 
 // Канал уже привязан к открытому чату (/mutual/chat_image/{chat_id}, beads bwh), поэтому
@@ -251,6 +275,9 @@ function connectStomp(token) {
         stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
             appendChatMessage(JSON.parse(msg.body));
         });
+        // Персональный адрес отказов (beads isf). Подписка идёт через тот же клиент, что и
+        // сообщения чата, чтобы её снимал общий disconnectAll в unmount().
+        stompClient.subscribe(`/private/${user_id}`, handleChatError);
     });
 
     const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
@@ -290,6 +317,7 @@ export async function mount(params) {
     typingUsers = [];
     stompClient = null;
     typingTimeout = null;
+    pendingText = '';
 
     stomp = createStompRegistry();
     ac = new AbortController();
