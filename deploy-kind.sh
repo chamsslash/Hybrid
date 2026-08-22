@@ -31,6 +31,15 @@ fi
 : "${MINIO_SECRET_KEY:=hybrid-app-secret123}"
 : "${GEMINI_API_KEY:=local-gemini-api-key-placeholder}"
 
+# TLS выключен по умолчанию — стенд работает по чистому HTTP. Включение
+# (TLS_ENABLED=true ./deploy-kind.sh) ставит cert-manager и включает tls в чарте;
+# оно ломает вход через Google и включает ssl-redirect на всех путях —
+# цена и порядок отката описаны в docs/tls-cert-manager.md.
+: "${TLS_ENABLED:=false}"
+# Пин версии, а не latest: cert-manager применяется сырым манифестом релиза, и
+# «поехавшая» версия CRD между запусками ломает уже выпущенные Certificate.
+: "${CERT_MANAGER_VERSION:=v1.21.1}"
+
 echo "▶ create kind cluster"
 cat <<'EOF' >/tmp/kind-hybrid-config.yaml
 kind: Cluster
@@ -79,6 +88,40 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
+HELM_TLS_ARGS=()
+if [ "$TLS_ENABLED" = "true" ]; then
+  # cert-manager ставится ЗДЕСЬ, до helm, и это не стилистика: его CRD
+  # (ClusterIssuer/Certificate) должны существовать в кластере раньше, чем helm
+  # применит Helm/templates/tls-cert-manager.yaml. Зависимостью чарта это не
+  # решается — см. шапку того же файла.
+  echo "▶ install cert-manager $CERT_MANAGER_VERSION"
+  kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+
+  # Ждать надо все три деплоймента, а не только контроллер: Certificate проходит
+  # через conversion/validating-вебхук (cert-manager-webhook), а CA-инъекцию в него
+  # делает cainjector. Готовый контроллер при неподнятом вебхуке — это ровно та же
+  # гонка, из-за которой выше отдельно ждём admission-вебхук ingress-nginx.
+  echo "▶ wait for cert-manager deployments"
+  for d in cert-manager cert-manager-webhook cert-manager-cainjector; do
+    kubectl wait -n cert-manager --for=condition=available "deployment/$d" --timeout=300s
+  done
+
+  # Deployment "Available" наступает раньше, чем Endpoints вебхука расходятся по
+  # kube-proxy — тот же приём, что и для ingress-nginx выше: дожидаемся реального
+  # адреса, иначе первый же apply Certificate ловит "connection refused".
+  echo "▶ wait for cert-manager webhook endpoint"
+  for i in $(seq 1 30); do
+    cmep="$(kubectl get endpoints -n cert-manager cert-manager-webhook -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null)"
+    if [ -n "$cmep" ]; then
+      echo "cert-manager webhook endpoint ready: $cmep"
+      break
+    fi
+    sleep 2
+  done
+
+  HELM_TLS_ARGS=(--set tls.enabled=true)
+fi
+
 echo "▶ generate throwaway signing keys (LOCAL DEV ONLY — never reuse in prod)"
 # Secrets are NOT stored in values.yaml. For local kind we mint fresh, disposable
 # key pairs at deploy time and inject them via --set-file. The matching public
@@ -122,7 +165,8 @@ for attempt in 1 2 3; do
     --set-file secrets.jwtPrivateKeyPem="$KEYDIR/jwt-priv.pem" \
     --set-file authservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
     --set-file httpservice.env.jwtPublicKey="$KEYDIR/jwt-pub.pem" \
-    --set secrets.geminiApiKey="$GEMINI_API_KEY"; then
+    --set secrets.geminiApiKey="$GEMINI_API_KEY" \
+    "${HELM_TLS_ARGS[@]}"; then
     break
   fi
   if [ "$attempt" = 3 ]; then
