@@ -3,7 +3,6 @@ package com.example.springexample;
 import com.example.springexample.Services.ChatMembershipService;
 import com.example.springexample.Services.MembershipDecision;
 import com.example.springexample.Utils.AccessTokenVerifier;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -40,12 +39,34 @@ import org.springframework.util.StringUtils;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private final AccessTokenVerifier accessTokenVerifier;
     private final ChatMembershipService chatMembershipService;
     private final StompDenialCounter denialCounter;
+    private final com.example.springexample.StompHandlers.StompErrorNotifier errorNotifier;
+
+    /**
+     * Конструктор явный, а не через @RequiredArgsConstructor, ровно из-за @Lazy на
+     * последнем параметре: Lombok не переносит аннотации с полей на параметры
+     * генерируемого конструктора без lombok.copyableAnnotations, и аннотация молча
+     * потерялась бы.
+     *
+     * @Lazy обязателен: StompErrorNotifier -> SimpMessagingTemplate -> конфигурация
+     * брокера -> StompConfig -> этот интерцептор. Прямая инъекция замкнула бы цикл и
+     * контекст Spring не поднялся бы. Прокси разрывает цикл на этапе конструирования.
+     */
+    public StompAuthChannelInterceptor(
+            AccessTokenVerifier accessTokenVerifier,
+            ChatMembershipService chatMembershipService,
+            StompDenialCounter denialCounter,
+            @org.springframework.context.annotation.Lazy
+            com.example.springexample.StompHandlers.StompErrorNotifier errorNotifier) {
+        this.accessTokenVerifier = accessTokenVerifier;
+        this.chatMembershipService = chatMembershipService;
+        this.denialCounter = denialCounter;
+        this.errorNotifier = errorNotifier;
+    }
 
     /**
      * Тот же матчер, что использует {@code DefaultSubscriptionRegistry} простого брокера
@@ -92,7 +113,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "Wildcard subscriptions are not allowed");
                 }
-                authorizeSubscription(destination, userId);
+                if (!authorizeSubscription(destination, userId)) {
+                    return null;
+                }
             }
             case SEND -> {
                 if (accessor.getUser() == null) {
@@ -215,7 +238,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * /mutual/chat/ уже на 13-м символе), — но зафиксирован, чтобы будущий префикс,
      * случайно попавший в оба списка, разрешался предсказуемо.
      */
-    private void authorizeSubscription(String destination, String userId) {
+    /**
+     * Возвращает true, если фрейм надо пропустить дальше, и false, если его надо уронить
+     * молча (beads 8wh). Отказ по членству по-прежнему выражается исключением: подписка
+     * на чужой чат — осознанный зонд, и разрыв сессии здесь работает тормозом, который
+     * не хочется терять. Молча роняется только UNKNOWN — состояние, которое возникает
+     * лишь от сбоя на нашей стороне и снаружи не вызывается, поэтому новой поверхности
+     * для злоупотребления не появляется.
+     */
+    private boolean authorizeSubscription(String destination, String userId) {
         if (!StringUtils.hasText(destination)) {
             log.warn("SUBSCRIBE без адреса отклонён: пользователь {}", userId);
             throw new org.springframework.security.access.AccessDeniedException(
@@ -229,18 +260,29 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 throw new org.springframework.security.access.AccessDeniedException(
                         "Cannot subscribe to another user's destination");
             }
-            return;
+            return true;
         }
 
         String perChatPrefix = matchingPrefix(PER_CHAT_PREFIXES, destination);
         if (perChatPrefix != null) {
             long chatId = parseChatIdOrDeny(destination, perChatPrefix);
-            if (chatMembershipService.decideBlocking(chatId, userId) != MembershipDecision.MEMBER) {
+            MembershipDecision decision = chatMembershipService.decideBlocking(chatId, userId);
+            if (decision == MembershipDecision.NOT_MEMBER) {
                 log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
                 throw new org.springframework.security.access.AccessDeniedException(
                         "Not a member of chat " + chatId);
             }
-            return;
+            if (decision == MembershipDecision.UNKNOWN) {
+                // Фрейм роняется возвратом null из preSend, а не исключением: исключение
+                // из preSend рвёт STOMP-сессию (проверено живьём), и транзиентная заминка
+                // MessegerParody стоила бы пользователю всего WebSocket.
+                log.warn("SUBSCRIBE на чат {} не пропущен: членство пользователя {} не выяснено",
+                        chatId, userId);
+                errorNotifier.sendToUser(userId, String.valueOf(chatId), "SUBSCRIPTION_UNAVAILABLE",
+                        "Не удалось проверить доступ к чату — пробуем ещё раз");
+                return false;
+            }
+            return true;
         }
 
         log.warn("SUBSCRIBE на неизвестный адрес {} отклонён: пользователь {} (deny-by-default, beads bwh)",

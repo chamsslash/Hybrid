@@ -2,6 +2,7 @@ package com.example.springexample;
 
 import com.example.springexample.Services.ChatMembershipService;
 import com.example.springexample.Services.MembershipDecision;
+import com.example.springexample.StompHandlers.StompErrorNotifier;
 import com.example.springexample.Utils.AccessTokenVerifier;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -21,8 +22,9 @@ class StompAuthChannelInterceptorTest {
     private final AccessTokenVerifier verifier = Mockito.mock(AccessTokenVerifier.class);
     private final ChatMembershipService membership = Mockito.mock(ChatMembershipService.class);
     private final StompDenialCounter denialCounter = new StompDenialCounter();
+    private final StompErrorNotifier errorNotifier = Mockito.mock(StompErrorNotifier.class);
     private final StompAuthChannelInterceptor interceptor =
-            new StompAuthChannelInterceptor(verifier, membership, denialCounter);
+            new StompAuthChannelInterceptor(verifier, membership, denialCounter, errorNotifier);
 
     /** Фрейм от аутентифицированного пользователя с userId="9". */
     private static Message<byte[]> frame(StompCommand command, String destination) {
@@ -331,5 +333,64 @@ class StompAuthChannelInterceptorTest {
         }
 
         assertNotNull(interceptor.preSend(frame(StompCommand.SEND, "/app/chat/send/5", "sess-2"), null));
+    }
+
+    /**
+     * Ядро beads 8wh. Транзиентная заминка ChatMembershipService (таймаут, сбой gRPC)
+     * не должна стоить пользователю всей STOMP-сессии — раньше UNKNOWN трактовался как
+     * отказ, preSend бросал исключение, и Spring рвал SockJS-соединение целиком.
+     * Теперь UNKNOWN роняет только этот SUBSCRIBE-фрейм возвратом null; сессия жива,
+     * клиент может повторить подписку.
+     */
+    @Test
+    void subscribeWithUnknownMembershipDropsFrameWithoutKillingSession() {
+        Mockito.when(membership.decideBlocking(5L, "9"))
+                .thenReturn(MembershipDecision.UNKNOWN);
+
+        Message<?> result = interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null);
+
+        assertNull(result, "UNKNOWN обязан ронять фрейм возвратом null, а не исключением — "
+                + "исключение из preSend рвёт сессию");
+    }
+
+    /** UNKNOWN обязан сопровождаться отбивкой на /private/{userId}, иначе клиент не узнает, что повторить подписку. */
+    @Test
+    void subscribeWithUnknownMembershipNotifiesUser() {
+        Mockito.when(membership.decideBlocking(5L, "9"))
+                .thenReturn(MembershipDecision.UNKNOWN);
+
+        interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null);
+
+        Mockito.verify(errorNotifier).sendToUser("9", "5", "SUBSCRIPTION_UNAVAILABLE",
+                "Не удалось проверить доступ к чату — пробуем ещё раз");
+    }
+
+    /**
+     * Стережёт границу изменения beads 8wh: достоверный отказ по членству (NOT_MEMBER)
+     * по-прежнему рвёт сессию исключением, как и до этого тикета — подписка на чужой
+     * чат остаётся осознанным зондом, и разрыв сессии здесь работает тормозом. Если кто-то
+     * распространит мягкое поведение UNKNOWN и на NOT_MEMBER, этот тест это поймает.
+     */
+    @Test
+    void subscribeWithNotMemberStillThrowsAndKillsSession() {
+        Mockito.when(membership.decideBlocking(5L, "9"))
+                .thenReturn(MembershipDecision.NOT_MEMBER);
+
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null));
+        Mockito.verifyNoInteractions(errorNotifier);
+    }
+
+    /** Обычный успешный путь не задет разводкой NOT_MEMBER/UNKNOWN: MEMBER по-прежнему пропускает фрейм без уведомлений. */
+    @Test
+    void subscribeWithMemberPassesFrameThrough() {
+        Mockito.when(membership.decideBlocking(5L, "9"))
+                .thenReturn(MembershipDecision.MEMBER);
+
+        Message<byte[]> subscribe = frame(StompCommand.SUBSCRIBE, "/mutual/chat/5");
+
+        assertSame(subscribe, interceptor.preSend(subscribe, null));
+        Mockito.verifyNoInteractions(errorNotifier);
     }
 }
