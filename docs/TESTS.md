@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 23 | 183 | 2 | 185 |
+| HTTPService | 23 | 184 | 2 | 186 |
 | MessegerParody | 3 | 10 | 3 | 13 |
-| **Итого** | **31** | **210** | **7** | **217** |
+| **Итого** | **31** | **211** | **7** | **218** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -210,6 +210,7 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`isMemberReactiveMapsUnknownToFalse`** — стаб отдаёт `Mono.error(StatusRuntimeException(INTERNAL))`. Проверяет: `isMemberReactive` → `Boolean.FALSE`. Зачем: HTTP-путь `/api/chat` сохраняет прежнее наблюдаемое поведение (fail-closed) поверх нового три-состояния API.
 - **`decideBlockingReturnsUnknownInsteadOfThrowing`** — стаб зависает, таймаут укорочен до 50мс. Проверяет: `decideBlocking` → `UNKNOWN`, а не исключение. Зачем: `decideBlocking` вызывается из `StompAuthChannelInterceptor.preSend`, синхронного по контракту Spring, — исключение туда означало бы разрыв сессии вместо управляемого отказа.
 - **`everyAttemptLandsInHistogramSeparately`** (beads cwo, 8wh) — стаб отдаёт `UNAVAILABLE`, затем успех. Проверяет: в таймере `grpc_call_duration{method=members,...}` ровно одна запись `outcome=error` и одна `outcome=success`. Зачем: при обратном порядке операторов (`retryWhen` внутри `measure()`) обе попытки слились бы в один замер — ровно та слепота в метрике, из-за которой 8wh требовал сначала закрыть cwo.
+- **`timedOutAttemptIsRecordedAsCancelledInHistogram`** (beads cwo, 8wh) — стаб зависает (`Mono.never()`), таймаут укорочен до 50мс. Проверяет: `decide` → `UNKNOWN` И в таймере `grpc_call_duration{method=members,...}` ровно **две** записи `outcome=cancel`, по одной на исходную и на повторную попытку. Зачем: стережёт порядок операторов — `.timeout()` стоит СНАРУЖИ `measure()` именно затем, чтобы таймаут гасил вызов отменой (а не ошибкой) и чтобы каждая из двух попыток ретрая попадала в гистограмму отдельным замером `cancel`; переставь операторы местами — и здесь оказалась бы одна отмена вместо двух либо серия `cancel` исчезла бы вовсе, слившись с `error`. Без этого теста регрессия именно в этом свойстве (ради которого написан комментарий «ПОРЯДОК ОПЕРАТОРОВ КРИТИЧЕН» в `ChatMembershipService.members()`) осталась бы незамеченной — до этого теста серия `cancel` не проверялась нигде в файле.
 - **`membersRecordsLatencyUnderItsOwnMethodTag`** (beads cwo) — успешный `members(5L)`. Проверяет: в таймере `grpc_call_duration{method=members,outcome=success}` ровно одна запись, серии `error` нет. Зачем: после g9x это самый горячий gRPC в системе (по вызову на каждое сообщение и на каждое typing-событие), но он не считался вообще; тег `members` намеренно отделён от `getAllUsersByChatId`, которым ходит `ReactiveGrpcClient` за списком чатов, — RPC один и тот же, но смешивать горячий путь с холодным нельзя, иначе латентность из 8wh нечитаема.
 - **`membersLatencyIsCountedOnSubscriptionNotOnAssembly`** (beads cwo) — `members(5L)` вызван, но результат не подписан. Проверяет: записей в таймере нет. Зачем: замер обязан считать вызов, а не сборку реактивной цепочки.
 

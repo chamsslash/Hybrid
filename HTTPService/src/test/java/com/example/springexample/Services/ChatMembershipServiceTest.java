@@ -166,6 +166,28 @@ class ChatMembershipServiceTest {
     }
 
     @Test
+    void timedOutAttemptIsRecordedAsCancelledInHistogram() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.never());
+
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
+            @Override
+            Duration membershipTimeout() {
+                return Duration.ofMillis(50);
+            }
+        };
+
+        assertEquals(MembershipDecision.UNKNOWN, fastService.decide(5L, "9").block());
+
+        // Таймаут гасит вызов ОТМЕНОЙ, а не ошибкой, потому что .timeout() стоит снаружи
+        // measure(). Обе попытки (исходная и повторная) обязаны лечь в серию cancel
+        // отдельными замерами — если операторы когда-нибудь переставят местами, здесь
+        // окажется одна отмена вместо двух либо серия исчезнет вовсе.
+        assertNotNull(membersTimer("cancel"));
+        assertEquals(2, membersTimer("cancel").count());
+    }
+
+    @Test
     void membersRecordsLatencyUnderItsOwnMethodTag() {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.just(responseWith(7L, 9L)));
