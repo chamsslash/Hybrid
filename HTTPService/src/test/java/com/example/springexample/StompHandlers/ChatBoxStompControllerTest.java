@@ -537,6 +537,30 @@ class ChatBoxStompControllerTest {
     }
 
     /**
+     * До 8wh у пути SEND не было таймаута вовсе: зависший gRPC-вызов MessegerParody просто
+     * никогда не вызывал колбэк, и сообщение исчезало молча без единой отбивки. Таймаут
+     * в members() (beads 8wh) превращает зависание в TimeoutException, но здесь важно не
+     * само наличие таймаута (это стережёт тест ChatMembershipService), а то, что эта ошибка
+     * уходит в ту же ветку сбоя сервиса, что и любой другой отказ MessegerParody — а не
+     * притворяется отказом по членству и не рвёт сессию живого пользователя через счётчик.
+     */
+    @Test
+    void sendWithHangingMembershipCallReportsServiceFailureNotDenial() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.error(new java.util.concurrent.TimeoutException("проба")));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
+                Mockito.eq("MEMBERSHIP_UNAVAILABLE"), Mockito.anyString());
+        Mockito.verify(denialCounter, Mockito.never()).recordDenial(Mockito.anyString());
+    }
+
+    /**
      * Статус набора текста — фоновое событие, пользователь его осознанно не отправлял, и
      * отбивка на каждое нажатие клавиши превратилась бы в поток тостов. Но фрейм стоит
      * ровно того же gRPC-вызова, что и сообщение, поэтому в счётчик отказов он идёт (beads isf).
