@@ -47,6 +47,68 @@ infra:
 ingress:
   host: myapp.localtest.me
 
+# TLS для ingress'а через cert-manager. ВЫКЛЮЧЕН ПО УМОЛЧАНИЮ: текущее состояние
+# стенда — чистый HTTP, TLS это опциональный путь. Полная инструкция по включению,
+# импорту CA в браузер и откату — docs/tls-cert-manager.md.
+#
+# Почему выключен, а не «включим и посмотрим» — включение ломает сразу три вещи:
+#   1. Google OAuth: redirect-uri зарегистрирован на http://. Как только nginx начнёт
+#      редиректить на https, вход через Google отвалится, и чинится это в консоли
+#      Google, а не в репозитории.
+#   2. ssl-redirect у ingress-nginx включается сам, как только у Ingress появляется
+#      tls-секция. То есть это НЕ аддитивное изменение: меняется поведение ВСЕХ путей
+#      обоих ingress'ов разом, включая SockJS-хендшейк и auth_request к /jwtcheck.
+#   3. Самоподписанный CA браузер не знает: до импорта CA в доверенные хранилища
+#      каждый запрос упирается в предупреждение, а fetch/SockJS со страницы просто
+#      падают без внятной ошибки.
+#
+# Сам cert-manager ставится СКРИПТОМ (`TLS_ENABLED=true ./deploy-kind.sh`), а не
+# зависимостью чарта — его CRD обязаны существовать до того, как helm применит
+# Certificate/ClusterIssuer (см. шапку templates/tls-cert-manager.yaml).
+tls:
+  enabled: false
+  # Secret с сертификатом и ключом: его создаёт cert-manager, на него ссылаются
+  # tls-секции обоих Ingress'ов. Живёт в namespace релиза.
+  secretName: hybrid-tls
+  # Namespace, куда установлен cert-manager. Он же его "cluster resource namespace":
+  # CA ClusterIssuer ищет секрет своего CA именно там, а НЕ в namespace релиза —
+  # поэтому Certificate внутреннего CA рендерится с этим namespace явно.
+  certManagerNamespace: cert-manager
+  issuer:
+    # selfsigned — самоподписанный bootstrap-издатель -> внутренний CA -> сертификат
+    #   на ingress.host. Единственный рабочий вариант для kind: ACME/Let's Encrypt
+    #   требует, чтобы CA достучался до хоста снаружи, а myapp.localtest.me
+    #   резолвится в 127.0.0.1 и наружу не смотрит.
+    # existing — взять уже существующий издатель (например ACME/Let's Encrypt на
+    #   настоящем домене). Чарт тогда не создаёт ни Issuer'ов, ни CA-сертификата —
+    #   только Certificate на ingress.host со ссылкой на issuer.existing.
+    mode: selfsigned
+    existing:
+      name: letsencrypt-prod
+      kind: ClusterIssuer   # ClusterIssuer | Issuer
+  # Внутренний CA — только при mode=selfsigned.
+  ca:
+    commonName: hybrid-local-ca
+    # Имя Secret'а с ключом CA; лежит в certManagerNamespace (см. выше).
+    # helm uninstall удалит Certificate, но НЕ этот Secret — переустановка релиза
+    # переиспользует тот же CA, и импортированный в браузер корень остаётся валидным.
+    secretName: hybrid-ca
+    duration: 87600h        # 10 лет — корень стенда, часто ротировать нечего
+    renewBefore: 720h       # 30 суток до истечения
+  # Сертификат на ingress.host.
+  certificate:
+    # duration/renewBefore — это и есть авторотация: cert-manager перевыпускает
+    # сертификат за renewBefore до конца duration. Чтобы УВИДЕТЬ ротацию, а не ждать
+    # 75 суток, временно поставь короткие значения (минимум duration — 1h), например
+    # duration: 1h + renewBefore: 55m: обновление произойдёт через ~5 минут после
+    # выпуска. Что смотреть — docs/tls-cert-manager.md, раздел «Проверка авторотации».
+    duration: 2160h         # 90 суток
+    renewBefore: 360h       # 15 суток до истечения
+  # ssl-redirect ingress-nginx. true (дефолт контроллера при наличии tls) — весь HTTP
+  # редиректится в HTTPS, вместе с Google OAuth-редиректом. false оставляет HTTP
+  # рабочим параллельно с HTTPS — компромисс, чтобы вход через Google не отвалился.
+  sslRedirect: true
+
 # Kafka (KRaft) — multi-arch apache image (arm64 + amd64)
 kafka:
   image: apache/kafka:3.9.0

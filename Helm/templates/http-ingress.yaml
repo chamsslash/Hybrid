@@ -21,8 +21,29 @@ metadata:
     # uploads on /reactive/register were rejected by the ingress before
     # reaching httpservice.
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    {{- if .Values.tls.enabled }}
+    # Только при tls.enabled. ingress-nginx включает редирект HTTP->HTTPS сам, как
+    # только у Ingress появляется tls-секция; аннотация здесь для того, чтобы это
+    # решение было явным и отключаемым (tls.sslRedirect=false), — иначе редирект
+    # уносит и Google OAuth-редирект, зарегистрированный на http://.
+    nginx.ingress.kubernetes.io/ssl-redirect: {{ .Values.tls.sslRedirect | quote }}
+    {{- end }}
 spec:
   ingressClassName: nginx
+  {{- if .Values.tls.enabled }}
+  # tls-секция рендерится только при tls.enabled=true — по умолчанию стенд ходит по
+  # HTTP. Это НЕ аддитивное изменение: с ней контроллер меняет поведение всех путей
+  # этого ingress'а разом, включая SockJS-хендшейк. См. docs/tls-cert-manager.md.
+  # Сертификат в этот Secret кладёт Certificate из templates/tls-cert-manager.yaml.
+  # Аннотацию cert-manager.io/cluster-issuer тут сознательно НЕ ставим: по ней
+  # ingress-shim завёл бы СВОЙ Certificate с именем секрета, и два Certificate
+  # (наш и его) дрались бы за один Secret, перевыпуская его по кругу. Издатель
+  # выбирается в values (tls.issuer).
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.tls.secretName }}
+  {{- end }}
   rules:
     - host: {{ .Values.ingress.host }}
       http:
@@ -58,8 +79,21 @@ metadata:
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID, X-Authorities, X-Jti, X-Sid"
     # same limit as http-public — POST /reactive/api/createchat carries a chat image
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    {{- if .Values.tls.enabled }}
+    # то же, что и у http-public: см. комментарий там
+    nginx.ingress.kubernetes.io/ssl-redirect: {{ .Values.tls.sslRedirect | quote }}
+    {{- end }}
 spec:
   ingressClassName: nginx
+  {{- if .Values.tls.enabled }}
+  # Тот же Secret, что и у http-public: хост один, сертификат один. Certificate на
+  # него ровно один (templates/tls-cert-manager.yaml) — оба Ingress'а только читают
+  # готовый Secret, ни один его не «заказывает» аннотацией.
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.tls.secretName }}
+  {{- end }}
   rules:
     - host: {{ .Values.ingress.host }}
       http:

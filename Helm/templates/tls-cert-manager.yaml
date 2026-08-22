@@ -1,0 +1,118 @@
+{{- if .Values.tls.enabled }}
+{{- /*
+TLS для ingress'а через cert-manager. ВЕСЬ файл рендерится только при
+tls.enabled=true; по умолчанию флаг выключен и стенд работает по чистому HTTP
+(почему — см. комментарий к секции `tls` в values.yaml и docs/tls-cert-manager.md).
+
+ПОРЯДОК УСТАНОВКИ — не переигрывать. cert-manager нельзя добавить зависимостью в
+Chart.yaml: его CRD (ClusterIssuer/Certificate) обязаны существовать в кластере в
+момент, когда helm применяет ЭТОТ файл, а внутри одного релиза helm ставит CRD
+зависимости и ресурсы умбреллы одним махом — получается нерешаемая курица с яйцом
+("no matches for kind ClusterIssuer in version cert-manager.io/v1"). Поэтому
+cert-manager ставится ДО helm, скриптом: `TLS_ENABLED=true ./deploy-kind.sh`
+(там же — ожидание готовности контроллера, webhook'а и cainjector'а).
+
+ЦЕПОЧКА (issuer.mode=selfsigned):
+  SelfSigned ClusterIssuer  ->  Certificate внутреннего CA  ->  CA ClusterIssuer
+                                                                     |
+                                        Certificate на ingress.host <+
+Let's Encrypt на этом стенде невозможен: ACME-челлендж требует, чтобы CA достучался
+до хоста снаружи, а myapp.localtest.me резолвится в 127.0.0.1. Переключатель на
+ACME/любой готовый издатель оставлен через values: tls.issuer.mode=existing.
+
+NAMESPACE CA-СЕКРЕТА. Certificate внутреннего CA намеренно рендерится в
+tls.certManagerNamespace, а не в namespace релиза: CA ClusterIssuer (ресурс
+кластерного скоупа) ищет свой секрет в "cluster resource namespace" cert-manager'а,
+которым по умолчанию является его собственный namespace. Секрет в namespace релиза
+он просто не увидит.
+*/}}
+{{- $mode := .Values.tls.issuer.mode }}
+{{- if not (or (eq $mode "selfsigned") (eq $mode "existing")) }}
+{{- fail (printf "tls.issuer.mode must be \"selfsigned\" or \"existing\", got %q" $mode) }}
+{{- end }}
+{{- $issuerName := printf "%s-ca-issuer" .Release.Name }}
+{{- $issuerKind := "ClusterIssuer" }}
+{{- if eq $mode "existing" }}
+{{- $issuerName = required "tls.issuer.existing.name is required when tls.issuer.mode=existing" .Values.tls.issuer.existing.name }}
+{{- $issuerKind = .Values.tls.issuer.existing.kind | default "ClusterIssuer" }}
+{{- end }}
+{{- if eq $mode "selfsigned" }}
+# 1. Bootstrap-издатель: умеет только самоподписывать. Нужен ровно один раз —
+#    чтобы подписать сертификат внутреннего CA ниже.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Release.Name }}-selfsigned
+  labels:
+    app.kubernetes.io/part-of: hybrid
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  selfSigned: {}
+---
+# 2. Внутренний CA стенда. Именно его корень импортируется в браузер/ОС, чтобы
+#    предупреждение об untrusted-сертификате исчезло (docs/tls-cert-manager.md).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-ca
+  # См. "NAMESPACE CA-СЕКРЕТА" в шапке файла — не переносить в namespace релиза.
+  namespace: {{ .Values.tls.certManagerNamespace }}
+  labels:
+    app.kubernetes.io/part-of: hybrid
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  isCA: true
+  commonName: {{ .Values.tls.ca.commonName | quote }}
+  secretName: {{ .Values.tls.ca.secretName }}
+  duration: {{ .Values.tls.ca.duration }}
+  renewBefore: {{ .Values.tls.ca.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ .Release.Name }}-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# 3. Рабочий издатель: подписывает сертификаты ключом CA из шага 2.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Release.Name }}-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: hybrid
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  ca:
+    secretName: {{ .Values.tls.ca.secretName }}
+---
+{{- end }}
+# 4. Сертификат на публичный хост. Secret с ним подхватывают tls-секции обоих
+#    Ingress'ов (templates/http-ingress.yaml).
+#    duration/renewBefore здесь заданы явно, а не отданы ingress-shim'у: авторотацию
+#    надо уметь наблюдать на коротком сроке, а Certificate в чарте — единственное
+#    место, где срок виден и версионируется.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-ingress-tls
+  labels:
+    app.kubernetes.io/part-of: hybrid
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  secretName: {{ .Values.tls.secretName }}
+  duration: {{ .Values.tls.certificate.duration }}
+  renewBefore: {{ .Values.tls.certificate.renewBefore }}
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    # Новый ключ на каждый перевыпуск: иначе ротация меняет только сертификат, и
+    # «обновилось ли что-то» приходится доказывать по датам, а не по содержимому.
+    rotationPolicy: Always
+  dnsNames:
+    - {{ .Values.ingress.host }}
+  issuerRef:
+    name: {{ $issuerName }}
+    kind: {{ $issuerKind }}
+    group: cert-manager.io
+{{- end }}
