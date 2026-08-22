@@ -48,7 +48,8 @@ class ChatMembershipServiceTest {
     private Timer awaitMembersTimer(String outcome) {
         long deadlineNanos = System.nanoTime() + Duration.ofMillis(500).toNanos();
         Timer timer;
-        while ((timer = membersTimer(outcome)) == null && System.nanoTime() < deadlineNanos) {
+        while (((timer = membersTimer(outcome)) == null || timer.count() < 1)
+                && System.nanoTime() < deadlineNanos) {
             try {
                 Thread.sleep(5);
             } catch (InterruptedException e) {
