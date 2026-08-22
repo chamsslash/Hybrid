@@ -1,0 +1,53 @@
+databaseChangeLog:
+  # Идемпотентность вставки сообщений (Hybrid-kubernetes-non-local-myl).
+  #
+  # Kafka между HTTPService и MessegerParody даёт at-least-once: под, убитый после
+  # коммита в Postgres, но до коммита офсета; ребаланс группы; обрыв на ответе
+  # драйвера с последующим @RetryableTopic — каждый из этих сценариев переигрывает
+  # уже записанную запись и добавляет вторую строку в историю чата. Пользователь
+  # видит сообщение один раз живьём и два раза после перезагрузки страницы.
+  #
+  # Отличить дубль по содержимому нельзя: два одинаковых сообщения подряд от одного
+  # человека — нормальный сценарий. Поэтому естественный ключ приходит снаружи —
+  # message_id генерирует HTTPService (ChatBoxStompController) и кладёт в тело
+  # события топика "Messages". Значение клиента затирается там же, где user_id и
+  # timestamp (инвариант beads g9x): иначе клиент занял бы чужой id заранее, и
+  # ON CONFLICT DO NOTHING молча выбросил бы настоящее сообщение.
+  #
+  # Колонка nullable намеренно: у строк, записанных до этой миграции, и у записей из
+  # бэклога топика id нет и взяться ему неоткуда. В Postgres уникальный индекс
+  # допускает сколько угодно NULL — легаси-строки не мешают друг другу, а защита от
+  # дублей просто не распространяется на них (см. log.warn в ReactiveRepository).
+  #
+  # VARCHAR, а не UUID: в БД это непрозрачный идентификатор, происхождение которого
+  # знает только HTTPService, и приезжает он строкой из JSON — сужать тип значило бы
+  # ронять вставку на любом изменении формата генерации вместо тихой совместимости.
+  - changeSet:
+      id: v2-001-message-add-message-id
+      author: claude
+      changes:
+        - addColumn:
+            tableName: message
+            columns:
+              - column:
+                  name: message_id
+                  type: VARCHAR(64)
+      rollback:
+        - dropColumn:
+            tableName: message
+            columnName: message_id
+  - changeSet:
+      id: v2-001-message-unique-message-id
+      author: claude
+      changes:
+        - createIndex:
+            indexName: ux_message_message_id
+            tableName: message
+            unique: true
+            columns:
+              - column:
+                  name: message_id
+      rollback:
+        - dropIndex:
+            indexName: ux_message_message_id
+            tableName: message

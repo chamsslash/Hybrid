@@ -60,7 +60,8 @@ public class KafkaConsumer {
                 Long.parseLong(dto.getChat_id()),
                 Long.parseLong(dto.getUser_id()),
                 dto.getText(),
-                Instant.parse(dto.getTimestamp())
+                Instant.parse(dto.getTimestamp()),
+                dto.getMessage_id()
         ).block(java.time.Duration.ofSeconds(15));
     }
 }

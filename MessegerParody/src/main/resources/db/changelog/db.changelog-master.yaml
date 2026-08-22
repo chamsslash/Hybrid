@@ -17,3 +17,7 @@ databaseChangeLog:
       file: db/changelog/changes/v1/003-create-message.yaml
   - include:
       file: db/changelog/changes/v1/004-create-user-chat.yaml
+  # Релиз v2. v1 — замороженный baseline, менять его файлы нельзя: changeSet'ы
+  # уже применены на существующих БД, правка сломала бы их checksum.
+  - include:
+      file: db/changelog/changes/v2/001-message-idempotency.yaml

@@ -7,6 +7,7 @@ import com.example.springexample.JPA_Entities.RowsMappers.MessageMapper;
 import com.example.springexample.JPA_Entities.RowsMappers.UserMapper;
 import com.example.springexample.JPA_Entities.r2dbc_user;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository; // @Repository включает в себя @Component, поэтому @Component излишен
 import reactor.core.publisher.Flux;
@@ -15,6 +16,7 @@ import reactor.core.publisher.Mono;
 
 @SuppressWarnings({"checkstyle:EmptyLineSeparator", "checkstyle:MissingJavadocType"})
 // @Component // Удалено, так как @Repository уже является @Component
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class ReactiveRepository {
@@ -163,13 +165,43 @@ public class ReactiveRepository {
                 .one();
     }
 
-    public Mono<Void> insertMessage(Long chatId, Long userId, String text, java.time.Instant timestamp) {
-        String sql = "INSERT INTO message (chat_id, user_id, text, time_stamp) VALUES ($1, $2, $3, $4)";
+    /**
+     * Вставка сообщения из топика "Messages" (beads myl).
+     *
+     * Гарантия Kafka здесь at-least-once: под, убитый после коммита в Postgres, но до
+     * коммита офсета, ребаланс группы и @RetryableTopic после обрыва на ответе драйвера —
+     * каждый сценарий переигрывает уже записанную запись. Отличить повтор по содержимому
+     * нельзя (два одинаковых сообщения подряд от одного человека — нормальный сценарий),
+     * поэтому естественный ключ приходит снаружи: messageId генерирует HTTPService, и
+     * переигранная запись несёт ровно то же значение. Уникальный индекс
+     * ux_message_message_id + ON CONFLICT DO NOTHING превращают повтор в no-op.
+     *
+     * messageId == null — записи из бэклога топика, сделанные до появления поля. Защиты от
+     * дублей для них нет и быть не может: сгенерируй id здесь — на каждой переигровке он
+     * получится новым, и идемпотентность станет фикцией. Такие записи вставляются как
+     * раньше, с предупреждением в лог, чтобы легаси-формат был виден.
+     */
+    public Mono<Void> insertMessage(Long chatId, Long userId, String text,
+                                    java.time.Instant timestamp, String messageId) {
+        if (messageId == null || messageId.isBlank()) {
+            log.warn("Сообщение чата {} без message_id (легаси-формат из бэклога топика) — "
+                    + "вставка без защиты от дублей", chatId);
+            String legacySql = "INSERT INTO message (chat_id, user_id, text, time_stamp) VALUES ($1, $2, $3, $4)";
+            return reactiveDb.sql(legacySql)
+                    .bind(0, chatId)
+                    .bind(1, userId)
+                    .bind(2, text)
+                    .bind(3, timestamp)
+                    .then();
+        }
+        String sql = "INSERT INTO message (chat_id, user_id, text, time_stamp, message_id) "
+                + "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (message_id) DO NOTHING";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .bind(1, userId)
                 .bind(2, text)
                 .bind(3, timestamp)
+                .bind(4, messageId)
                 .then();
     }
 }
