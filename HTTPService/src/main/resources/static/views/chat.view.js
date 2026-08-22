@@ -51,6 +51,11 @@ let typingTimeout = null;
 // сквозного идентификатора сообщения, которого в контракте нет.
 let pendingText = '';
 
+// Счётчик повторов подписки на чат (beads 8wh). Сбрасывается при удачной подписке и в
+// unmount(): иначе вторая попытка открыть тот же чат унаследовала бы исчерпанный лимит.
+let subscribeRetries = 0;
+const SUBSCRIBE_BACKOFF_MS = [1000, 2000, 4000];
+
 let stomp = null;
 let ac = null;
 
@@ -170,6 +175,26 @@ function sendChatMessage() {
 function handleChatError(msg) {
     const error = JSON.parse(msg.body);
     if (error.type !== 'error') return;
+
+    // Сервер не смог проверить членство и уронил SUBSCRIBE, не разрывая сессию (beads 8wh).
+    // Это не отказ в доступе, а отсутствие ответа, поэтому повторяем сами, а не показываем
+    // пользователю «нет доступа».
+    if (error.code === 'SUBSCRIPTION_UNAVAILABLE') {
+        if (subscribeRetries < SUBSCRIBE_BACKOFF_MS.length) {
+            const delay = SUBSCRIBE_BACKOFF_MS[subscribeRetries];
+            subscribeRetries += 1;
+            showToast('Восстанавливаем связь с чатом…', 'info');
+            setTimeout(() => {
+                if (stompClient && stompClient.connected) {
+                    subscribeToChat();
+                }
+            }, delay);
+        } else {
+            showToast('Не удалось открыть чат — обновите страницу', 'error');
+        }
+        return;
+    }
+
     showToast(error.message || 'Сообщение не отправлено', 'error');
 
     const input = document.getElementById('messageInput');
@@ -267,6 +292,16 @@ function showToast(message, type = 'info', duration = 3000) {
 }
 
 // --- STOMP ---
+
+// Подписка на чат вынесена в функцию, потому что её нужно уметь повторять: сервер может
+// уронить SUBSCRIBE, не сумев проверить членство (beads 8wh), и тогда единственный способ
+// восстановиться без перезагрузки страницы — подписаться заново.
+function subscribeToChat() {
+    stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
+        appendChatMessage(JSON.parse(msg.body));
+    });
+}
+
 function connectStomp(token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -279,9 +314,7 @@ function connectStomp(token) {
         // выбросил бы её без подписчика. Подписка идёт через тот же клиент, что и сообщения
         // чата, чтобы её снимал общий disconnectAll в unmount().
         stompClient.subscribe(`/private/${user_id}`, handleChatError);
-        stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
-            appendChatMessage(JSON.parse(msg.body));
-        });
+        subscribeToChat();
     });
 
     const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
@@ -374,4 +407,7 @@ export function unmount() {
     if (ac) ac.abort();
     stomp = null;
     ac = null;
+    // Сброс на выходе из чата (beads 8wh): переменная модульная и переживает
+    // mount/unmount, без сброса второй заход в тот же чат унаследовал бы исчерпанный лимит.
+    subscribeRetries = 0;
 }
