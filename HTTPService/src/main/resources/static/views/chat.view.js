@@ -51,10 +51,19 @@ let typingTimeout = null;
 // сквозного идентификатора сообщения, которого в контракте нет.
 let pendingText = '';
 
-// Счётчик повторов подписки на чат (beads 8wh). Сбрасывается при удачной подписке и в
-// unmount(): иначе вторая попытка открыть тот же чат унаследовала бы исчерпанный лимит.
+// Счётчик повторов подписки на чат (beads 8wh). Лимит в 3 попытки действует на один заход
+// в чат — сбрасывается только в unmount(), не при удачной подписке: успех SUBSCRIBE в STOMP
+// не наблюдаем без receipt-заголовка, а вводить эту машинерию ради счётчика не стали (см.
+// соседнюю находку по тому же поводу). Это самосогласованно: при исчерпании лимита
+// пользователю предлагают обновить страницу, а обновление проходит через unmount()/mount().
 let subscribeRetries = 0;
 const SUBSCRIBE_BACKOFF_MS = [1000, 2000, 4000];
+// Id таймера последнего запланированного повтора (beads 8wh). Без сохранения и явного
+// clearTimeout в unmount() таймер переживает уход со страницы: stompClient — модульная
+// переменная и в unmount() не обнуляется, а следующий connectStomp() присвоит ей новый
+// подключённый клиент — тогда guard `stompClient.connected` в handleChatError пропустит
+// просроченный таймер, и чат получит вторую подписку на тот же (или уже другой) адрес.
+let subscribeRetryTimer = null;
 
 let stomp = null;
 let ac = null;
@@ -184,7 +193,7 @@ function handleChatError(msg) {
             const delay = SUBSCRIBE_BACKOFF_MS[subscribeRetries];
             subscribeRetries += 1;
             showToast('Восстанавливаем связь с чатом…', 'info');
-            setTimeout(() => {
+            subscribeRetryTimer = setTimeout(() => {
                 if (stompClient && stompClient.connected) {
                     subscribeToChat();
                 }
@@ -404,6 +413,11 @@ export function unmount() {
     releaseImages();
     if (stomp) stomp.disconnectAll();
     clearTimeout(typingTimeout);
+    // Таймер повтора подписки (beads 8wh) гасим по тому же образцу, что и typingTimeout:
+    // stompClient не обнуляется здесь и переживает unmount(), поэтому без явного clearTimeout
+    // просроченный повтор при возврате в чат (или в другой чат) проскочил бы guard в
+    // handleChatError и создал вторую подписку на тот же адрес — сообщения рендерились бы дважды.
+    clearTimeout(subscribeRetryTimer);
     if (ac) ac.abort();
     stomp = null;
     ac = null;
