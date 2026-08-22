@@ -23,7 +23,8 @@ import org.springframework.util.StringUtils;
  * известных семейств — пер-юзерное (хвост равен своему userId) или чат-скоуп (хвост
  * равен chatId, требуется членство), — иначе отказ. Белый список и аудит подписок
  * фронта, на котором он основан, — ниже, у PER_USER_PREFIXES/PER_CHAT_PREFIXES.
- * Членство проверяется через ChatMembershipService, при недоступности проверки — отказ.
+ * Членство проверяется через ChatMembershipService: достоверный отказ рвёт сессию, а если
+ * проверить не удалось (таймаут/сбой), кадр молча роняется, а сессия остаётся жива (beads 8wh).
  * На SEND проверка членства сюда намеренно НЕ вынесена: {@code ChatBoxStompController}
  * и так вызывает {@code ChatMembershipService.members(chatId)} за списком получателей
  * веерной рассылки, так что интерцептор дублировал бы тот же gRPC-вызов вторым разом
@@ -237,8 +238,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * префиксы не пересекаются (/mutual/chatlist/ и /mutual/chat_image/ расходятся с
      * /mutual/chat/ уже на 13-м символе), — но зафиксирован, чтобы будущий префикс,
      * случайно попавший в оба списка, разрешался предсказуемо.
-     */
-    /**
+     *
      * Возвращает true, если фрейм надо пропустить дальше, и false, если его надо уронить
      * молча (beads 8wh). Отказ по членству по-прежнему выражается исключением: подписка
      * на чужой чат — осознанный зонд, и разрыв сессии здесь работает тормозом, который
@@ -267,11 +267,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (perChatPrefix != null) {
             long chatId = parseChatIdOrDeny(destination, perChatPrefix);
             MembershipDecision decision = chatMembershipService.decideBlocking(chatId, userId);
-            if (decision == MembershipDecision.NOT_MEMBER) {
-                log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
-                throw new org.springframework.security.access.AccessDeniedException(
-                        "Not a member of chat " + chatId);
-            }
             if (decision == MembershipDecision.UNKNOWN) {
                 // Фрейм роняется возвратом null из preSend, а не исключением: исключение
                 // из preSend рвёт STOMP-сессию (проверено живьём), и транзиентная заминка
@@ -281,6 +276,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 errorNotifier.sendToUser(userId, String.valueOf(chatId), "SUBSCRIPTION_UNAVAILABLE",
                         "Не удалось проверить доступ к чату — пробуем ещё раз");
                 return false;
+            }
+            // Deny-by-default (та же доктрина, что и у всего класса): пропускаем только
+            // достоверный MEMBER, а не отклоняем достоверный NOT_MEMBER. Разница важна для
+            // будущего — если в MembershipDecision появится четвёртая константа, её никто
+            // явно не разрешал, и она обязана отклоняться, а не проваливаться в проход.
+            if (decision != MembershipDecision.MEMBER) {
+                log.warn("SUBSCRIBE на чат {} отклонён: пользователь {} не участник", chatId, userId);
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Not a member of chat " + chatId);
             }
             return true;
         }

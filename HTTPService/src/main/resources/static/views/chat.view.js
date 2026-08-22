@@ -272,12 +272,16 @@ function connectStomp(token) {
 
     stompClient = stomp.add(Stomp.over(new SockJS("/ChatMessagesConn")));
     stompClient.connect(authHeaders, () => {
+        // Персональный адрес отказов (beads isf) регистрируется ПЕРВЫМ (beads 8wh): preSend
+        // работает в потоке сессии строго последовательно (см. StompFrameTimestampInterceptor,
+        // beads 525), поэтому отбивка об уроненном SUBSCRIBE /mutual/chat/{id} ушла бы
+        // в /private/{userId} раньше, чем сюда дошла бы очередь, — и простой брокер
+        // выбросил бы её без подписчика. Подписка идёт через тот же клиент, что и сообщения
+        // чата, чтобы её снимал общий disconnectAll в unmount().
+        stompClient.subscribe(`/private/${user_id}`, handleChatError);
         stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
             appendChatMessage(JSON.parse(msg.body));
         });
-        // Персональный адрес отказов (beads isf). Подписка идёт через тот же клиент, что и
-        // сообщения чата, чтобы её снимал общий disconnectAll в unmount().
-        stompClient.subscribe(`/private/${user_id}`, handleChatError);
     });
 
     const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));

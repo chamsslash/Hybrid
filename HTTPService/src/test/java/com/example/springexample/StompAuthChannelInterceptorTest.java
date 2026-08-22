@@ -364,6 +364,7 @@ class StompAuthChannelInterceptorTest {
 
         Mockito.verify(errorNotifier).sendToUser("9", "5", "SUBSCRIPTION_UNAVAILABLE",
                 "Не удалось проверить доступ к чату — пробуем ещё раз");
+        Mockito.verifyNoMoreInteractions(errorNotifier);
     }
 
     /**
@@ -391,6 +392,22 @@ class StompAuthChannelInterceptorTest {
         Message<byte[]> subscribe = frame(StompCommand.SUBSCRIBE, "/mutual/chat/5");
 
         assertSame(subscribe, interceptor.preSend(subscribe, null));
+        Mockito.verifyNoInteractions(errorNotifier);
+    }
+
+    /**
+     * Регрессия fail-open (beads 8wh, ревью раунд 1, F2). Незастабленный мок
+     * {@code decideBlocking} отдаёт {@code null} — ни одна из трёх известных констант.
+     * Ветка per-chat обязана трактовать «что угодно, кроме MEMBER» как отказ (deny-by-default,
+     * доктрина всего класса), а не молча пропускать: до фикса код сравнивал только с
+     * NOT_MEMBER/UNKNOWN и в остатке возвращал true, поэтому будущая четвёртая константа
+     * enum (или любое иное не-MEMBER значение) провалилась бы в проход без единого красного
+     * теста — ни один из существующих тестов на отказ не стабит decideBlocking именно так.
+     */
+    @Test
+    void subscribeWithUnstubbedMembershipDecisionIsDenied() {
+        assertThrows(AccessDeniedException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null));
         Mockito.verifyNoInteractions(errorNotifier);
     }
 }
