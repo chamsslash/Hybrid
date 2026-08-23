@@ -27,8 +27,13 @@
 `messegerparody` в `Helm/charts/`) и поднимается как отдельные Deployment/Service:
 
 - **Kafka** (`Helm/templates/kafka.yaml`) — single-node KRaft (`apache/kafka:3.9.0`),
-  auto-create топиков включён; используемые топики — `Images`, `Events`, `Messages`
-  (`Helm/values.yaml: kafka.createTopics`).
+  используемые топики — `Messages` и `Images`. Геометрию топиков (список и число
+  партиций) владеет чарт: `Helm/values.yaml: kafka.createTopics` /
+  `kafka.partitionsPerTopic` читают джоба `Helm/templates/kafka-topics-job.yaml`
+  (создаёт топики явно на хуке post-install/post-upgrade) и `KAFKA_NUM_PARTITIONS`
+  брокера. Auto-create топиков оставлен включённым намеренно: Spring Kafka заводит на
+  лету retry/DLT-топики MessegerParody, чьи имена выводятся из `@RetryableTopic`
+  (beads lo2). Данные брокера лежат на `emptyDir` и рестарт пода их не переживают.
 - **Postgres** (`Helm/templates/postgres.yaml`) — `postgres:15`, база `hybrid_db`, схема
   накатывается Liquibase-джобом из `messegerparody`.
 - **Redis** (`Helm/templates/redis.yaml`) — `redis:7`, хранит refresh-сессии/fingerprint

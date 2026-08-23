@@ -27,8 +27,11 @@ Java/Spring Boot сервис (порт 8081 HTTP, 9092 gRPC). Входная д
   `sub/role`, обмен Google refresh-токена на access (для запросов к Google API от имени
   пользователя), плюс legacy `login`/`register` по паре имя/bcrypt-пароль — этот путь по-прежнему
   вызывается из `HTTPService` (`WEBFLUX_Service`) в обход Google OAuth.
-- **Kafka — только продюсер**: объявляет топики `Messages`/`Events`/`Images` (RF=1) через
-  `KafkaAdmin.NewTopics`. В `Images` публикует не байты, а ссылку на объект: при первом логине
+- **Kafka — только продюсер**: топиков не объявляет. Раньше здесь жил
+  `KafkaAdmin.NewTopics` (`Messages`=5, `Images`=3 партиции) — единственный реальный
+  декларатор геометрии в репозитории; он молча доувеличивал число партиций уже
+  существующего топика и оставлял консьюмер MessegerParody с закешированной одной
+  партицией. Теперь топики создаёт джоба чарта (beads lo2). В `Images` публикует не байты, а ссылку на объект: при первом логине
   `CustomOAuth2UserService.Upload_image` сперва кладёт аватар в MinIO
   (`ImageStorageService.putObject`, ключ `userimage/<userId>/<uuid>.jpg`) и только после успешной
   записи шлёт `{"targetType":"userimage","targetId":<userId>,"objectKey":<key>}` — общий
