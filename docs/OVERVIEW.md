@@ -282,3 +282,6 @@ HTTPService — AuthService картинки клиентам не отдаёт,
   мёртвый код.
 - [`docs/security-flow.md`](security-flow.md) — полная схема access/refresh/fingerprint и
   STOMP-аутентификации.
+- [`docs/kind-stand-clock.md`](kind-stand-clock.md) — часы VM и задержка сообщений: почему
+  разъехавшееся время в VM выглядит как потеря сообщений чата, как это отличить и вылечить.
+- [`docs/tls-cert-manager.md`](tls-cert-manager.md) — включение TLS на стенде и цена отката.

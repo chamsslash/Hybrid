@@ -40,6 +40,15 @@ fi
 # «поехавшая» версия CRD между запусками ломает уже выпущенные Certificate.
 : "${CERT_MANAGER_VERSION:=v1.21.1}"
 
+# Предполётная проверка часов VM (beads 75d). Docker Desktop/Colima гоняют кластер
+# внутри Linux-VM, и её CLOCK_REALTIME умеет расходиться с хостом. Наблюдалось живьём:
+# wall-clock VM каждые ~10 с прыгал на +39 с и тут же возвращался, монотонные часы при
+# этом шли ровно. Kafka считает таймауты запросов по wall-clock, поэтому BROKER_HEARTBEAT
+# от брокера к его же KRaft-контроллеру «истекал», брокер переставал годиться как
+# координатор группы, и сообщения доезжали до БД с задержкой ~50 с — со стороны
+# приложения это выглядит ровно как потеря сообщений. Проверка не чинит часы (это
+# настройка машины разработчика, не репозитория), но не даёт диагностировать симптом
+# заново с нуля. Подробности и лечение — docs/kind-stand-clock.md.
 echo "▶ create kind cluster"
 cat <<'EOF' >/tmp/kind-hybrid-config.yaml
 kind: Cluster
@@ -55,6 +64,28 @@ nodes:
         protocol: TCP
 EOF
 kind create cluster --name "$CLUSTER" --config /tmp/kind-hybrid-config.yaml || true
+
+# Сверка часов хоста и ноды (beads 75d). Kafka считает таймауты запросов по wall-clock,
+# а не по монотонным часам, поэтому расхождение времени в VM бьёт по ней первой:
+# BROKER_HEARTBEAT от брокера к его же KRaft-контроллеру «истекает», брокер перестаёт
+# годиться как координатор группы, консьюмеры входят в цикл 'coordinator unavailable',
+# и сообщения доезжают до БД с задержкой в десятки секунд. Со стороны приложения это
+# выглядит ровно как потеря сообщений — на этом уже один раз потратили полдиагностики.
+# Проверка только предупреждает: часы VM — настройка машины разработчика, а не репозитория.
+# Диагностика и лечение: docs/kind-stand-clock.md
+echo "▶ сверка часов хоста и ноды кластера"
+node_now=$(docker exec "${CLUSTER}-control-plane" date +%s 2>/dev/null || echo "")
+if [ -n "$node_now" ]; then
+  skew=$(( node_now - $(date +%s) ))
+  [ "$skew" -lt 0 ] && skew=$(( -skew ))
+  if [ "$skew" -gt 5 ]; then
+    echo "⚠ часы ноды расходятся с хостом на ${skew} с." >&2
+    echo "  Kafka будет ложно ронять BROKER_HEARTBEAT, сообщения — доезжать с задержкой." >&2
+    echo "  Что делать: docs/kind-stand-clock.md" >&2
+  else
+    echo "  расхождение ${skew} с — в норме"
+  fi
+fi
 
 echo "▶ build images"
 docker build -t authservice:latest AuthService
