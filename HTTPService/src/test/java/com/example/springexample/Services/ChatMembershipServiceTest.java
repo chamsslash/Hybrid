@@ -13,6 +13,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -186,6 +187,52 @@ class ChatMembershipServiceTest {
                 .thenReturn(Mono.error(new StatusRuntimeException(Status.INTERNAL)));
 
         assertEquals(Boolean.FALSE, service.isMemberReactive(5L, "9").block());
+    }
+
+    @Test
+    void findMemberReturnsParticipantWithUsername() {
+        Optional<DataTransferService.UserDataRequest> found =
+                ChatMembershipService.findMember(responseWith(7L, 9L).getUsersList(), "9");
+
+        assertTrue(found.isPresent(), "участник обязан находиться в списке участников");
+        assertEquals(9L, found.get().getId());
+        // Возвращается сам участник, а не boolean: вызывающему на горячем пути нужен ещё и
+        // username, и достать его отдельным stream'ом значило бы оставить копию сравнения.
+        assertEquals("user-9", found.get().getUsername(),
+                "предикат обязан отдавать самого участника, а не только вердикт");
+    }
+
+    @Test
+    void findMemberReturnsEmptyForNonParticipant() {
+        assertTrue(ChatMembershipService.findMember(responseWith(7L, 9L).getUsersList(), "42").isEmpty(),
+                "постороннего в списке участников быть не должно");
+    }
+
+    @Test
+    void findMemberTreatsEmptyListAsNotAMember() {
+        assertTrue(ChatMembershipService.findMember(List.of(), "9").isEmpty(),
+                "пустой список участников — это NOT_MEMBER, как и в decide()");
+    }
+
+    @Test
+    void findMemberComparesIdsAsExactStrings() {
+        assertTrue(ChatMembershipService.findMember(responseWith(9L).getUsersList(), "09").isEmpty(),
+                "сравнение идёт по каноническому виду id, а не по числовому значению");
+    }
+
+    @Test
+    void decideAgreesWithFindMemberOnTheSameList() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L, 9L)));
+        List<DataTransferService.UserDataRequest> members = responseWith(7L, 9L).getUsersList();
+
+        for (String userId : List.of("9", "7", "42", "09")) {
+            MembershipDecision expected = ChatMembershipService.findMember(members, userId).isPresent()
+                    ? MembershipDecision.MEMBER
+                    : MembershipDecision.NOT_MEMBER;
+            assertEquals(expected, service.decide(5L, userId).block(),
+                    "вердикт decide() обязан совпадать с предикатом для userId=" + userId);
+        }
     }
 
     @Test

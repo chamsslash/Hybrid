@@ -13,6 +13,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -148,6 +149,36 @@ public class ChatMembershipService {
     }
 
     /**
+     * Правило «участник ли этот пользователь» поверх УЖЕ полученного списка участников
+     * (beads 40i). Существует затем же, зачем и весь класс: чтобы ответ на этот вопрос
+     * был записан ровно в одном месте.
+     *
+     * В gRPC не ходит и ходить не должен. Вызывается с горячего пути — с каждого фрейма
+     * SEND и каждого события набора текста в ChatBoxStompController, — где вызывающий уже
+     * держит в руках список из ОДНОГО вызова {@link #members(long)} и берёт из него сразу
+     * три вещи: вердикт, username отправителя и адресатов веерной рассылки. Позвать оттуда
+     * {@link #isMemberReactive} значило бы добавить второй gRPC-вызов на самый горячий путь
+     * системы ради ответа, который уже лежит в руках; обмен невыгодный, поэтому политика
+     * приходит к списку, а не список к политике.
+     *
+     * Возвращается найденный участник, а не boolean, тоже нарочно: вызывающему нужен ещё и
+     * его username, и доставать его отдельным stream'ом значило бы оставить на месте ровно
+     * ту копию сравнения, ради устранения которой метод и заведён.
+     *
+     * Пустой список даёт пустой результат, то есть «не участник», — та же трактовка, что и
+     * в {@link #decide}, и разъехаться они не могут: decide пользуется этим же методом.
+     *
+     * static нарочно: сигнатура сама сообщает, что вызов чистый — не ходит в сеть, не
+     * зависит от состояния сервиса и потому дёшев в любом количестве.
+     */
+    public static Optional<DataTransferService.UserDataRequest> findMember(
+            List<DataTransferService.UserDataRequest> members, String userId) {
+        return members.stream()
+                .filter(u -> String.valueOf(u.getId()).equals(userId))
+                .findFirst();
+    }
+
+    /**
      * Основной метод: три состояния вместо булева (beads 8wh).
      *
      * Fail-closed сохраняется — UNKNOWN не даёт доступа. Меняется другое: вызывающий
@@ -161,7 +192,7 @@ public class ChatMembershipService {
                         log.warn("Проверка членства: пустой список участников чата {} — отказ", chatId);
                         return MembershipDecision.NOT_MEMBER;
                     }
-                    return members.stream().anyMatch(u -> String.valueOf(u.getId()).equals(userId))
+                    return findMember(members, userId).isPresent()
                             ? MembershipDecision.MEMBER
                             : MembershipDecision.NOT_MEMBER;
                 })
