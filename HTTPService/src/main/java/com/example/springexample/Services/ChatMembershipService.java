@@ -13,6 +13,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -41,7 +42,7 @@ public class ChatMembershipService {
      * Одна повторная попытка с задержкой 100 мс (beads 8wh): {@code Retry.max} без задержки
      * повторяет мгновенно, а для {@code UNAVAILABLE} от лежащего канала мгновенный повтор
      * попадает в то же самое состояние — пользы ноль, а нагрузка на умирающий бэкенд
-     * удваивается, причём на самом горячем gRPC-вызове системы. Потолок — 2х2.1 с = 4.1 с,
+     * удваивается, причём на самом горячем gRPC-вызове системы. Потолок — 2 + 0.1 + 2 = 4.1 с,
      * по-прежнему меньше внешней границы {@link #blockingGuard()} в 5 с.
      */
     static final long MEMBERSHIP_RETRIES = 1;
@@ -85,19 +86,47 @@ public class ChatMembershipService {
         // Вызов стаба обёрнут в Mono.defer нарочно: без этого reactiveStub.getAllUsersByChatId(...)
         // выполняется один раз при сборке цепочки (Java вычисляет аргумент до вызова measure()),
         // и retryWhen просто пересматривает уже готовый (и уже упавший) Mono вместо повторного
-        // вызова. В сгенерированном reactor-grpc сам getAllUsersByChatId ленивый и
-        // переподписываемый (ClientCalls.oneToOne), так что в проде повторная подписка,
-        // скорее всего, и без этой обёртки выпустила бы новый RPC — но полагаться на эту
-        // деталь реализации стаба нельзя, а с моком Mockito в тестах (который отдаёт один
-        // заранее собранный Mono) без defer ретрай не работает вовсе. Обёртка делает
-        // повторный вызов явным и не зависящим от того, кто именно стоит за стабом.
+        // вызова. Обёртка обязательна и в проде, и в тестах: сгенерированный reactor-grpc
+        // (ClientCalls.oneToOne) оборачивает Mono в SubscribeOnlyOnceLifter — тот хранит
+        // AtomicBoolean на экземпляр и на ВТОРОЙ subscribe() того же Mono бросает
+        // NullPointerException("You cannot directly subscribe to a gRPC service multiple times
+        // concurrently. Use Flux.share() instead."), что проверено дизассемблированием
+        // reactor-grpc-stub-1.2.4 из ~/.m2 этого проекта. Без defer повторная подписка
+        // retryWhen попадала бы на тот же экземпляр Mono и падала бы этим NPE — то есть
+        // ретрай не работал бы не только в тесте с Mockito, но и в проде тоже.
         return grpcRequestsMetric.measure(METRIC_METHOD,
-                        Mono.defer(() -> reactiveStub.getAllUsersByChatId(
-                                DataTransferService.ChatData.newBuilder().setChatId(chatId).build())))
+                        Mono.defer(() -> reactiveStub
+                                // Дедлайн на вызов (beads 8wh, F3): reactor .timeout() снаружи
+                                // отменяет только ПОДПИСКУ на Mono, а не сам gRPC-вызов —
+                                // дизассемблирование ClientCalls.oneToOne (reactor-grpc-stub
+                                // 1.2.4) показывает, что MonoSink там подключён к
+                                // StreamObserver без sink.onCancel/sink.onDispose, то есть
+                                // отмена подписчика до ClientCall физически не долетает.
+                                // Без withDeadlineAfter брошенный по .timeout() RPC остаётся
+                                // в полёте неограниченно: держит поток на MessegerParody и
+                                // HTTP/2-стрим на клиенте, а повтор удваивает скорость
+                                // накопления таких сирот на уже задыхающемся бэкенде — ровно
+                                // тот сценарий, ради которого заведён тикет. Дедлайн намеренно
+                                // на 250 мс больше membershipTimeout(): дедлайн должен сработать
+                                // ПОСЛЕ reactor-таймаута, иначе исход в гистограмме стал бы
+                                // error вместо честного cancel. DEADLINE_EXCEEDED уже входит
+                                // в isTransient, так что поведение повтора не меняется.
+                                .withDeadlineAfter(membershipTimeout().toMillis() + 250, TimeUnit.MILLISECONDS)
+                                .getAllUsersByChatId(
+                                        DataTransferService.ChatData.newBuilder().setChatId(chatId).build())))
                 .timeout(membershipTimeout())
                 .map(DataTransferService.UserListResponse::getUsersList)
                 .retryWhen(Retry.fixedDelay(MEMBERSHIP_RETRIES, Duration.ofMillis(100))
-                        .filter(ChatMembershipService::isTransient));
+                        .filter(ChatMembershipService::isTransient)
+                        // Без этого Retry.fixedDelay после исчерпания попыток заворачивает
+                        // исходную ошибку в reactor.core.Exceptions$RetryExhaustedException
+                        // (проверено прогоном на reactor-core 3.5.9 из ~/.m2: thrown
+                        // class=RetryExhaustedException, msg="Retries exhausted: 1/1",
+                        // cause=TimeoutException) — сам ретрай при этом работает, но log.error
+                        // в горячей ветке SEND пишет обёртку вместо настоящей причины
+                        // (UNAVAILABLE/DEADLINE_EXCEEDED/TimeoutException), а тикет 8wh целиком
+                        // про то, чтобы по логу можно было отличить сбой от отказа.
+                        .onRetryExhaustedThrow((spec, signal) -> signal.failure()));
     }
 
     /**

@@ -18,8 +18,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ChatMembershipServiceTest {
 
+    // RETURNS_SELF (beads 8wh, F3): members() теперь зовёт reactiveStub.withDeadlineAfter(...)
+    // перед getAllUsersByChatId — у настоящего AbstractStub этот метод возвращает новый стаб
+    // с тем же каналом, у мока без явного стаба вернул бы null и уронил цепочку NPE ещё
+    // до getAllUsersByChatId. RETURNS_SELF отдаёт сам мок на любой вызов, возвращающий тип
+    // мока, и не мешает явным when(stub.getAllUsersByChatId(...)) ниже — они по-прежнему
+    // приоритетнее дефолтного ответа.
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub stub =
-            Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class);
+            Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class,
+                    Mockito.RETURNS_SELF);
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 

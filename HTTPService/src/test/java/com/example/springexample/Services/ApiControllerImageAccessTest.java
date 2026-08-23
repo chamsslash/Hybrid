@@ -37,8 +37,13 @@ class ApiControllerImageAccessTest {
 
     private final ReactiveGrpcClient grpc = Mockito.mock(ReactiveGrpcClient.class);
     private final ImageStorageService imageStorage = Mockito.mock(ImageStorageService.class);
+    // RETURNS_SELF (beads 8wh, F3): ChatMembershipService.members() зовёт
+    // stub.withDeadlineAfter(...) перед getAllUsersByChatId; у настоящего AbstractStub это
+    // возвращает новый стаб с тем же каналом, а у мока без явного стаба вернуло бы null
+    // и роняло бы цепочку NPE до gRPC-вызова.
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub stub =
-            Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class);
+            Mockito.mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class,
+                    Mockito.RETURNS_SELF);
 
     private final GrpcRequestsMetric grpcMetric = new GrpcRequestsMetric(new SimpleMeterRegistry());
 
