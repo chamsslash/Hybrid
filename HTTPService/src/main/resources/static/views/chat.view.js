@@ -206,6 +206,12 @@ function handleChatError(msg) {
             const delay = SUBSCRIBE_BACKOFF_MS[subscribeRetries];
             subscribeRetries += 1;
             showToast('Восстанавливаем связь с чатом…', 'info');
+            // Гасим предыдущий запланированный повтор ПЕРЕД тем, как завести новый
+            // (beads 8wh, F9): без этого две отбивки подряд заводят два таймера, а
+            // subscribeRetryTimer хранит только последний — unmount() гасит один, второй
+            // переживает уход со страницы. Запланированный повтор в любой момент нужен
+            // ровно один — это и правильная семантика, а не только чистка таймеров.
+            clearTimeout(subscribeRetryTimer);
             subscribeRetryTimer = setTimeout(() => {
                 if (stompClient && stompClient.connected) {
                     subscribeToChat();
