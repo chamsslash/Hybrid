@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 26 | 207 | 2 | 209 |
+| HTTPService | 27 | 210 | 2 | 212 |
 | MessegerParody | 3 | 10 | 3 | 13 |
-| **Итого** | **34** | **234** | **7** | **241** |
+| **Итого** | **35** | **237** | **7** | **244** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -199,6 +199,15 @@ Round-trip `ImageUploadDTO` через Gson.
 
 - **`successReturns200JsonWithChatIdAndTitle`** — успешный ответ бэкенда с `id=42`, `title="My Chat"` → `200 OK`, `Content-Type: application/json`, тело содержит `"chatId":42` и `"title":"My Chat"`. Зачем: контракт JSON-ответа, на который завязан клиентский роутинг SPA.
 - **`successWithoutTitleReturnsOnlyChatId`** — ответ без `title` (`id=7`) → тело содержит `"chatId":7`, поле `title` отсутствует. Зачем: опциональность `title` в ответе не должна ломать сериализацию.
+
+### `RegisterMultipartAvatarContractTest` — `reactive-unit` — что долетает до регистрации при пустом file input (beads krr)
+Мультипарт-тело собирается вручную ровно в том виде, в каком его шлёт браузер для формы регистрации, и разбирается настоящим ридером WebFlux через `ServerRequest.create(...).multipartData()` на mock-exchange — без поднятия контекста Spring и без вызова `registerHandle`.
+
+Контекст: форма (`static/views/register.view.js`) отдаёт `userimage` без `required`, то есть обещает, что аватар опционален, а `WEBFLUX_Service.registerHandle` до beads krr требовал `imagePart != null` и отбивал такую регистрацию 400. Рассматривались два взаимоисключающих объяснения — часть приходит `null` либо приходит пустым `FilePart` (и тогда в MinIO уезжает 0-байтовый объект). Тест закрывает вопрос фактом, а не рассуждением, и стережёт его дальше: поведение ридера — деталь реализации Spring, и её смена молча поменяла бы входные условия хендлера.
+
+- **`emptyFileInputIsDroppedByReaderEntirely`** — часть с `filename=""`, `Content-Type: application/octet-stream` и нулевым телом → `parts.getFirst("userimage")` возвращает `null`, то есть ридер выбрасывает её целиком. Зачем: главный ассерт тикета. Именно поэтому `imagePart == null` в хендлере означает «пользователь не выбрал файл», а не сбой — на этом построена ветка «без файла не помечаем pending»; вариант с 0-байтовым объектом в MinIO отпадает.
+- **`chosenFileArrivesWithFilenameAndContent`** — выбранный файл (`filename="avatar.png"`, тело `not-really-png-bytes`) → `FilePart` с тем же именем, содержимое читается байт-в-байт. Зачем: контрольная точка, что различие между двумя случаями держится на `filename`/размере, а не на самом факте наличия части — иначе первый ассерт ничего бы не доказывал.
+- **`missingFilePartIsAbsentEntirely`** — тело вообще без части `userimage` → `null`. Зачем: фиксирует, что «файл не выбран» и «часть не прислана» неотличимы для хендлера; ветка обработки для них общая.
 
 ### `WebFluxRouteSecurityBoundaryTest` — `reactive-unit` — граница «публичный шелл / защищённая мутация» createchat (beads 52u)
 Роутеры `WebFluxConfig.createchatHandle` и `WebFluxConfig.createChatPageRouter` проверяются напрямую через `RouterFunction.route(ServerRequest)` на mock-exchange — без поднятия контекста Spring и без вызова хендлеров (совпадение предиката ≠ выполнение).

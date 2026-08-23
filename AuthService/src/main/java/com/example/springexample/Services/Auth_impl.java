@@ -136,7 +136,15 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 User creation = new User();
                 creation.setName(request.getUsername());
                 creation.setMyapppassword(passwordEncoder.encodePassword(request.getPassword()));
-                creation.setImageUrl("pending");
+                // Маркер аватара приходит от вызывающего, а не проставляется здесь безусловно
+                // (beads krr): "pending" означает «файл есть, байты едут в MinIO», и фронт
+                // рисует на нём спиннер. Раньше "pending" ставился всем подряд, поэтому у
+                // пользователя, зарегистрировавшегося без аватара, спиннер крутился вечно —
+                // разрешить его было некому, событие в топик Images не приходило никогда.
+                // Пустая строка (в т.ч. от клиента, который поле не заполняет) — дефолтная
+                // аватарка. Путь Google-логина сюда не заходит, у него свой маркер в
+                // CustomOAuth2UserService.
+                creation.setImageUrl(request.getImageUrl());
                 creation.setUser_role("USER");
                 User created = auth_rep.save(creation);
                 responseObserver.onNext(DataTransferService.AuthResponse.newBuilder().setStatus("200").setMessage("Ahueno").setRole(created.getUser_role()).setSub(String.valueOf(created.getId())).build());

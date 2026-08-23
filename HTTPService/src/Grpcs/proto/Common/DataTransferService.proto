@@ -42,6 +42,15 @@ message UserDataRequest {
   int64 id =1;
   string username = 2 ;
   string  password =3;
+  // Маркер аватара на регистрации (beads krr): "pending" — файл есть и вот-вот уедет в
+  // MinIO, "" — пользователь оставил поле пустым. Симметрично ChatData.image_url, где
+  // эта же задача уже решена. До появления поля AuthService безусловно писал "pending",
+  // и пользователь без аватара навсегда оставался с крутящимся спиннером.
+  //
+  // Номер 5, а не свободный 4: в копии этого же .proto у MessegerParody поле 4 занято
+  // старым `string jwt`, а UserListResponse с UserDataRequest внутри ходит от него к
+  // HTTPService — совпадение номеров с разным смыслом на проводе не нужно никому.
+  string image_url = 5;
 }
 
 message ListOfMessages {
