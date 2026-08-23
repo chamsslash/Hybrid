@@ -150,6 +150,13 @@ class ChatMembershipServiceTest {
         assertEquals(MembershipDecision.MEMBER, service.decide(5L, "9").block());
         Mockito.verify(stub, Mockito.times(2))
                 .getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class));
+        // beads 8wh, R1: RETURNS_SELF маскирует withDeadlineAfter, если его случайно убрать
+        // из members() — метод мока просто вернёт сам мок, и тесты выше останутся зелёными.
+        // times(2) со значением 2250 (membershipTimeout() 2000 + 250) ловит и пропажу вызова,
+        // и вынос withDeadlineAfter наружу Mono.defer (тогда был бы один вызов на обе попытки,
+        // и вторая попытка уходила бы с уже просроченным дедлайном).
+        Mockito.verify(stub, Mockito.times(2))
+                .withDeadlineAfter(2250L, java.util.concurrent.TimeUnit.MILLISECONDS);
     }
 
     @Test
