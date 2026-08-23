@@ -65,6 +65,11 @@ const SUBSCRIBE_BACKOFF_MS = [1000, 2000, 4000];
 // просроченный таймер, и чат получит вторую подписку на тот же (или уже другой) адрес.
 let subscribeRetryTimer = null;
 
+// Текущая подписка на /mutual/chat/{chat_id} (beads 8wh, F1). Вторая линия защиты от
+// дублей: даже если фильтр по destination в handleChatError когда-нибудь обойдут (или
+// его обойдёт будущий баг), subscribeToChat() не даст двух живых подписок на один адрес.
+let chatSubscription = null;
+
 let stomp = null;
 let ac = null;
 
@@ -189,6 +194,14 @@ function handleChatError(msg) {
     // Это не отказ в доступе, а отсутствие ответа, поэтому повторяем сами, а не показываем
     // пользователю «нет доступа».
     if (error.code === 'SUBSCRIPTION_UNAVAILABLE') {
+        // Отбивка могла прийти не за наш канал (beads 8wh, F1): /private/{user_id} общий —
+        // на него падают отказы typing/chat_image ЭТОГО же чата и, если у пользователя открыто
+        // несколько вкладок, вообще чужого чата. Повторять здесь можно только собственную
+        // подписку на сообщения; всё остальное — молча пропускаем, без тоста и без повтора.
+        // Отсутствие destination (старый клиент/сервер) трактуем так же: молчание лучше дублей.
+        if (error.destination !== `/mutual/chat/${chat_id}`) {
+            return;
+        }
         if (subscribeRetries < SUBSCRIBE_BACKOFF_MS.length) {
             const delay = SUBSCRIBE_BACKOFF_MS[subscribeRetries];
             subscribeRetries += 1;
@@ -306,7 +319,21 @@ function showToast(message, type = 'info', duration = 3000) {
 // уронить SUBSCRIBE, не сумев проверить членство (beads 8wh), и тогда единственный способ
 // восстановиться без перезагрузки страницы — подписаться заново.
 function subscribeToChat() {
-    stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
+    // Идемпотентность (beads 8wh, F1): снимаем предыдущую подписку ПЕРЕД тем, как завести
+    // новую. Без этого повторный вызов (после SUBSCRIPTION_UNAVAILABLE) оставлял бы старую
+    // подписку живой — SimpleBrokerMessageHandler шлёт копию сообщения на каждую подписку,
+    // и appendChatMessage срабатывал бы по нескольку раз на одно сообщение.
+    if (chatSubscription) {
+        try {
+            chatSubscription.unsubscribe();
+        } catch (e) {
+            // Сервер мог и не зарегистрировать эту подписку (например, прошлый SUBSCRIBE
+            // сам был уронён интерцептором) — тогда unsubscribe() на ней no-op с точки
+            // зрения сервера, но stomp.js может бросить на несуществующем id. Не фатально.
+            console.warn("[chat] unsubscribe от предыдущей подписки не удался", e);
+        }
+    }
+    chatSubscription = stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
         appendChatMessage(JSON.parse(msg.body));
     });
 }
@@ -421,6 +448,10 @@ export function unmount() {
     if (ac) ac.abort();
     stomp = null;
     ac = null;
+    // stomp.disconnectAll() выше уже закрыл соединение, но саму ссылку на подписку
+    // обнуляем явно (beads 8wh, F1): иначе следующий mount() того же чата в той же вкладке
+    // унаследовал бы объект подписки из прошлого (уже разорванного) соединения.
+    chatSubscription = null;
     // Сброс на выходе из чата (beads 8wh): переменная модульная и переживает
     // mount/unmount, без сброса второй заход в тот же чат унаследовал бы исчерпанный лимит.
     subscribeRetries = 0;

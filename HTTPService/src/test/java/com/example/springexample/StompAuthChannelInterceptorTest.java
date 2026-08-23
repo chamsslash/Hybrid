@@ -363,7 +363,7 @@ class StompAuthChannelInterceptorTest {
         interceptor.preSend(frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null);
 
         Mockito.verify(errorNotifier).sendToUser("9", "5", "SUBSCRIPTION_UNAVAILABLE",
-                "Не удалось проверить доступ к чату — пробуем ещё раз");
+                "Не удалось проверить доступ к чату — пробуем ещё раз", "/mutual/chat/5");
         Mockito.verifyNoMoreInteractions(errorNotifier);
     }
 

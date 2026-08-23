@@ -274,7 +274,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 log.warn("SUBSCRIBE на чат {} не пропущен: членство пользователя {} не выяснено",
                         chatId, userId);
                 errorNotifier.sendToUser(userId, String.valueOf(chatId), "SUBSCRIPTION_UNAVAILABLE",
-                        "Не удалось проверить доступ к чату — пробуем ещё раз");
+                        "Не удалось проверить доступ к чату — пробуем ещё раз", destination);
                 return false;
             }
             // Deny-by-default (та же доктрина, что и у всего класса): пропускаем только

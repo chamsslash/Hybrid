@@ -282,9 +282,12 @@ public class ChatBoxStompController {
      * Отбивка уходит на /private/{userId}. Механика переехала в StompErrorNotifier
      * (beads 8wh): тот же способ отправки понадобился интерцептору, а две копии
      * разъехались бы. Метод остаётся точкой вызова внутри контроллера.
+     *
+     * destination передаётся null (beads 8wh, F1): это путь SEND, а не SUBSCRIBE, адреса
+     * подписки здесь попросту нет.
      */
     private void sendErrorToSender(String senderId, String chatId, String code, String message) {
-        errorNotifier.sendToUser(senderId, chatId, code, message);
+        errorNotifier.sendToUser(senderId, chatId, code, message, null);
     }
 
     /**

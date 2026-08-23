@@ -22,11 +22,17 @@ public class StompErrorNotifier {
 
     private final SimpMessagingTemplate template;
 
-    public void sendToUser(String userId, String chatId, String code, String message) {
+    /**
+     * @param destination адрес подписки, которая не удалась (beads 8wh, F1) — по нему клиент
+     *                     отличает свой канал сообщений от чужой вкладки/typing/chat_image.
+     *                     На пути SEND (ChatBoxStompController) подписки нет, там null.
+     */
+    public void sendToUser(String userId, String chatId, String code, String message, String destination) {
         ChatErrorDTO error = new ChatErrorDTO();
         error.setChat_id(chatId);
         error.setCode(code);
         error.setMessage(message);
+        error.setDestination(destination);
         template.convertAndSend("/private/" + userId, error);
     }
 }

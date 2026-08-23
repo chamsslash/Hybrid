@@ -15,6 +15,12 @@ import lombok.NoArgsConstructor;
  * отбивка, и клиенту нужно отличать её от прочего трафика. {@code code} — машинная причина
  * (что именно отвалилось), {@code message} — нейтральный текст для пользователя; внутренности
  * (текст исключения, стек) в него не попадают никогда, они остаются в логе.
+ *
+ * {@code destination} — адрес, подписка на который не удалась (beads 8wh, F1). Без него клиент
+ * не может отличить, какое из трёх per-chat семейств (/mutual/chat/, /mutual/typing/,
+ * /mutual/chat_image/) уронило SUBSCRIBE, и повторяет не тот канал — а на /private/{userId}
+ * отбивку получают ВСЕ вкладки пользователя и ВСЕ его открытые чаты разом. Поле опционально:
+ * на пути SEND (ChatBoxStompController) адреса подписки нет, туда передаётся null.
  */
 @Data
 @NoArgsConstructor
@@ -24,4 +30,5 @@ public class ChatErrorDTO {
     private String chat_id;
     private String code;
     private String message;
+    private String destination;
 }

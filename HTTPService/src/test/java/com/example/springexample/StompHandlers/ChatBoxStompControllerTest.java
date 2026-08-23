@@ -472,7 +472,7 @@ class ChatBoxStompControllerTest {
         // notifierSendsErrorToPersonalDestination — здесь контроллер лишь обязан позвать
         // notifier с правильными аргументами (beads 8wh).
         Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
-                Mockito.eq("NOT_A_MEMBER"), Mockito.notNull());
+                Mockito.eq("NOT_A_MEMBER"), Mockito.notNull(), Mockito.isNull());
 
         Mockito.verify(template, Mockito.never())
                 .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
@@ -495,7 +495,7 @@ class ChatBoxStompControllerTest {
         controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
         Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
-                Mockito.eq("MEMBERSHIP_UNAVAILABLE"), Mockito.notNull());
+                Mockito.eq("MEMBERSHIP_UNAVAILABLE"), Mockito.notNull(), Mockito.isNull());
     }
 
     /**
@@ -556,7 +556,7 @@ class ChatBoxStompControllerTest {
         controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
         Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
-                Mockito.eq("MEMBERSHIP_UNAVAILABLE"), Mockito.anyString());
+                Mockito.eq("MEMBERSHIP_UNAVAILABLE"), Mockito.anyString(), Mockito.isNull());
         Mockito.verify(denialCounter, Mockito.never()).recordDenial(Mockito.anyString());
     }
 
@@ -595,7 +595,7 @@ class ChatBoxStompControllerTest {
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
-                Mockito.eq("INTERNAL_ERROR"), messageCaptor.capture());
+                Mockito.eq("INTERNAL_ERROR"), messageCaptor.capture(), Mockito.isNull());
         assertFalse(messageCaptor.getValue().contains("hunter2"),
                 "текст исключения наружу не уезжает — там бывают внутренности вроде строки подключения");
     }
@@ -666,16 +666,17 @@ class ChatBoxStompControllerTest {
      */
     @Test
     void notifierSendsErrorToPersonalDestination() {
-        SimpMessagingTemplate template = Mockito.mock(SimpMessagingTemplate.class);
-        StompErrorNotifier notifier = new StompErrorNotifier(template);
+        SimpMessagingTemplate notifierTemplate = Mockito.mock(SimpMessagingTemplate.class);
+        StompErrorNotifier notifier = new StompErrorNotifier(notifierTemplate);
 
-        notifier.sendToUser("9", "5", "SUBSCRIPTION_UNAVAILABLE", "текст");
+        notifier.sendToUser("9", "5", "SUBSCRIPTION_UNAVAILABLE", "текст", "/mutual/chat/5");
 
         ArgumentCaptor<ChatErrorDTO> captor = ArgumentCaptor.forClass(ChatErrorDTO.class);
-        Mockito.verify(template).convertAndSend(Mockito.eq("/private/9"), captor.capture());
+        Mockito.verify(notifierTemplate).convertAndSend(Mockito.eq("/private/9"), captor.capture());
         assertEquals("error", captor.getValue().getType());
         assertEquals("5", captor.getValue().getChat_id());
         assertEquals("SUBSCRIPTION_UNAVAILABLE", captor.getValue().getCode());
         assertEquals("текст", captor.getValue().getMessage());
+        assertEquals("/mutual/chat/5", captor.getValue().getDestination());
     }
 }
