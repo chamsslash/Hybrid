@@ -396,6 +396,17 @@ function destinationFor(name) {
     return `${CHANNELS[name].prefix}${chat_id}`;
 }
 
+// Приводит все три канала в состояние «заход в чат с нуля» (beads 8r7). Зовётся и из
+// mount(), и из unmount() — см. комментарии там, причины разные.
+function resetChannelState() {
+    for (const state of Object.values(channelState)) {
+        clearTimeout(state.retryTimer);
+        state.retryTimer = null;
+        state.subscription = null;
+        state.retries = 0;
+    }
+}
+
 // К какому каналу относится отбивка (beads 8wh, F1 → обобщено в 8r7). Совпадение строго по
 // полному адресу ТЕКУЩЕГО чата — так же, как раньше сравнивался только `/mutual/chat/`.
 function channelForDestination(destination) {
@@ -488,6 +499,13 @@ export async function mount(params) {
     imagesStomp = null;
     typingTimeout = null;
     pendingText = '';
+    // channelState сбрасывается и здесь, а не только в unmount() (beads 8r7). mount()
+    // защитно обнуляет всё остальное модульное состояние выше по той же причине: порядок
+    // вызовов задаёт роутер, и на mount() без предшествующего unmount() (или на unmount(),
+    // упавшем на releaseImages/disconnectAll до цикла сброса) чат унаследовал бы исчерпанный
+    // лимит попыток и ссылку на подписку из уже разорванного соединения. Сброс в unmount()
+    // остаётся: он гасит таймер, который иначе доживёт до следующего экрана и выстрелит там.
+    resetChannelState();
 
     stomp = createStompRegistry();
     ac = new AbortController();
@@ -547,12 +565,7 @@ export function unmount() {
     // закрыл соединения, но сами ссылки переживают unmount() как модульные переменные —
     // без сброса следующий mount() того же чата в той же вкладке унаследовал бы объект
     // подписки из прошлого (уже разорванного) соединения и/или исчерпанный лимит попыток.
-    for (const state of Object.values(channelState)) {
-        clearTimeout(state.retryTimer);
-        state.retryTimer = null;
-        state.subscription = null;
-        state.retries = 0;
-    }
+    resetChannelState();
     if (ac) ac.abort();
     stomp = null;
     ac = null;
