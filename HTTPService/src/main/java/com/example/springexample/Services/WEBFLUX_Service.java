@@ -272,9 +272,23 @@ public class WEBFLUX_Service {
                                 .newBuilder().addAllNames(usernames).build();
 
                         return authGrpc.GetUsersByUnames(repeated_unames)
-                                .flatMap(ids -> {
-                                    List<DataTransferService.User> userList = ids.stream()
-                                            .map(id -> DataTransferService.User.newBuilder().setId(String.valueOf(id)).build())
+                                .flatMap(resolved -> {
+                                    // Не нашли кого-то из названных — отказываем, перечислив кого именно.
+                                    // Резолв имён лоссовый (AuthService отдаёт только найденных), и без
+                                    // этой сверки опечатка в имени проходила молча: чат создавался без
+                                    // выпавшего участника, а пользователь видел успех. Если же не
+                                    // находился никто, пустой userList уводил transferchat в ветку
+                                    // поиска существующего чата, и наружу ехало «Cannot find chat ERROR» —
+                                    // сообщение про чат там, где проблема была в имени пользователя.
+                                    List<String> missing = findMissingUsernames(usernames, resolved);
+                                    if (!missing.isEmpty()) {
+                                        return Mono.error(new IllegalArgumentException(
+                                                "Пользователи не найдены: " + String.join(", ", missing)));
+                                    }
+
+                                    List<DataTransferService.User> userList = resolved.stream()
+                                            .map(u -> DataTransferService.User.newBuilder()
+                                                    .setId(String.valueOf(u.getId())).build())
                                             .collect(Collectors.toList());
 
                                     return ReactiveSecurityContextHolder.getContext()
@@ -335,6 +349,23 @@ public class WEBFLUX_Service {
                                 .bodyValue("Unexpected error: " + e.getMessage());
                     });
         }
+
+    /**
+     * Имена, которые AuthService не сумел разрезолвить: запрошенные минус вернувшиеся.
+     * Сравниваем по именам, а не по количеству — при дубликатах в форме («dmitriy» дважды)
+     * счётчики разошлись бы и на полностью корректном вводе. Порядок сохраняем как во
+     * вводе, повторы схлопываем: список идёт прямо в текст ошибки пользователю.
+     */
+    static List<String> findMissingUsernames(List<String> requested,
+                                             List<DataTransferService.UserDataRequest> resolved) {
+        Set<String> found = resolved.stream()
+                .map(DataTransferService.UserDataRequest::getUsername)
+                .collect(Collectors.toSet());
+        return requested.stream()
+                .filter(name -> !found.contains(name))
+                .distinct()
+                .toList();
+    }
 
     /**
      * Success-ветка создания чата (beads SPA): вместо 303-редиректа на /reactive/chatlist

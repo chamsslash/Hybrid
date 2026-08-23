@@ -62,21 +62,18 @@ public class AuthGrpc {
     }
     }
 
-    public Mono<List<Long>> GetUsersByUnames(DataTransferService.RepeatedUsernames repeatedUsernames){
+    /**
+     * Резолвит имена в пользователей. Возвращает найденных ЦЕЛИКОМ (id + username), а не
+     * только id: AuthService отвечает лишь теми, кого нашёл, и без имён вызывающая сторона
+     * не может сказать, кто из запрошенных выпал — «не нашли никого» и «нашли не всех»
+     * отличаются только размером списка. Сверку с исходным запросом делает вызывающий:
+     * это его политика, а не транспорта (см. WEBFLUX_Service.findMissingUsernames).
+     */
+    public Mono<List<DataTransferService.UserDataRequest>> GetUsersByUnames(DataTransferService.RepeatedUsernames repeatedUsernames){
         grpcRequestsMetric.increment();
-        return Mono.fromCallable(()->{
-            DataTransferService.UserListResponse userListResponse = authTransferServiceBlockingStub.getUserByUsername(repeatedUsernames);
-            List<DataTransferService.UserDataRequest> list = userListResponse.getUsersList();
-            List<Long> resp = new ArrayList<>();
-            for(DataTransferService.UserDataRequest userDataRequest : list){
-                resp.add(userDataRequest.getId());
-
-            }
-            return resp;
-        }).subscribeOn(Schedulers.boundedElastic());
-
-
-
+        return Mono.fromCallable(()->
+                authTransferServiceBlockingStub.getUserByUsername(repeatedUsernames).getUsersList()
+        ).subscribeOn(Schedulers.boundedElastic());
     }
 //    public List<String> GetAllNamesByChat(DataTransferService.ChatData chatData){
 //        grpcRequestsMetric.increment();
