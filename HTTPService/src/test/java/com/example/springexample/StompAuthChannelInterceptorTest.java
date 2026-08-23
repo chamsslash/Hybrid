@@ -368,6 +368,31 @@ class StompAuthChannelInterceptorTest {
     }
 
     /**
+     * beads 8wh, F4 финального ревью. Весь смысл ветки UNKNOWN держится на инварианте
+     * «из preSend ничего не летит» — но SimpMessagingTemplate.convertAndSend не безопасен:
+     * doSend бросает MessageDeliveryException, если канал вернул false, и пропускает наружу
+     * RejectedExecutionException, если executor брокера уже остановлен (штатно на graceful
+     * shutdown, пока SUBSCRIBE ещё идут). Без try/catch такое исключение долетело бы до
+     * Spring, тот ответил бы ERROR-фреймом и разорвал сессию — то есть ровно тот отказ,
+     * который эта ветка устраняет, причём для пользователя, который на самом деле участник.
+     */
+    @Test
+    void unknownMembershipNotificationFailureDoesNotKillSession() {
+        Mockito.when(membership.decideBlocking(5L, "9"))
+                .thenReturn(MembershipDecision.UNKNOWN);
+        Mockito.doThrow(new RuntimeException("broker executor rejected"))
+                .when(errorNotifier)
+                .sendToUser(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                        Mockito.anyString(), Mockito.anyString());
+
+        Message<?> result = interceptor.preSend(
+                frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null);
+
+        assertNull(result, "падение отбивки не должно превращаться в исключение из preSend — "
+                + "это ровно тот разрыв сессии, который ветка UNKNOWN устраняет");
+    }
+
+    /**
      * Стережёт границу изменения beads 8wh: достоверный отказ по членству (NOT_MEMBER)
      * по-прежнему рвёт сессию исключением, как и до этого тикета — подписка на чужой
      * чат остаётся осознанным зондом, и разрыв сессии здесь работает тормозом. Если кто-то

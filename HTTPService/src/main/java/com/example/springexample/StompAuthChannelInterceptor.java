@@ -273,8 +273,22 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 // MessegerParody стоила бы пользователю всего WebSocket.
                 log.warn("SUBSCRIBE на чат {} не пропущен: членство пользователя {} не выяснено",
                         chatId, userId);
-                errorNotifier.sendToUser(userId, String.valueOf(chatId), "SUBSCRIPTION_UNAVAILABLE",
-                        "Не удалось проверить доступ к чату — пробуем ещё раз", destination);
+                // Отбивка — это «хорошо бы», а не «обязательно» (beads 8wh, F4). Весь смысл
+                // ветки UNKNOWN держится на инварианте «из preSend ничего не летит» — но
+                // SimpMessagingTemplate.convertAndSend не безопасен: doSend бросает
+                // MessageDeliveryException, если канал вернул false, и пропускает наружу
+                // RejectedExecutionException, если executor брокера уже остановлен (штатно
+                // на graceful shutdown, пока SUBSCRIBE ещё идут). Без try/catch такое
+                // исключение вылетело бы ИЗ preSend, Spring ответил бы ERROR-фреймом и
+                // разорвал сессию — то есть ровно тот отказ, который эта ветка устраняет,
+                // и для пользователя, который на самом деле участник чата.
+                try {
+                    errorNotifier.sendToUser(userId, String.valueOf(chatId), "SUBSCRIPTION_UNAVAILABLE",
+                            "Не удалось проверить доступ к чату — пробуем ещё раз", destination);
+                } catch (RuntimeException e) {
+                    log.warn("Не удалось отправить отбивку SUBSCRIPTION_UNAVAILABLE пользователю {} по чату {}",
+                            userId, chatId, e);
+                }
                 return false;
             }
             // Deny-by-default (та же доктрина, что и у всего класса): пропускаем только
