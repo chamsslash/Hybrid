@@ -116,7 +116,7 @@ class ChatBoxStompControllerTest {
 
         // Отбивка отправителю на /private/9 (beads isf) — единственное, что теперь уходит наружу.
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
-        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
@@ -163,7 +163,7 @@ class ChatBoxStompControllerTest {
 
         // Отбивка отправителю на /private/9 (beads isf) — единственное, что теперь уходит наружу.
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
-        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
@@ -181,7 +181,7 @@ class ChatBoxStompControllerTest {
         controller().HandleChangeOfUserStatus("5", principal, "sess-1", dto);
 
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
-        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
@@ -201,7 +201,7 @@ class ChatBoxStompControllerTest {
 
         Mockito.verify(membership, Mockito.never()).members(Mockito.anyLong());
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
-        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString());
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
@@ -225,6 +225,32 @@ class ChatBoxStompControllerTest {
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/7"), sent.capture());
         assertEquals("7", sent.getValue().getChat_id());
+    }
+
+    /**
+     * Ключ партиционирования для топика "Messages" — chat_id (beads lo2). Топик
+     * многопартиционный, а отправка шла без ключа: записи одного чата размазывались по
+     * партициям, и их взаимный порядок брокером не гарантировался (спасала только
+     * сортировка истории по time_stamp, а не по id). Ключ обязан быть КАНОНИЧЕСКИМ:
+     * "007" и "7" — один и тот же чат, и разъехаться по разным партициям они не должны.
+     */
+    @Test
+    void kafkaMessageIsKeyedByCanonicalChatId() {
+        Mockito.when(membership.members(7L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("007", principal, null, "sess-1", dto);
+
+        ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(kafkaProducer).send(key.capture(), payload.capture());
+        assertEquals("7", key.getValue(), "ключ — канонический chat_id, а не сырой \"007\"");
+        Map<String, Object> json = new com.google.gson.Gson().fromJson(payload.getValue(), Map.class);
+        assertEquals("7", json.get("chat_id"), "ключ обязан совпадать с chat_id в теле записи");
     }
 
     /** Та же канонизация адреса, что и для сообщений чата, но для статуса набора текста (beads g9x). */
@@ -650,7 +676,7 @@ class ChatBoxStompControllerTest {
         ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(kafkaProducer).send(payload.capture());
+        Mockito.verify(kafkaProducer).send(Mockito.anyString(), payload.capture());
 
         String broadcastId = sent.getValue().getMessage_id();
         Map<String, Object> json = new com.google.gson.Gson().fromJson(payload.getValue(), Map.class);

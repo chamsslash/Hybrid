@@ -135,7 +135,9 @@ public class ChatBoxStompController {
                     chatMessageDTO.setMessage_id(java.util.UUID.randomUUID().toString());
 
                     template.convertAndSend("/mutual/chat/" + canonicalChatId, chatMessageDTO);
-                    kafkaProducer.send(gson.toJson(chatMessageDTO));
+                    // Ключ партиционирования — канонический chat_id (beads lo2): так все
+                    // записи чата ложатся в одну партицию "Messages" и их порядок держит брокер.
+                    kafkaProducer.send(canonicalChatId, gson.toJson(chatMessageDTO));
 
                     ChatContextService contextService = new ChatContextService(redisTemplate, canonicalChatId);
                     // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
