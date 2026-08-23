@@ -380,10 +380,15 @@ class StompAuthChannelInterceptorTest {
     void unknownMembershipNotificationFailureDoesNotKillSession() {
         Mockito.when(membership.decideBlocking(5L, "9"))
                 .thenReturn(MembershipDecision.UNKNOWN);
+        // nullable(String.class) на пятом параметре (beads 8wh, R4): это destination, а он
+        // бывает null (см. ChatBoxStompController.sendToUser(..., null)) — anyString() null
+        // не матчит, и если ветку UNKNOWN когда-нибудь переиспользуют там, где destination
+        // не передают, doThrow тихо перестанет применяться и тест позеленеет, ничего не
+        // проверив: assertNull(result) ниже пройдёт и без единого броска из sendToUser.
         Mockito.doThrow(new RuntimeException("broker executor rejected"))
                 .when(errorNotifier)
                 .sendToUser(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
-                        Mockito.anyString(), Mockito.anyString());
+                        Mockito.anyString(), Mockito.nullable(String.class));
 
         Message<?> result = interceptor.preSend(
                 frame(StompCommand.SUBSCRIBE, "/mutual/chat/5"), null);
