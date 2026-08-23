@@ -105,10 +105,19 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                 newChatEntity.setImageUrl(newChat.getImageUrl());
 
                                 return reactiveChatRepository.save(newChatEntity).flatMap(savedChat -> {
-                                    List<Mono<r2dbc_user_Chat>> bindings = users.stream()
-                                            .map(usr -> {
+                                    // Связки пишем по allIds, а НЕ по users. allIds — тот же список,
+                                    // уже .distinct(), по которому выше искался существующий чат;
+                                    // users дубликаты сохраняет. Пока вставка шла по users, один и тот
+                                    // же участник, названный дважды (или названный явно автор, который
+                                    // и так добавляется выше), давал два INSERT в user_chat и падение
+                                    // на pk_user_chat. Чат при этом уже был создан: пользователь видел
+                                    // ошибку, а чат существовал — и повтор плодил дубли. Заодно
+                                    // существование чата и запись состава больше не расходятся в том,
+                                    // что считают набором участников.
+                                    List<Mono<r2dbc_user_Chat>> bindings = allIds.stream()
+                                            .map(userId -> {
                                                 r2dbc_user_Chat uc = new r2dbc_user_Chat();
-                                                uc.setUserId(usr.getId());
+                                                uc.setUserId(userId);
                                                 uc.setChatId(savedChat.getId());
                                                 return reactiveUserChatRepository.save(uc);
                                             })
@@ -124,10 +133,17 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .build());
                             }));
                 })
-                .onErrorResume(e -> Mono.just(DataTransferService.ChatResponse.newBuilder()
-                        .setStatus("500")
-                        .setMessage("Unexpected error in chat serving: " + e.getMessage())
-                        .build()));
+                // Наружу — обобщённый текст, подробности в лог. Сообщение этой ветки доезжает
+                // до браузера как есть (HTTPService отдаёт его телом 409), а getMessage() у
+                // R2DBC-исключений — это готовый SQL со схемой и именами constraint'ов:
+                // пользователь видел «INSERT INTO user_chat ... pk_user_chat» вместо объяснения.
+                .onErrorResume(e -> {
+                    log.error("chat serving failed for title '{}'", newChat.getTitle(), e);
+                    return Mono.just(DataTransferService.ChatResponse.newBuilder()
+                            .setStatus("500")
+                            .setMessage("Не удалось создать чат")
+                            .build());
+                });
     }
 
 

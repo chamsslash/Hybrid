@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 28 | 211 | 2 | 213 |
-| MessegerParody | 3 | 10 | 3 | 13 |
-| **Итого** | **36** | **238** | **7** | **245** |
+| HTTPService | 29 | 215 | 2 | 217 |
+| MessegerParody | 4 | 12 | 3 | 15 |
+| **Итого** | **38** | **244** | **7** | **251** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -204,6 +204,14 @@ Standalone-MockMvc поверх `MVC_Service` без поднятия конте
 
 - **`successReturns200JsonWithChatIdAndTitle`** — успешный ответ бэкенда с `id=42`, `title="My Chat"` → `200 OK`, `Content-Type: application/json`, тело содержит `"chatId":42` и `"title":"My Chat"`. Зачем: контракт JSON-ответа, на который завязан клиентский роутинг SPA.
 - **`successWithoutTitleReturnsOnlyChatId`** — ответ без `title` (`id=7`) → тело содержит `"chatId":7`, поле `title` отсутствует. Зачем: опциональность `title` в ответе не должна ломать сериализацию.
+
+### `Services/CreateChatUsernameValidationTest` — `unit` — сверка участников чата с тем, кого нашёл AuthService
+`WEBFLUX_Service.findMissingUsernames` — сравнение запрошенных имён участников с теми, кого разрезолвил AuthService. Тестируется точечно, без multipart и `ReactiveSecurityContextHolder`, как и `CreateChatJsonResponseTest`. Резолв имён лоссовый: `Auth_impl.getUserByUsername` отбрасывает ненайденных через `Optional::isPresent` и отдаёт только существующих, поэтому «не нашли никого» и «нашли не всех» на стороне вызывающего различимы только сверкой имён.
+
+- **`allNamesResolvedYieldsNoMissing`** — запрошены `dmitriy`, `induk1`, оба найдены → пусто. Зачем: базовый случай, валидация не должна отбивать корректный ввод.
+- **`unresolvedNameIsReported`** — запрошены `dmitriy` и `nosuchuser`, найден только первый → возвращается `nosuchuser`. Зачем: главный баг — опечатка в имени проходила молча, чат создавался без выпавшего участника, а пользователь видел успех.
+- **`duplicateRequestedNameIsNotMissingWhenResolved`** — имя `dmitriy` указано дважды, найден один пользователь → пусто. Зачем: стережёт от «оптимизации» сверки до сравнения размеров списков — при повторе имени в форме размеры расходятся на полностью корректном вводе, и такая проверка отбивала бы валидный ввод.
+- **`nothingResolvedReportsEveryNameOnce`** — не найден никто, во вводе есть повтор (`ghost`, `ghost`, `phantom`) → `ghost`, `phantom` по одному разу в порядке ввода. Зачем: список уходит прямо в текст ошибки пользователю; кроме того, раньше пустой список участников уводил `transferchat` в ветку поиска существующего чата, и наружу ехало «Cannot find chat ERROR» — сообщение про чат там, где проблема в имени пользователя.
 
 ### `RegisterMultipartAvatarContractTest` — `reactive-unit` — что долетает до регистрации при пустом file input (beads krr)
 Мультипарт-тело собирается вручную ровно в том виде, в каком его шлёт браузер для формы регистрации, и разбирается настоящим ридером WebFlux через `ServerRequest.create(...).multipartData()` на mock-exchange — без поднятия контекста Spring и без вызова `registerHandle`.
@@ -423,6 +431,14 @@ Standalone-MockMvc поверх `MVC_Service` без поднятия конте
 - **`chatimageBranchPersistsObjectKeyOnChat`** — `chatimage` → у найденного чата проставляется `imageUrl`, `save`; user-репозиторий не трогается.
 - **`chatimageBranchThrowsWhenChatMissing`** — чата нет → `RuntimeException`, `save` не вызывается. Зачем: не терять картинку молча для несуществующего чата.
 - **`unknownTargetTypeThrows`** — неизвестный `targetType` → `RuntimeException`. Зачем: защита от неизвестных типов событий.
+
+### `Services/TransferChatMemberBindingTest` — `unit` — состав участников при создании чата
+`ReactiveImpl.transferchat` с замоканными репозиториями: пользователи находятся, существующего чата с таким составом нет, поэтому вызов уходит в ветку создания. Ассерт — по тому, что реально ушло в `ReactiveUserChatRepository.save` (`ArgumentCaptor`), а не по коду ответа: баг был именно в записи состава, статус при этом мог оставаться успешным.
+
+Стережёт расхождение двух списков в одном методе: проверка «такой чат уже есть» шла по `allIds` с `.distinct()`, а связки `user_chat` писались по `users`, который дубликаты сохраняет.
+
+- **`duplicateMemberIsBoundOnce`** — автор `induk1`, участник `dmitriy` указан дважды. Проверяет: ровно две связки, по одной на автора и участника. Зачем: по старому коду выходило три INSERT, второй по `dmitriy` падал на `pk_user_chat` — причём чат к этому моменту уже был создан, так что пользователь получал ошибку при фактически созданном чате, а повторная попытка плодила дубли чатов.
+- **`authorNamedTwiceAsMemberIsBoundOnce`** — автор назвал участником себя, дважды. Проверяет: ровно одна связка на автора. Зачем: ровно тот ввод, на котором баг ловился вживую; автор добавляется в состав отдельной веткой (`noneMatch` выше), поэтому его явное упоминание — третий источник дублей помимо повтора имени.
 
 ### `R2DBC_Repositories/MessageIdempotencyIT` — `integration` — идемпотентность вставки сообщения на живом Postgres (beads myl)
 `ReactiveRepository.insertMessage` против реального Postgres 15 в Testcontainers. Схема поднимается **тем же** `db.changelog-master.yaml`, что и в проде (`SpringLiquibase` по JDBC-соединению контейнера), поэтому тест стережёт не только SQL репозитория, но и саму миграцию `changes/v2/001-message-idempotency.yaml`: без колонки `message_id` и уникального индекса `ux_message_message_id` запрос `ON CONFLICT (message_id)` упал бы на «no unique or exclusion constraint matching». Работа идёт через `DatabaseClient` поверх r2dbc-соединения к тому же контейнеру; перед каждым тестом `TRUNCATE ... RESTART IDENTITY CASCADE` и посев одной строки в `users` и `chat` (у `message` внешние ключи на обе — без них INSERT падал бы на FK, а не на проверяемом).
