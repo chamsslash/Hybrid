@@ -25,8 +25,17 @@ const CHAT_HTML = `
         <input type="text" id="messageInput" placeholder="Type your message...">
         <button id="sendBtn" type="button">Send</button>
         <button id="aiBtn" type="button">Помощь AI</button>
+        <!-- Панель подсказки живёт ВНУТРИ .chat-input, а не рядом с ним. Её CSS —
+             position: absolute; bottom: calc(100% + 8px) — рассчитан на то, что
+             содержащим блоком будет строка ввода: «8px над полем ввода». .chat-input
+             для этого уже объявлен position: relative. Пока панель была соседом,
+             ближайшего позиционированного предка у неё не было, отсчёт шёл от body,
+             и 100% превращались в высоту документа: панель уезжала за верхний край
+             экрана (замерено вживую: top: -145px при высоте вьюпорта 551px).
+             Ответ AI при этом приходил нормально (200 и осмысленный текст) и честно
+             отрисовывался в DOM — пользователь просто никогда его не видел. -->
+        <div id="aiSuggestionPanel" class="ai-suggestion-panel" style="display: none;"></div>
     </div>
-    <div id="aiSuggestionPanel" class="ai-suggestion-panel" style="display: none;"></div>
     <select id="aiUserSelect">
         <option value="">Выберите пользователя для AI-ответа</option>
     </select>
