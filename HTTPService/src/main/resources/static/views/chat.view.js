@@ -112,15 +112,26 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
     // (.message max-width: 78%), поэтому float: right у времени не находил свободного места
     // и приклеивался вплотную к ID — «ID: 122 авг., 13:05». Время отжимается вправо через
     // margin-left: auto, а gap гарантирует зазор даже когда строка забита под завязку.
+    // В разметку подставляем только то, что генерируем сами; текст сообщения и имя
+    // отправителя кладём текстовыми узлами. Раньше они интерполировались в HTML, и
+    // сообщение рендерилось как разметка: набранное «<b>жирный</b>» показывалось жирным
+    // вместо того, что человек набрал, а «<img src="https://чужой-хост/x.gif">» заставляло
+    // браузер каждого участника сходить на указанный отправителем адрес. Исполнения скрипта
+    // тут не было (DOMPurify в policy.createHTML вырезает onerror и <script>), но санитайзер
+    // и не обязан спасать — сообщения в этом приложении везде обычный текст: поле ввода
+    // без форматирования, а превью в списке чатов уже проставляется через textContent.
     msg.innerHTML = policy.createHTML(`
         <div class="message-header">
             <div class="message-avatar">${avatarHtml(img)}</div>
-            <strong>${username || 'anon'}</strong>
-            <strong>ID: ${senderId || 'anon'}</strong>
+            <strong class="message-username"></strong>
+            <strong class="message-senderid"></strong>
             <span class="message-time">${formatMessageTimestamp(timestamp)}</span>
         </div>
-        <div><span>${text}</span></div>
+        <div><span class="message-text"></span></div>
     `);
+    msg.querySelector('.message-username').textContent = username || 'anon';
+    msg.querySelector('.message-senderid').textContent = `ID: ${senderId || 'anon'}`;
+    msg.querySelector('.message-text').textContent = text ?? '';
 
     container.appendChild(msg);
     hydrateImages(msg);

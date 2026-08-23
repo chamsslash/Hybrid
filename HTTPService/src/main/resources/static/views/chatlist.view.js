@@ -38,11 +38,15 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     chatPart.dataset.chatTitle = chat_title;
     chatPart.onclick = () => navigate(`/reactive/chat?id=${chat_id}&title=${encodeURIComponent(chat_title || '')}`);
 
+    // Превью и имя автора — пустые узлы, содержимое проставляется textContent ниже.
+    // Тот же текст, приезжающий по STOMP, уже кладётся через textContent, так что при
+    // интерполяции в HTML одна и та же строка рендерилась по-разному в зависимости от
+    // того, пришла она с загрузкой списка или обновлением на лету.
     const hasPreview = chat_preview && chat_preview.trim() !== '';
     const previewBlock = hasPreview
         ? `<div class="post-content" style="display: flex; align-items: center; gap: 8px;">
-                ${chat_preview_username ? `<span class="user-id" id="username-${chat_id}">${chat_preview_username} : </span>` : ''}
-                <p id="preview-${chat_id}">${chat_preview}</p>
+                ${chat_preview_username ? `<span class="user-id" id="username-${chat_id}"></span>` : ''}
+                <p id="preview-${chat_id}"></p>
            </div>`
         : `<div class="post-content" style="display: flex; align-items: center; gap: 8px;">
                  <p class="no-message" id="preview-${chat_id}">Нет сообщений</p>
@@ -59,13 +63,20 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
                 ${image_url === 'pending' ? `<div class="spinner-avatar"></div>` : avatarImg}
             </div>
             <div class="user-info">
-                <span class="user-name">${chat_title || ''}</span>
+                <span class="user-name chat-title"></span>
                 <span class="user-name">Чат №<span>${chat_id}</span></span>
             </div>
             <span class="post-time" id="timestamp-${chat_id}">${formatMessageTimestamp(chat_lastmessagetime)}</span>
         </div>
         ${previewBlock}
     `);
+
+    chatPart.querySelector('.chat-title').textContent = chat_title || '';
+    if (hasPreview) {
+        chatPart.querySelector(`#preview-${CSS.escape(String(chat_id))}`).textContent = chat_preview;
+        const authorSpan = chatPart.querySelector(`#username-${CSS.escape(String(chat_id))}`);
+        if (authorSpan) authorSpan.textContent = `${chat_preview_username} : `;
+    }
     return chatPart;
 }
 
