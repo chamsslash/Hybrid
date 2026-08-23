@@ -81,6 +81,17 @@ spec:
     # упрётся в .lock старого брокера в каталоге логов и не станет Ready; а старый
     # под не будет удалён, пока новый не станет Ready. Итог — вечно застрявший
     # rollout. Recreate гасит старый под первым и снимает гонку за том.
+    #
+    # Разовая ловушка миграции уже существующего стенда (не свежей установки):
+    # у Deployment, созданного до этого коммита, API-сервер проставил дефолтные
+    # spec.strategy.rollingUpdate{maxSurge,maxUnavailable}. Server-side apply их не
+    # снимает, а RecreateStrategy валидатор такие поля запрещает — первый
+    # `helm upgrade` падает с
+    #   spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy
+    #   `type` is 'Recreate'
+    # Лечится один раз руками, после чего upgrade проходит:
+    #   kubectl -n hybrid-platform patch deployment kafka --type=json \
+    #     -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'
     type: Recreate
   selector:
     matchLabels:
