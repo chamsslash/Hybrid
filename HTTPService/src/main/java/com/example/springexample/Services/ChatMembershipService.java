@@ -132,7 +132,9 @@ public class ChatMembershipService {
     /**
      * Повторяем только то, что может пройти со второй попытки. Детерминированная ошибка
      * (INVALID_ARGUMENT и подобные) со второго раза не станет успехом, а вторые 2 секунды
-     * сожжёт — и на SUBSCRIBE это секунды удержания потока пула clientInboundChannel.
+     * сожжёт — и на SUBSCRIBE это секунды удержания потока отправителя (WebSocket-контейнер,
+     * http-nio-*), а не пула clientInboundChannel (beads 8wh, R7 — та же неточность,
+     * что и в StompAuthChannelInterceptor, поправленная там находкой F8).
      */
     static boolean isTransient(Throwable e) {
         if (e instanceof TimeoutException) {
