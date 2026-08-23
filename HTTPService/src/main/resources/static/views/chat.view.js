@@ -42,6 +42,8 @@ let user_image = null;
 
 let typingUsers = [];
 let stompClient = null;
+let statusStomp = null;
+let imagesStomp = null;
 let typingTimeout = null;
 
 // Текст последнего отправленного сообщения (beads isf). Поле ввода чистится сразу после
@@ -51,24 +53,34 @@ let typingTimeout = null;
 // сквозного идентификатора сообщения, которого в контракте нет.
 let pendingText = '';
 
-// Счётчик повторов подписки на чат (beads 8wh). Лимит в 3 попытки действует на один заход
-// в чат — сбрасывается только в unmount(), не при удачной подписке: успех SUBSCRIBE в STOMP
-// не наблюдаем без receipt-заголовка, а вводить эту машинерию ради счётчика не стали (см.
-// соседнюю находку по тому же поводу). Это самосогласованно: при исчерпании лимита
-// пользователю предлагают обновить страницу, а обновление проходит через unmount()/mount().
-let subscribeRetries = 0;
+// Ретрай подписок при SUBSCRIPTION_UNAVAILABLE (изначально beads 8wh, обобщено на все три
+// канала в 8r7). Сообщения/typing/аватарка чата живут на трёх разных STOMP-соединениях
+// (stompClient/statusStomp/imagesStomp, см. connectStomp) с разными колбэками, и сервер
+// роняет их подписки НЕЗАВИСИМО (StompAuthChannelInterceptor.PER_CHAT_PREFIXES). Бюджет
+// попыток и таймер повтора держим РАЗДЕЛЬНО на канал в channelState — общий счётчик
+// означал бы, что один сбойный канал сжигает лимит попыток остальным.
+//
+// Лимит в 3 попытки на канал действует на один заход в чат — сбрасывается только в
+// unmount(), не при удачной подписке: успех SUBSCRIBE в STOMP не наблюдаем без
+// receipt-заголовка, а вводить эту машинерию ради счётчика не стали. Это
+// самосогласованно: при исчерпании лимита канала сообщений пользователю предлагают
+// обновить страницу, а обновление проходит через unmount()/mount(), которые пересобирают
+// channelState с нуля.
 const SUBSCRIBE_BACKOFF_MS = [1000, 2000, 4000];
-// Id таймера последнего запланированного повтора (beads 8wh). Без сохранения и явного
-// clearTimeout в unmount() таймер переживает уход со страницы: stompClient — модульная
-// переменная и в unmount() не обнуляется, а следующий connectStomp() присвоит ей новый
-// подключённый клиент — тогда guard `stompClient.connected` в handleChatError пропустит
-// просроченный таймер, и чат получит вторую подписку на тот же (или уже другой) адрес.
-let subscribeRetryTimer = null;
 
-// Текущая подписка на /mutual/chat/{chat_id} (beads 8wh, F1). Вторая линия защиты от
-// дублей: даже если фильтр по destination в handleChatError когда-нибудь обойдут (или
-// его обойдёт будущий баг), subscribeToChat() не даст двух живых подписок на один адрес.
-let chatSubscription = null;
+// state.subscription — вторая линия защиты от дублей на канал (beads 8wh, F1): даже если
+// фильтр по destination в handleChatError когда-нибудь обойдут, subscribeChannel() не даст
+// двух живых подписок на один адрес.
+// state.retryTimer — id таймера последнего запланированного повтора. Без сохранения и
+// явного clearTimeout в unmount() таймер переживает уход со страницы: клиенты — модульные
+// переменные и в unmount() не обнуляются, а следующий connectStomp() присвоит им новые
+// подключённые клиенты — тогда guard `client.connected` в setTimeout-колбэке пропустит
+// просроченный таймер, и чат получит вторую подписку на тот же (или уже другой) адрес.
+const channelState = {
+    chat: { subscription: null, retries: 0, retryTimer: null },
+    typing: { subscription: null, retries: 0, retryTimer: null },
+    chat_image: { subscription: null, retries: 0, retryTimer: null },
+};
 
 let stomp = null;
 let ac = null;
@@ -194,37 +206,59 @@ function handleChatError(msg) {
     // Это не отказ в доступе, а отсутствие ответа, поэтому повторяем сами, а не показываем
     // пользователю «нет доступа».
     if (error.code === 'SUBSCRIPTION_UNAVAILABLE') {
-        // Отбивка могла прийти не за наш канал (beads 8wh, F1): /private/{user_id} общий —
-        // на него падают отказы typing/chat_image ЭТОГО же чата и, если у пользователя открыто
-        // несколько вкладок, вообще чужого чата. Повторять здесь можно только собственную
-        // подписку на сообщения; всё остальное — молча пропускаем, без тоста и без повтора.
-        // Отсутствие destination (старый клиент/сервер) трактуем так же: молчание лучше дублей.
-        if (error.destination !== `/mutual/chat/${chat_id}`) {
+        // Отбивка могла прийти не за наш канал (beads 8wh, F1 → обобщено в 8r7):
+        // /private/{user_id} общий — на него падают отказы ЛЮБОГО из трёх каналов этого же
+        // чата и, если у пользователя открыто несколько вкладок, вообще чужого чата.
+        // channelForDestination матчит по точному адресу ТЕКУЩЕГО чата; чужой чат и
+        // отсутствие destination (старый клиент/сервер) трактуем одинаково — молча
+        // пропускаем, без тоста и без повтора: молчание лучше дублей или повтора не туда.
+        const name = channelForDestination(error.destination);
+        if (!name) {
             return;
         }
-        // Повтор уже запланирован (beads 8wh, R2) — вторая отбивка (например, из соседней
-        // вкладки того же чата на общий /private/{userId}) не должна списывать из бюджета
-        // ещё одну попытку: фактически всё равно выполнится ровно один повтор, а лишний
-        // инкремент subscribeRetries раньше времени исчерпывал лимит в 3 попытки. До этой
-        // правки чистка через clearTimeout перед новым setTimeout (F9) гасила уже
-        // ОПЛАЧЕННЫЙ таймер, то есть бюджет считал попытки, которые физически не происходили.
-        if (subscribeRetryTimer) {
+        const state = channelState[name];
+        // Повтор уже запланирован (beads 8wh, R2) — вторая отбивка по ЭТОМУ каналу
+        // (например, из соседней вкладки того же чата на общий /private/{userId}) не должна
+        // списывать из бюджета ещё одну попытку: фактически всё равно выполнится ровно один
+        // повтор, а лишний инкремент retries раньше времени исчерпывал бы лимит в 3
+        // попытки. До аналогичной правки для канала сообщений (8wh) чистка через
+        // clearTimeout перед новым setTimeout гасила уже ОПЛАЧЕННЫЙ таймер, то есть бюджет
+        // считал попытки, которые физически не происходили. Счётчик и таймер — per-канал в
+        // channelState, поэтому сбойный typing не трогает бюджет chat/chat_image и наоборот.
+        if (state.retryTimer) {
             return;
         }
-        if (subscribeRetries < SUBSCRIBE_BACKOFF_MS.length) {
-            const delay = SUBSCRIBE_BACKOFF_MS[subscribeRetries];
-            subscribeRetries += 1;
-            showToast('Восстанавливаем связь с чатом…', 'info');
-            subscribeRetryTimer = setTimeout(() => {
+        if (state.retries < SUBSCRIBE_BACKOFF_MS.length) {
+            const delay = SUBSCRIBE_BACKOFF_MS[state.retries];
+            state.retries += 1;
+            // Тост на КАЖДУЮ попытку показываем только для канала сообщений (beads 8r7).
+            // Это единственный канал, чей сбой пользователь замечает сразу — сообщения
+            // просто не приходят. typing/chat_image — фоновые индикаторы (кто печатает,
+            // живая аватарка чата): их временная недоступность не мешает пользоваться
+            // чатом, и тост на каждую попытку по ним был бы просто шумом без пользы.
+            if (name === 'chat') {
+                showToast('Восстанавливаем связь с чатом…', 'info');
+            }
+            state.retryTimer = setTimeout(() => {
                 // Без сброса здесь guard выше залипнет навсегда после первого же повтора —
-                // ни одна следующая отбивка не запланирует новый таймер (beads 8wh, R2).
-                subscribeRetryTimer = null;
-                if (stompClient && stompClient.connected) {
-                    subscribeToChat();
+                // ни одна следующая отбивка по этому каналу не запланирует новый таймер
+                // (beads 8wh, R2).
+                state.retryTimer = null;
+                const client = CHANNELS[name].getClient();
+                if (client && client.connected) {
+                    subscribeChannel(name);
                 }
             }, delay);
-        } else {
+        } else if (name === 'chat') {
             showToast('Не удалось открыть чат — обновите страницу', 'error');
+        } else {
+            // Терминальный провал typing/chat_image (beads 8r7) НЕ показываем error-тостом:
+            // это фоновые индикаторы, чат ими не блокируется (сообщения продолжают ходить
+            // по своему каналу), а тревожный тост про «печатает» или аватарку вводил бы
+            // пользователя в заблуждение насчёт того, что реально сломано. Тихо логируем;
+            // подписка восстановится сама при следующем заходе в чат (mount() пересобирает
+            // все три канала заново).
+            console.warn(`[chat] не удалось восстановить подписку "${name}" после ${SUBSCRIBE_BACKOFF_MS.length} попыток`);
         }
         return;
     }
@@ -327,34 +361,91 @@ function showToast(message, type = 'info', duration = 3000) {
 
 // --- STOMP ---
 
-// Подписка на чат вынесена в функцию, потому что её нужно уметь повторять: сервер может
-// уронить SUBSCRIBE, не сумев проверить членство (beads 8wh), и тогда единственный способ
-// восстановиться без перезагрузки страницы — подписаться заново.
-function subscribeToChat() {
-    // Идемпотентность (beads 8wh, F1): снимаем предыдущую подписку ПЕРЕД тем, как завести
-    // новую. Без этого повторный вызов (после SUBSCRIPTION_UNAVAILABLE) оставлял бы старую
-    // подписку живой — SimpleBrokerMessageHandler шлёт копию сообщения на каждую подписку,
-    // и appendChatMessage срабатывал бы по нескольку раз на одно сообщение.
-    if (chatSubscription) {
+// Таблица каналов (beads 8r7): по destination из отбивки /private/{user_id} определяем,
+// какой канал упал, и каким клиентом/колбэком его переподписать. prefix повторяет
+// PER_CHAT_PREFIXES на сервере (StompAuthChannelInterceptor) — те же три семейства,
+// синхронизировать вручную. getClient — функция, а не прямая ссылка на переменную: клиенты
+// присваиваются позже, в connectStomp(), и на момент объявления CHANNELS ещё не существуют.
+const CHANNELS = {
+    chat: {
+        prefix: '/mutual/chat/',
+        getClient: () => stompClient,
+        onMessage: (msg) => appendChatMessage(JSON.parse(msg.body)),
+    },
+    typing: {
+        prefix: '/mutual/typing/',
+        getClient: () => statusStomp,
+        onMessage: (message) => {
+            const data = JSON.parse(message.body);
+            if (String(data.user_id) === String(user_id)) return;
+            if (data.status === "START") {
+                showTypingIndicator(data.user_name);
+            } else if (data.status === "STOP") {
+                hideTypingIndicator(data.user_name);
+            }
+        },
+    },
+    chat_image: {
+        prefix: '/mutual/chat_image/',
+        getClient: () => imagesStomp,
+        onMessage: updateChatHeaderAvatar,
+    },
+};
+
+function destinationFor(name) {
+    return `${CHANNELS[name].prefix}${chat_id}`;
+}
+
+// Приводит все три канала в состояние «заход в чат с нуля» (beads 8r7). Зовётся и из
+// mount(), и из unmount() — см. комментарии там, причины разные.
+function resetChannelState() {
+    for (const state of Object.values(channelState)) {
+        clearTimeout(state.retryTimer);
+        state.retryTimer = null;
+        state.subscription = null;
+        state.retries = 0;
+    }
+}
+
+// К какому каналу относится отбивка (beads 8wh, F1 → обобщено в 8r7). Совпадение строго по
+// полному адресу ТЕКУЩЕГО чата — так же, как раньше сравнивался только `/mutual/chat/`.
+function channelForDestination(destination) {
+    if (!destination) return null;
+    for (const name of Object.keys(CHANNELS)) {
+        if (destination === destinationFor(name)) return name;
+    }
+    return null;
+}
+
+// Идемпотентная (пере)подписка на канал (beads 8wh, F1 → обобщено в 8r7). Вынесена в
+// функцию, потому что её нужно уметь повторять: сервер может уронить SUBSCRIBE, не сумев
+// проверить членство, и тогда единственный способ восстановиться без перезагрузки страницы —
+// подписаться заново.
+function subscribeChannel(name) {
+    const channel = CHANNELS[name];
+    const state = channelState[name];
+    // Снимаем предыдущую подписку ПЕРЕД тем, как завести новую. Без этого повторный вызов
+    // (после SUBSCRIPTION_UNAVAILABLE) оставлял бы старую подписку живой —
+    // SimpleBrokerMessageHandler шлёт копию сообщения на каждую подписку, и onMessage
+    // срабатывал бы по нескольку раз на одно сообщение/событие.
+    if (state.subscription) {
         try {
-            chatSubscription.unsubscribe();
+            state.subscription.unsubscribe();
         } catch (e) {
             // Сервер мог и не зарегистрировать эту подписку (например, прошлый SUBSCRIBE
             // сам был уронён интерцептором) — тогда unsubscribe() на ней no-op с точки
             // зрения сервера, но stomp.js может бросить на несуществующем id. Не фатально.
-            console.warn("[chat] unsubscribe от предыдущей подписки не удался", e);
+            console.warn(`[chat] unsubscribe от предыдущей подписки (${name}) не удался`, e);
         } finally {
-            // Обнуляем даже при исключении (beads 8wh, R3): если бросил сам stompClient.subscribe
-            // ниже (клиент отвалился между проверкой connected и вызовом), присваивания новой
-            // подписке не произойдёт, а без finally здесь осталась бы ссылка на УЖЕ отписанный
-            // объект — следующий повтор снова звал бы на нём unsubscribe() и снова логировал бы
-            // тот же warn. Не фатально, но шумит без пользы.
-            chatSubscription = null;
+            // Обнуляем даже при исключении (beads 8wh, R3): если бросил сам client.subscribe
+            // ниже (клиент отвалился между проверкой connected и вызовом), присваивания
+            // новой подписке не произойдёт, а без finally здесь осталась бы ссылка на УЖЕ
+            // отписанный объект — следующий повтор снова звал бы на нём unsubscribe() и
+            // снова логировал бы тот же warn. Не фатально, но шумит без пользы.
+            state.subscription = null;
         }
     }
-    chatSubscription = stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
-        appendChatMessage(JSON.parse(msg.body));
-    });
+    state.subscription = channel.getClient().subscribe(destinationFor(name), channel.onMessage);
 }
 
 function connectStomp(token) {
@@ -373,23 +464,15 @@ function connectStomp(token) {
         // запасом. Подписка идёт через тот же клиент, что и сообщения чата, чтобы её
         // снимал общий disconnectAll в unmount().
         stompClient.subscribe(`/private/${user_id}`, handleChatError);
-        subscribeToChat();
+        subscribeChannel('chat');
     });
 
-    const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
+    statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
     statusStomp.connect(authHeaders, () => {
-        statusStomp.subscribe(`/mutual/typing/${chat_id}`, (message) => {
-            const data = JSON.parse(message.body);
-            if (String(data.user_id) === String(user_id)) return;
-            if (data.status === "START") {
-                showTypingIndicator(data.user_name);
-            } else if (data.status === "STOP") {
-                hideTypingIndicator(data.user_name);
-            }
-        });
+        subscribeChannel('typing');
     });
 
-    const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
+    imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
     imagesStomp.connect(authHeaders, () => {
         // Адрес несёт chat_id (beads bwh). Раньше здесь были два ГЛОБАЛЬНЫХ канала —
         // /mutual/chat/image_chat_channel и /mutual/chat/image_message_channel, — по которым
@@ -398,7 +481,7 @@ function connectStomp(token) {
         // проходит только для участника (StompAuthChannelInterceptor).
         // Второго канала не стало: у события userimage targetId — это userId, а не chatId,
         // привязать его к чату нечем, и оно уехало на пер-юзерный /mutual/user_image/{userId}.
-        imagesStomp.subscribe(`/mutual/chat_image/${chat_id}`, updateChatHeaderAvatar);
+        subscribeChannel('chat_image');
     });
 }
 
@@ -412,8 +495,17 @@ export async function mount(params) {
     user_image = null;
     typingUsers = [];
     stompClient = null;
+    statusStomp = null;
+    imagesStomp = null;
     typingTimeout = null;
     pendingText = '';
+    // channelState сбрасывается и здесь, а не только в unmount() (beads 8r7). mount()
+    // защитно обнуляет всё остальное модульное состояние выше по той же причине: порядок
+    // вызовов задаёт роутер, и на mount() без предшествующего unmount() (или на unmount(),
+    // упавшем на releaseImages/disconnectAll до цикла сброса) чат унаследовал бы исчерпанный
+    // лимит попыток и ссылку на подписку из уже разорванного соединения. Сброс в unmount()
+    // остаётся: он гасит таймер, который иначе доживёт до следующего экрана и выстрелит там.
+    resetChannelState();
 
     stomp = createStompRegistry();
     ac = new AbortController();
@@ -463,24 +555,18 @@ export function unmount() {
     releaseImages();
     if (stomp) stomp.disconnectAll();
     clearTimeout(typingTimeout);
-    // Таймер повтора подписки (beads 8wh) гасим по тому же образцу, что и typingTimeout:
-    // stompClient не обнуляется здесь и переживает unmount(), поэтому без явного clearTimeout
-    // просроченный повтор при возврате в чат (или в другой чат) проскочил бы guard в
-    // handleChatError и создал вторую подписку на тот же адрес — сообщения рендерились бы дважды.
-    clearTimeout(subscribeRetryTimer);
-    // Без сброса переменной (beads 8wh, R2) guard `if (subscribeRetryTimer) return;` в
-    // handleChatError решил бы, что повтор всё ещё запланирован, и заблокировал бы первую
-    // же отбивку после возврата в тот же (или другой) чат — clearTimeout гасит таймер,
-    // но не обнуляет ссылку на него сам по себе.
-    subscribeRetryTimer = null;
+    // Таймеры повтора подписки (beads 8wh → обобщено на все три канала в 8r7) гасим по
+    // тому же образцу, что и typingTimeout: клиенты stompClient/statusStomp/imagesStomp не
+    // обнуляются здесь (сброс — в mount(), см. комментарий там) и переживают unmount(),
+    // поэтому без явного clearTimeout просроченный повтор при возврате в чат (или в другой
+    // чат) проскочил бы guard в handleChatError и создал бы вторую подписку на тот же адрес.
+    // Заодно обнуляем subscription и retries — по той же причине, по которой раньше
+    // отдельно зануляли chatSubscription и subscribeRetries: stomp.disconnectAll() выше уже
+    // закрыл соединения, но сами ссылки переживают unmount() как модульные переменные —
+    // без сброса следующий mount() того же чата в той же вкладке унаследовал бы объект
+    // подписки из прошлого (уже разорванного) соединения и/или исчерпанный лимит попыток.
+    resetChannelState();
     if (ac) ac.abort();
     stomp = null;
     ac = null;
-    // stomp.disconnectAll() выше уже закрыл соединение, но саму ссылку на подписку
-    // обнуляем явно (beads 8wh, F1): иначе следующий mount() того же чата в той же вкладке
-    // унаследовал бы объект подписки из прошлого (уже разорванного) соединения.
-    chatSubscription = null;
-    // Сброс на выходе из чата (beads 8wh): переменная модульная и переживает
-    // mount/unmount, без сброса второй заход в тот же чат унаследовал бы исчерпанный лимит.
-    subscribeRetries = 0;
 }
