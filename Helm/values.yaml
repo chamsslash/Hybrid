@@ -115,10 +115,25 @@ kafka:
   replicas: 1
   brokerId: 1
   hostName: kafka
-  # Приложение использует топики Images/Events/Messages; при autoCreate они создаются на лету,
-  # а Events/Messages также объявлены NewTopic-бином в AuthService.
-  createTopics: Images,Events,Messages
-  partitionsPerTopic: 3
+  # Единственный источник истины по геометрии топиков (beads lo2). До этого тикета оба
+  # ключа были мёртвыми — их не читал ни один шаблон чарта, а реальную геометрию задавал
+  # KafkaAdmin.NewTopics в AuthService; чарт при этом делал вид, что управляет топиками.
+  # Теперь отсюда читают все три места: джоба kafka-topics-job.yaml (явное создание до
+  # старта приложений), KAFKA_NUM_PARTITIONS брокера (страховка на случай авто-создания)
+  # и init-контейнер messegerparody (шлагбаум перед стартом консьюмера).
+  # "Events" из списка убран: ни один сервис не читает и не пишет такой топик.
+  createTopics: Messages,Images
+  # 5, а не 3: число партиций существующего топика можно только увеличивать. Messages на
+  # живых стендах уже создан с 5, Images — с 3; разнобой был без причины, а единое значение
+  # обязано быть максимумом, иначе --alter упрётся в попытку уменьшения.
+  partitionsPerTopic: 5
+  # Осознанно оставлено true (beads lo2). Spring Kafka сам заводит retry/DLT-топики
+  # (Messages-retry-1000…-10000-1, Messages-dlt, Images-retry-*, Images-dlt), а их имена
+  # выводятся из @RetryableTopic(attempts/backoff) в MessegerParody. Перечислить их в чарте
+  # значило бы намертво связать инфраструктуру с константами в Java: поменяли attempts —
+  # DLT-путь молча отвалился (регрессия хуже исходного бага). Вред авто-создания снят иначе:
+  # num.partitions брокера приравнен к partitionsPerTopic, поэтому авто-созданный топик
+  # больше не получается однопартиционным.
   autoCreateTopics: true
 
 postgres:
