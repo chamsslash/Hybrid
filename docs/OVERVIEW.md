@@ -40,8 +40,16 @@
   `apache/kafka` собирает `server.properties` только из переменных `KAFKA_*`, и без
   неё брокер писал бы в свой встроенный дефолт `/tmp/kafka-logs` мимо тома.
   Deployment стоит со `strategy: Recreate` — том `ReadWriteOnce` не переживёт двух
-  подов сразу. `kafka.persistence.enabled: false` возвращает старое поведение
-  (`emptyDir`, всё теряется при рестарте) для эфемерных стендов.
+  подов сразу. Идентификатор кластера задан явно (`kafka.clusterId` → `CLUSTER_ID`,
+  beads yk8): раньше бесшовность рестарта держалась на дефолте образа, и мажорный
+  апгрейд `apache/kafka` с другим дефолтом уронил бы брокер на живом томе с
+  `InconsistentClusterIdException`. Значение менять нельзя — оно уже записано в
+  `meta.properties` отформатированных томов. Пустым его тоже не оставить: шаблон
+  рендерится через `required` и падает с подсказкой, потому что
+  `helm upgrade --reuse-values` не подхватывает новые дефолты чарта (правильный
+  апгрейд — `--reset-then-reuse-values`). `kafka.persistence.enabled: false`
+  возвращает старое поведение (`emptyDir`, всё теряется при рестарте) для
+  эфемерных стендов.
 - **Postgres** (`Helm/templates/postgres.yaml`) — `postgres:15`, база `hybrid_db`, схема
   накатывается Liquibase-джобом из `messegerparody`.
 - **Redis** (`Helm/templates/redis.yaml`) — `redis:7`, хранит refresh-сессии/fingerprint

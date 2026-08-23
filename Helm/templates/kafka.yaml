@@ -152,6 +152,22 @@ spec:
             # делаем авто-созданный топик неотличимым по геометрии от созданного джобой.
             - name: KAFKA_NUM_PARTITIONS
               value: "{{ .Values.kafka.partitionsPerTopic }}"
+            # Идентификатор кластера задан явно (beads yk8). Раньше его не задавали вовсе,
+            # и бесшовность рестарта держалась на том, что entrypoint образа подставляет
+            # фиксированный дефолт из /etc/kafka/docker/configureDefaults — деталь
+            # реализации образа, а не контракт. Мажорный апгрейд apache/kafka с другим
+            # дефолтом дал бы брокеру meta.properties с чужим cluster.id на живом томе и
+            # InconsistentClusterIdException на старте: стенд, молча сломавшийся после
+            # смены тега образа. Значение — см. комментарий в values.yaml.
+            #
+            # required, а не тихий дефолт: пустая переменная здесь опаснее её отсутствия.
+            # При отсутствии entrypoint подставит свой дефолт, а вот заданный пустым
+            # CLUSTER_ID уедет в kafka-storage format на свежем томе. Наступить на это
+            # легко: `helm upgrade --reuse-values` берёт значения прошлого релиза и НЕ
+            # видит новых дефолтов чарта, так что после этого тикета он отрендерил бы
+            # переменную пустой. Правильный апгрейд — `--reset-then-reuse-values`.
+            - name: CLUSTER_ID
+              value: {{ required "kafka.clusterId обязателен: задайте его в values.yaml. Если сюда привёл `helm upgrade --reuse-values`, повторите с `--reset-then-reuse-values` — --reuse-values не подхватывает новые дефолты чарта (beads yk8)." .Values.kafka.clusterId | quote }}
           # До y1v пробы не было вовсе: под считался Ready сразу после старта процесса,
           # хотя брокер ещё поднимал listener. С постоянным томом старт стал заметно
           # длиннее (восстановление сегментов из каталога логов), а от «Ready» теперь
@@ -178,8 +194,8 @@ spec:
           # KafkaDockerWrapper setup, тот форматирует каталог (kafka-storage format)
           # и кладёт meta.properties с cluster.id; на последующих стартах вывод
           # «already formatted» проглатывается и брокер стартует поверх своих данных.
-          # cluster.id стабилен между рестартами, потому что CLUSTER_ID мы не задаём,
-          # а образ подставляет фиксированный дефолт из /etc/kafka/docker/configureDefaults.
+          # cluster.id стабилен между рестартами, потому что CLUSTER_ID задан явно
+          # переменной окружения выше (beads yk8), а не унаследован от дефолта образа.
           # Права тоже сходятся: local-path-provisioner создаёт каталог через
           # `mkdir -m 0777`, а контейнер бежит под uid 1000 (appuser).
           persistentVolumeClaim:
