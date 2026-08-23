@@ -1,0 +1,66 @@
+{{- if .Values.infra.kafka }}
+{{- $bootstrap := printf "%s:9092" (default "kafka" .Values.kafka.hostName) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topics
+  labels:
+    app: kafka
+  annotations:
+    # post-install/post-upgrade (не pre-*): kafka — обычный шаблон умбрелла-чарта
+    # (Helm/templates/kafka.yaml), на pre-* брокера ещё не существует и джоба ждала бы
+    # вечно. Ровно та же причина, что у wait-for-postgres в messegerparody-liquibase.
+    # hook-weight "-5": раньше остальных хуков (minio-provision идёт с 5), чтобы топики
+    # появлялись как можно ближе к моменту старта брокера.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.kafka.topicsJob.backoffLimit | default 6 }}
+  template:
+    metadata:
+      labels:
+        app: kafka-topics
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: kafka-topics
+          image: {{ .Values.kafka.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" --list >/dev/null 2>&1; do
+                echo "waiting for kafka at $BOOTSTRAP..."; sleep 2
+              done
+              for t in $(echo "$TOPICS" | tr ',' ' '); do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" \
+                  --create --if-not-exists --topic "$t" \
+                  --partitions "$PARTITIONS" --replication-factor "$REPLICATION_FACTOR"
+                # Топик мог быть создан раньше джобы (авто-создание брокером или KafkaAdmin
+                # приложения) — тогда --create --if-not-exists молча ничего не сделает и
+                # геометрия останется чужой. Догоняем через --alter; уменьшать партиции
+                # Kafka не умеет, поэтому только вверх и только если реально меньше.
+                current=$(/opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" \
+                  --describe --topic "$t" | head -1 | tr '\t' '\n' | sed -n 's/^PartitionCount: //p')
+                if [ "$current" -lt "$PARTITIONS" ]; then
+                  echo "topic $t: $current -> $PARTITIONS partitions"
+                  /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" \
+                    --alter --topic "$t" --partitions "$PARTITIONS"
+                elif [ "$current" -gt "$PARTITIONS" ]; then
+                  echo "topic $t: $current partitions > requested $PARTITIONS, Kafka cannot shrink — left as is"
+                fi
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" --describe --topic "$t" | head -1
+              done
+          env:
+            - name: BOOTSTRAP
+              value: {{ $bootstrap | quote }}
+            - name: TOPICS
+              value: {{ .Values.kafka.createTopics | quote }}
+            - name: PARTITIONS
+              value: {{ .Values.kafka.partitionsPerTopic | quote }}
+            - name: REPLICATION_FACTOR
+              value: {{ .Values.kafka.replicas | default 1 | quote }}
+{{- end }}

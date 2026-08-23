@@ -8,6 +8,20 @@ grpc:
 spring:
   kafka:
     bootstrap-servers: kafka:9092
+    admin:
+      # Геометрией топиков владеет Helm (kafka.createTopics/partitionsPerTopic), не сервис
+      # (beads lo2). @RetryableTopic с autoCreateTopics по умолчанию объявляет NewTopic не
+      # только на retry/DLT, но и на ГЛАВНЫЕ топики — с одной партицией. Если такой
+      # KafkaAdmin успевал создать "Messages" раньше джобы kafka-topics, консьюмер
+      # стартовал на однопартиционном топике и держал только партицию 0 до истечения
+      # metadata.max.age.ms (~5 минут), а сообщения с партиций 1..4 всё это время не
+      # доезжали до БД. auto-create: false выключает создание топиков этим сервисом
+      # целиком: топики создаёт джоба, а retry/DLT-топики (их имена выводятся из
+      # attempts/backoff в KafkaConsumer, в чарте их не перечислить) по-прежнему
+      # появляются на лету — через auto.create.topics.enable брокера, у которого
+      # num.partitions приравнен к partitionsPerTopic. Выключать авто-создание на брокере
+      # нельзя, не сломав этим DLT-путь.
+      auto-create: false
     producer:
       properties:
         max.request.size: 10485760

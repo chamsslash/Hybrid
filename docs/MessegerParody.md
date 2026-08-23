@@ -72,6 +72,17 @@ artifactId — `DatabaseModule` (исторический, не переимен
   в сервисе не используется — его читает HTTPService (см.
   `docs/HTTPService.md`), в MessegerParody для него нет ни листенера, ни
   упоминаний.
+- **Топики сервис не создаёт**: `spring.kafka.admin.auto-create: false`
+  (beads lo2). `@RetryableTopic` по умолчанию объявляет `NewTopic` не только на
+  retry/DLT, но и на главные топики листенеров — с ОДНОЙ партицией; выигрывая
+  гонку у джобы `kafka-topics`, такой `KafkaAdmin` создавал однопартиционный
+  `Messages`, и консьюмер держал только партицию 0 до истечения
+  `metadata.max.age.ms` (~5 минут), теряя на это время сообщения с партиций
+  1..4. Геометрию задаёт чарт (`kafka.createTopics`/`kafka.partitionsPerTopic`),
+  а retry/DLT-топики по-прежнему появляются на лету — через auto-create на
+  брокере, у которого `num.partitions` приравнен к тому же значению. Отсюда
+  жёсткая связка: выключить auto-create на брокере, не перечислив retry/DLT
+  явно, значит молча сломать DLT-путь.
 - Контракт события `Images` (см. комментарий в `KafkaConsumer.java`):
   ```json
   { "targetType": "userimage"|"chatimage", "targetId": "<id>", "objectKey": "<key>" }
