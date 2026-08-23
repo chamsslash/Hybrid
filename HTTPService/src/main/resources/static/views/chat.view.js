@@ -202,17 +202,23 @@ function handleChatError(msg) {
         if (error.destination !== `/mutual/chat/${chat_id}`) {
             return;
         }
+        // Повтор уже запланирован (beads 8wh, R2) — вторая отбивка (например, из соседней
+        // вкладки того же чата на общий /private/{userId}) не должна списывать из бюджета
+        // ещё одну попытку: фактически всё равно выполнится ровно один повтор, а лишний
+        // инкремент subscribeRetries раньше времени исчерпывал лимит в 3 попытки. До этой
+        // правки чистка через clearTimeout перед новым setTimeout (F9) гасила уже
+        // ОПЛАЧЕННЫЙ таймер, то есть бюджет считал попытки, которые физически не происходили.
+        if (subscribeRetryTimer) {
+            return;
+        }
         if (subscribeRetries < SUBSCRIBE_BACKOFF_MS.length) {
             const delay = SUBSCRIBE_BACKOFF_MS[subscribeRetries];
             subscribeRetries += 1;
             showToast('Восстанавливаем связь с чатом…', 'info');
-            // Гасим предыдущий запланированный повтор ПЕРЕД тем, как завести новый
-            // (beads 8wh, F9): без этого две отбивки подряд заводят два таймера, а
-            // subscribeRetryTimer хранит только последний — unmount() гасит один, второй
-            // переживает уход со страницы. Запланированный повтор в любой момент нужен
-            // ровно один — это и правильная семантика, а не только чистка таймеров.
-            clearTimeout(subscribeRetryTimer);
             subscribeRetryTimer = setTimeout(() => {
+                // Без сброса здесь guard выше залипнет навсегда после первого же повтора —
+                // ни одна следующая отбивка не запланирует новый таймер (beads 8wh, R2).
+                subscribeRetryTimer = null;
                 if (stompClient && stompClient.connected) {
                     subscribeToChat();
                 }
@@ -337,6 +343,13 @@ function subscribeToChat() {
             // сам был уронён интерцептором) — тогда unsubscribe() на ней no-op с точки
             // зрения сервера, но stomp.js может бросить на несуществующем id. Не фатально.
             console.warn("[chat] unsubscribe от предыдущей подписки не удался", e);
+        } finally {
+            // Обнуляем даже при исключении (beads 8wh, R3): если бросил сам stompClient.subscribe
+            // ниже (клиент отвалился между проверкой connected и вызовом), присваивания новой
+            // подписке не произойдёт, а без finally здесь осталась бы ссылка на УЖЕ отписанный
+            // объект — следующий повтор снова звал бы на нём unsubscribe() и снова логировал бы
+            // тот же warn. Не фатально, но шумит без пользы.
+            chatSubscription = null;
         }
     }
     chatSubscription = stompClient.subscribe(`/mutual/chat/${chat_id}`, (msg) => {
@@ -349,12 +362,16 @@ function connectStomp(token) {
 
     stompClient = stomp.add(Stomp.over(new SockJS("/ChatMessagesConn")));
     stompClient.connect(authHeaders, () => {
-        // Персональный адрес отказов (beads isf) регистрируется ПЕРВЫМ (beads 8wh): preSend
-        // работает в потоке сессии строго последовательно (см. StompFrameTimestampInterceptor,
-        // beads 525), поэтому отбивка об уроненном SUBSCRIBE /mutual/chat/{id} ушла бы
-        // в /private/{userId} раньше, чем сюда дошла бы очередь, — и простой брокер
-        // выбросил бы её без подписчика. Подписка идёт через тот же клиент, что и сообщения
-        // чата, чтобы её снимал общий disconnectAll в unmount().
+        // Персональный адрес отказов (beads isf) регистрируется ПЕРВЫМ (beads 8wh, R6):
+        // обоснование не в порядке preSend — applyPreSend синхронен на потоке отправителя
+        // (см. StompFrameTimestampInterceptor, beads 525), а вот РЕГИСТРАЦИЯ подписки в
+        // DefaultSubscriptionRegistry уезжает в пул clientInboundChannel и ничем не
+        // упорядочена с этим потоком. Запас другой: отбивка SUBSCRIPTION_UNAVAILABLE
+        // рождается только после decideBlocking, то есть не раньше чем через ~2 с
+        // блокирующего ожидания (см. membershipTimeout() в ChatMembershipService) — за это
+        // время задача регистрации /private/{userId} из пула успевает отработать с огромным
+        // запасом. Подписка идёт через тот же клиент, что и сообщения чата, чтобы её
+        // снимал общий disconnectAll в unmount().
         stompClient.subscribe(`/private/${user_id}`, handleChatError);
         subscribeToChat();
     });
@@ -451,6 +468,11 @@ export function unmount() {
     // просроченный повтор при возврате в чат (или в другой чат) проскочил бы guard в
     // handleChatError и создал вторую подписку на тот же адрес — сообщения рендерились бы дважды.
     clearTimeout(subscribeRetryTimer);
+    // Без сброса переменной (beads 8wh, R2) guard `if (subscribeRetryTimer) return;` в
+    // handleChatError решил бы, что повтор всё ещё запланирован, и заблокировал бы первую
+    // же отбивку после возврата в тот же (или другой) чат — clearTimeout гасит таймер,
+    // но не обнуляет ссылку на него сам по себе.
+    subscribeRetryTimer = null;
     if (ac) ac.abort();
     stomp = null;
     ac = null;
