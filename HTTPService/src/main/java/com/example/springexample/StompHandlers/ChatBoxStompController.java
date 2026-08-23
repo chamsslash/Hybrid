@@ -51,8 +51,11 @@ public class ChatBoxStompController {
      * не может уехать сообщение, чьё авторство не подтверждено.
      * Членство в чате проверяется здесь же, по списку участников из members(chat): если
      * отправителя в списке нет — он не член чата, разбор фрейма прерывается без побочных
-     * эффектов. StompAuthChannelInterceptor эту проверку на SEND намеренно не делает —
-     * дублировала бы тот же gRPC-вызов и блокировала пул clientInboundChannel (beads g9x).
+     * эффектов. Само правило «кто считается участником» принадлежит ChatMembershipService
+     * (beads 40i) — здесь зовётся его чистый предикат поверх уже полученного списка, а не
+     * пишется третья копия сравнения. StompAuthChannelInterceptor эту проверку на SEND
+     * намеренно не делает — дублировала бы тот же gRPC-вызов и блокировала пул
+     * clientInboundChannel (beads g9x).
      * Отказ не бесшумный (beads isf): отправитель получает отбивку на /private/{userId},
      * а сам отказ отмечается в StompDenialCounter — по нему интерцептор рвёт сессию, если
      * отказы пошли серией.
@@ -104,10 +107,14 @@ public class ChatBoxStompController {
 
         chatMembershipService.members(chat).subscribe(
                 members -> {
-                    Optional<String> senderUsername = members.stream()
-                            .filter(u -> String.valueOf(u.getId()).equals(senderId))
-                            .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername)
-                            .findFirst();
+                    // Вердикт «участник ли отправитель» выносит ChatMembershipService (beads 40i):
+                    // правило, что значит «участник», записано там же, где decide()/isMemberReactive(),
+                    // и разъехаться копиям больше негде. Предикат чистый и работает поверх УЖЕ
+                    // полученного списка, поэтому gRPC-вызов на этом горячем пути остаётся один —
+                    // из того же ответа берутся и username отправителя, и адресаты рассылки.
+                    Optional<String> senderUsername =
+                            ChatMembershipService.findMember(members, senderId)
+                                    .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername);
                     if (senderUsername.isEmpty()) {
                         log.warn("SEND в чат {} отклонён: пользователь {} не найден среди участников",
                                 chatId, senderId);
@@ -175,8 +182,9 @@ public class ChatBoxStompController {
      * список чатов, из-за чего любой пользователь получал события набора текста во всей
      * системе — утечка графа общения без всякой атаки. Вместо него — веерная рассылка
      * участникам чата на персональные адреса, уже защищённые PER_USER_PREFIXES.
-     * Членство проверяется по тому же списку участников, что и в HandleChatMessage:
-     * отправитель не найден среди них — статус не рассылается (beads g9x).
+     * Членство проверяется по тому же списку участников и тем же предикатом
+     * ChatMembershipService, что и в HandleChatMessage: отправитель не найден среди них —
+     * статус не рассылается (beads g9x, beads 40i).
      */
     @MessageMapping("/chat/user_statuses/{chatId}")
     public void HandleChangeOfUserStatus(@DestinationVariable String chatId,
@@ -202,10 +210,10 @@ public class ChatBoxStompController {
 
         chatMembershipService.members(chat).subscribe(
                 members -> {
-                    Optional<String> senderUsername = members.stream()
-                            .filter(u -> String.valueOf(u.getId()).equals(senderId))
-                            .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername)
-                            .findFirst();
+                    // Тот же предикат ChatMembershipService, что и в HandleChatMessage (beads 40i).
+                    Optional<String> senderUsername =
+                            ChatMembershipService.findMember(members, senderId)
+                                    .map(com.example.grpc.DataTransferService.UserDataRequest::getUsername);
                     if (senderUsername.isEmpty()) {
                         log.warn("SEND статуса набора текста в чат {} отклонён: пользователь {} не найден среди участников",
                                 chatId, senderId);
