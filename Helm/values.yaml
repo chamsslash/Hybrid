@@ -135,6 +135,9 @@ kafka:
   # num.partitions брокера приравнен к partitionsPerTopic, поэтому авто-созданный топик
   # больше не получается однопартиционным.
   autoCreateTopics: true
+  # Джоба явного создания топиков (Helm/templates/kafka-topics-job.yaml).
+  topicsJob:
+    backoffLimit: 6
 
 postgres:
   image: postgres:15

@@ -63,10 +63,26 @@ spec:
               value: "0"
             - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
               value: "{{ default "true" .Values.kafka.autoCreateTopics }}"
+            # Страховка к джобе kafka-topics (beads lo2). Авто-создание оставлено включённым
+            # ради retry/DLT-топиков Spring Kafka, но брокерский дефолт num.partitions=1
+            # означал, что любой клиент, дотянувшийся до топика раньше джобы, создавал его
+            # однопартиционным — и консьюмер кешировал ровно одну партицию до истечения
+            # metadata.max.age.ms (~5 минут). Приравняв дефолт к partitionsPerTopic, мы
+            # делаем авто-созданный топик неотличимым по геометрии от созданного джобой.
+            - name: KAFKA_NUM_PARTITIONS
+              value: "{{ .Values.kafka.partitionsPerTopic }}"
           volumeMounts:
             - name: kafka-data
               mountPath: /var/lib/kafka/data
       volumes:
+        # emptyDir: данные брокера не переживают рестарт пода kafka — вместе с ними
+        # исчезают и топики. Джоба kafka-topics висит на хуках релиза и в этот момент
+        # не переигрывается, поэтому геометрию восстанавливает не она, а авто-создание
+        # с KAFKA_NUM_PARTITIONS выше — по числу партиций результат тот же. Дыра
+        # остаётся одна: если сразу после рестарта kafka перезапустится и messegerparody,
+        # его KafkaAdmin (retry-топики Spring объявляют главные топики с 1 партицией)
+        # может успеть создать топик раньше первого обращения продюсера. Полноценный PVC
+        # под брокера — за рамками beads lo2, лечится отдельным тикетом.
         - name: kafka-data
           emptyDir: {}
 {{- end }}
