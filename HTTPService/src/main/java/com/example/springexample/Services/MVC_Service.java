@@ -53,6 +53,17 @@ public class MVC_Service {
     GeminiService gptService;
 
 
+    // Корень отдаёт редирект на точку входа (beads 9kn). Маппинга на "/" не было вовсе, и
+    // пользователь, набравший голый хост, упирался в сырую страницу Tomcat «HTTP Status 404».
+    // Именно редирект, а не рендер той же вьюхи: /welcome сам кладёт в модель nonce и CSRF —
+    // дублировать эту подготовку во второй точке означало бы два места, которые обязаны
+    // расходиться синхронно. "/" уже числится публичным в MvcJwtAuthFilter.PUBLIC_PATHS,
+    // так что редирект отрабатывает и для анонима.
+    @GetMapping(path = "/")
+    public String GetRoot() {
+        return "redirect:/welcome";
+    }
+
     @GetMapping(path = "/createchatpage")
     public String GetCreateChat() {
         return "redirect:/reactive/createchat";
