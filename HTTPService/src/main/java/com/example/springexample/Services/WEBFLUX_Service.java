@@ -93,23 +93,37 @@ public class WEBFLUX_Service {
                     jsonObject.addProperty("components",resultJson);
                     newMeta.set(gson.fromJson(jsonObject, FpSimilarityScore.ClientMeta.class));
 
-                    if (usernamePart == null || passwordPart == null ||  imagePart == null) {
-                        return Mono.error(new IllegalArgumentException("Имя пользователя, пароль, фингерпринт и изображение обязательны."));
+                    // Аватар необязателен (beads krr). Форма регистрации всегда помечала
+                    // userimage как необязательный (нет required), но эта проверка требовала
+                    // его на сервере, и регистрация без картинки отбивалась 400. Пустой file
+                    // input до сервера вообще не доезжает: ридер WebFlux выбрасывает часть с
+                    // filename="" целиком, так что imagePart == null — это ровно «пользователь
+                    // не выбрал файл», а не сбой (зафиксировано RegisterMultipartAvatarContractTest).
+                    if (usernamePart == null || passwordPart == null) {
+                        return Mono.error(new IllegalArgumentException("Имя пользователя и пароль обязательны."));
                     }
                     return Mono.just(new RegistrationData(usernamePart.value(), passwordPart.value(),imagePart));
                 })
                 .flatMap(regData -> {
                     return Mono.fromCallable(() -> {
 
+                                // Без файла НЕ помечаем "pending" — тот же приём, что и на
+                                // создании чата ниже: "pending" читается фронтом как «байты
+                                // едут» и рисуется спиннером (image_loader.js), поэтому у
+                                // пользователя без аватара он крутился бы вечно. Пустая
+                                // строка даёт дефолтную аватарку. beads krr.
                                 DataTransferService.UserDataRequest grpcRequest = DataTransferService.UserDataRequest.newBuilder()
                                         .setUsername(regData.username())
                                         .setPassword(regData.password())
+                                        .setImageUrl(regData.imagePart() != null ? "pending" : "")
                                         .build();
                                 return authGrpc.authRegister(grpcRequest);
                             })
                             .subscribeOn(Schedulers.boundedElastic())
-                            .flatMap(authResponse -> Upload_image(regData.imagePart(), authResponse.getSub(), "userimage")
-                                    .then(Mono.just(authResponse)))
+                            .flatMap(authResponse -> regData.imagePart() == null
+                                    ? Mono.just(authResponse)
+                                    : Upload_image(regData.imagePart(), authResponse.getSub(), "userimage")
+                                            .then(Mono.just(authResponse)))
                             .flatMap(authResponse -> Mono.fromCallable(() -> {
                                 try {
                                     return tokensResolver.genPairOfToken(
