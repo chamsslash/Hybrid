@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 27 | 210 | 2 | 212 |
+| HTTPService | 28 | 211 | 2 | 213 |
 | MessegerParody | 3 | 10 | 3 | 13 |
-| **Итого** | **35** | **237** | **7** | **244** |
+| **Итого** | **36** | **238** | **7** | **245** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -193,6 +193,11 @@ Round-trip `ImageUploadDTO` через Gson.
 Рендерит шаблон `app.html` через `SpringWebFluxTemplateEngine` с classloader-резолвером, без поднятия контекста Spring.
 
 - **`appShellRendersRootAndEntrypoint`** — в модель кладётся `nonce="testnonce"`, рендерится шаблон `app`. Проверяет: в HTML есть `id="app"` (корневой SPA-контейнер), `src="/app.js"` (точка входа фронтенда) и `nonce="testnonce"` (CSP nonce проброшен в `<script>`). Зачем: стережёт контракт SPA-шелла — если рендер сломается или nonce перестанет прокидываться, фронтенд не загрузится или упадёт по CSP.
+
+### `Services/MvcRootRedirectTest` — `unit` — корневой маршрут отдаёт точку входа (beads 9kn)
+Standalone-MockMvc поверх `MVC_Service` без поднятия контекста Spring: `GetRoot` не обращается ни к одной зависимости контроллера, поэтому проверяется ровно наличие маппинга и цель редиректа.
+
+- **`rootRedirectsToWelcome`** — `GET /` → `3xx` с `Location: /welcome`. Зачем: маппинга на `/` не существовало вовсе, и пользователь, набравший голый хост, получал сырую страницу Tomcat «HTTP Status 404 – Not Found» вместо страницы входа. При этом `/` числится публичным и в `MvcJwtAuthFilter.PUBLIC_PATHS`, и в `MvcSecurityConfig` — то есть отдавать по корню что-то осмысленное было задумано изначально. Тест стережёт, чтобы маппинг не пропал снова при рефакторинге контроллера.
 
 ### `Services/CreateChatJsonResponseTest` — `reactive-unit` — success-ответ создания чата (SPA-миграция)
 `WEBFLUX_Service.createChatSuccess` — часть миграции с 303-редиректа на `/reactive/chatlist` на JSON-ответ, чтобы SPA навигировала без перезагрузки страницы. Проверяется через `ServerResponse.writeTo` в mock-exchange (запрос в exchange — `POST /reactive/api/createchat`, фактический эндпоинт мутации; на ассерты путь не влияет).

@@ -394,6 +394,18 @@ body {
 .message strong { font-size: 12.5px; font-weight: 700; letter-spacing: -.01em; }
 .message .message-avatar { display: none; } /* avatar not needed inside the bubble */
 
+/* Шапка пузыря: имя, ID и время в одну строку с гарантированным зазором (beads 9kn).
+   Раньше время висело на float: right внутри сжатого по контенту пузыря и склеивалось
+   с ID. margin-left: auto прижимает его вправо в пределах реальной ширины пузыря. */
+.message-header { display: flex; align-items: baseline; gap: 8px; }
+.message-header .message-time {
+    margin-left: auto;
+    font-size: 12px;
+    color: #999;
+    white-space: nowrap;
+}
+.message.user .message-header .message-time { color: rgba(255,255,255,.75) !important; }
+
 .message.bot {
     align-self: flex-start;
     background: var(--surface);

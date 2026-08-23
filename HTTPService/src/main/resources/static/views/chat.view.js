@@ -99,14 +99,16 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
     msg.classList.add(String(senderId) === String(user_id) ? 'user' : 'bot');
 
     const img = imageurl ?? image_url;
+    // Шапка — flex-строка, а не float (beads 9kn): пузырь сообщения сжимается по контенту
+    // (.message max-width: 78%), поэтому float: right у времени не находил свободного места
+    // и приклеивался вплотную к ID — «ID: 122 авг., 13:05». Время отжимается вправо через
+    // margin-left: auto, а gap гарантирует зазор даже когда строка забита под завязку.
     msg.innerHTML = policy.createHTML(`
-        <div>
+        <div class="message-header">
             <div class="message-avatar">${avatarHtml(img)}</div>
             <strong>${username || 'anon'}</strong>
             <strong>ID: ${senderId || 'anon'}</strong>
-            <span style="float: right; font-size: 12px; color: #999;">
-                ${formatMessageTimestamp(timestamp)}
-            </span>
+            <span class="message-time">${formatMessageTimestamp(timestamp)}</span>
         </div>
         <div><span>${text}</span></div>
     `);
