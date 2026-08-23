@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 24 | 195 | 2 | 197 |
+| HTTPService | 25 | 197 | 2 | 199 |
 | MessegerParody | 3 | 10 | 3 | 13 |
-| **Итого** | **32** | **222** | **7** | **229** |
+| **Итого** | **33** | **224** | **7** | **231** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -138,6 +138,12 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`eachSubscriptionIsCountedSeparately`** — одна и та же собранная цепочка подписана дважды. Проверяет: 2 записи в таймере и 2 в счётчике. Зачем: замер живёт на подписке (`Mono.defer`), поэтому переиспользование `Mono` считается честно — это обратная сторона того же бага, что и в первом тесте.
 - **`latencyIsExposedAsPrometheusHistogramNotOnlyAverage`** — замер на настоящем `PrometheusMeterRegistry` (в приложении стоит именно он, actuator `/prometheus`), затем разбор текста `scrape()`. Проверяет: в выдаче есть `grpc_call_duration_seconds_bucket` с метками `method="members"`/`outcome="success"` и по-прежнему есть `grpc_calls_counter_total`. Зачем: (1) требование тикета — латентность распределением, а не средним: бакеты percentile-гистограммы материализует только реестр с агрегируемыми перцентилями, на `SimpleMeterRegistry` они пусты, поэтому проверка идёт на проде-реестре; (2) исторический счётчик обязан остаться на месте — на него могли смотреть снаружи.
 - **`legacyIncrementStillFeedsOldCounter`** — старый `increment()` без аргументов. Проверяет: `grpc_calls_counter{type=GrpcMetric}` вырос. Зачем: метод остаётся в API ради `AuthGrpc`, который на него завязан и в периметр тикета не входил.
+
+### `ReactiveStubGenConfigTest` — `unit` — канал ReactiveTransferService реально получает keepalive/round_robin из конфига (beads 16t)
+До фикса `ReactiveStubGen` собирал `ManagedChannel` вручную (`ManagedChannelBuilder.forTarget(...).usePlaintext().build()`), полностью игнорируя блок `grpc.client.ReactiveTransferService.*` в `application.yml` (keepalive, `default-load-balancing-policy`) — эти ключи применяет только стартер `net.devh` и только для полей с `@GrpcClient`. Из `dns:///messegerparody:9091` резолвился один адрес без keepalive и без перебалансировки — на канале, по которому идёт проверка членства на каждое сообщение/typing-событие. Тесты не сравнивают код с yml-диффом, а прогоняют настоящий код `net.devh` (`ShadedNettyChannelFactory.newChannelBuilder`+`configure`) на настоящем `application.yml` и читают итоговое состояние живого `NettyChannelBuilder` рефлексией — это чтение фактической рантайм-конфигурации канала, а не просто чтение исходников. Оба теста проверены на «кусаемость»: временный откат `ReactiveStubGen` на ручной `ManagedChannelBuilder` красит первый тест, временная порча `keep-alive-time` в yml красит второй.
+
+- **`reactiveClientStubIsWiredThroughGrpcClientWithMatchingName`** — рефлексия по полю `ReactiveStubGen.reactiveClientStub`. Проверяет: поле помечено `@GrpcClient`, и значение аннотации буквально равно `"ReactiveTransferService"` — тому же ключу, что в `application.yml`. Зачем: это единственная защита от отката на ручную сборку канала мимо стартера net.devh — красный при регрессии, подтверждено откатом кода на прежний `ManagedChannelBuilder`.
+- **`realApplicationYmlProducesKeepAliveAndRoundRobinForThatChannelName`** — грузит реальный `application.yml` через `YamlPropertySourceLoader`, биндит `grpc.client.*` в `GrpcChannelsProperties` тем же `Binder`, что и Spring Boot, прогоняет `ShadedNettyChannelFactory.newChannelBuilder("ReactiveTransferService")` + `configure(...)` — те же protected-методы, что использует продовый `@GrpcClient` — и читает результат рефлексией: `keepAliveTimeNanos`/`keepAliveTimeoutNanos` на самом `NettyChannelBuilder`, `defaultLbPolicy` на его `delegate()` (`io.grpc.internal.ManagedChannelImplBuilder`). Проверяет: 30s/10s/`"round_robin"`. Зачем: гарантирует, что блок `grpc.client.ReactiveTransferService` в yml не просто существует, а реально долетает до билдера канала тем кодом, что использует прод — подтверждено порчей `keep-alive-time` в yml (тест краснеет с точным значением несовпадения).
 
 ### `Services/ImageStorageServiceIT` — `integration` (Docker) — MinIO round-trip реактивный (beads se2)
 `ImageStorageService` (реактивный) против `MinIOContainer`, проверка через `StepVerifier`.
