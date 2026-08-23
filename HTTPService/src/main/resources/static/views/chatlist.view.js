@@ -9,9 +9,16 @@ import { formatMessageTimestamp } from "/timestamp_format.js";
 // Данные приходят из /api/*, STOMP аутентифицируется access-токеном на CONNECT.
 // Разметка (была в chats_list.html) рисуется сюда в mount() — сервер отдаёт только shell.
 
+// Кнопка создания чата живёт в общей разметке, а не внутри пустого состояния (beads 0mv):
+// до неё маршрут /reactive/createchat был зарегистрирован в app.js, но из UI на него не
+// ссылалось ничто — свежезарегистрированный пользователь упирался в список без единого
+// интерактивного элемента, и чат создавался только если набрать URL руками. Второй чат
+// таким же образом не создать, поэтому кнопка нужна в обоих состояниях списка, а не только
+// рядом с «У вас пока нет чатов».
 const CHATLIST_HTML = `
     <div class="post-feed">
         <h2 style="text-align: center;">Ваши чаты</h2>
+        <button type="button" id="create-chat-btn" class="btn btn-regular">+ Новый чат</button>
         <p id="no-chats-message" style="text-align: center; color: #888; display: none;">У вас пока нет чатов</p>
         <div id="chatlist-spinner" style="text-align: center; color: #888;">Загрузка…</div>
         <div class="chat-messages" id="chats"></div>
@@ -209,6 +216,15 @@ export async function mount(params) {
 
     const app = document.getElementById('app');
     if (app) app.innerHTML = policy.createHTML(CHATLIST_HTML);
+
+    // Обработчик вешается ДО try — иначе падение бутстрапа (/api/me, /api/chatlist или
+    // ensureAccessToken) снова оставляло бы пользователя на странице без единого действия,
+    // то есть ровно в том тупике, который чинит beads 0mv. Переход через router.navigate,
+    // а не href: фронт — частичный SPA (beads j35), полная перезагрузка здесь не нужна.
+    // Слушатель не снимаем в unmount: он висит свойством onclick на узле, который живёт
+    // внутри #app и целиком заменяется следующим innerHTML — как onclick у карточек чата.
+    const createChatBtn = document.getElementById('create-chat-btn');
+    if (createChatBtn) createChatBtn.onclick = () => navigate('/reactive/createchat');
 
     try {
         const me = (await api.get('/api/me')).data;
