@@ -95,10 +95,20 @@ body {
 /* ============================================================
    BACK BUTTON (generic)
    ============================================================ */
+/* Класс объявлен давно, но до появления кнопок возврата им не пользовалась ни одна
+   вьюха — position: fixed/top/left убраны без риска, ломать было нечего.
+   Причина убрать: на шапке чата плавающая кнопка ложится поверх аватарки. Замерено
+   при вьюпорте 390px, где .chat-container разворачивается во весь экран: кнопка в
+   точке 18/18 занимает прямоугольник 18,18 51x36, аватарка — 40,38 52x52, то есть
+   они пересекаются. На карточных экранах (.post-feed) наложения нет — карточку
+   центрирует по вертикали body из style_welcome.css, и заголовок оказывается сильно
+   ниже кнопки, — но там fixed отрывает кнопку от карточки, к которой она относится:
+   она висит в углу вьюпорта, пока карточка стоит посреди экрана. Поток решает оба
+   случая одним поведением; внешний вид (пилюля, тень, :hover) прежний. */
 .back-button {
-    position: fixed;
-    top: 18px;
-    left: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     padding: 10px 18px;
     background: var(--surface);
     color: var(--iris-600);
@@ -110,6 +120,11 @@ body {
     transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 .back-button:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); border-color: var(--line-2); }
+
+/* На карточных экранах кнопка стоит отдельной строкой над заголовком. Отступ задаём
+   здесь, а не в базовом правиле: в шапке чата кнопка — элемент одной флекс-строки с
+   названием, и нижний отступ сбивал бы там вертикальное выравнивание. */
+.post-feed > .back-button { margin-bottom: 14px; }
 
 /* ============================================================
    FEED / LIST PAGE  (chats_list, chatcreatepage, register)
@@ -357,7 +372,10 @@ body {
     white-space: nowrap;
     flex: 1;
 }
-.chat-header button {
+/* Правило описывает кнопки-действия справа от названия чата (своих у шапки сейчас нет,
+   но геометрия рассчитана на них). Кнопка возврата исключена: она стоит первой в строке,
+   а margin-left: auto отжал бы её в противоположный край. */
+.chat-header button:not(.back-button) {
     margin-left: auto;
     padding: 9px 14px;
     background: var(--surface-2);
@@ -368,7 +386,7 @@ body {
     cursor: pointer;
     transition: background .18s ease, border-color .18s ease;
 }
-.chat-header button:hover { background: var(--iris-050); border-color: var(--iris); }
+.chat-header button:not(.back-button):hover { background: var(--iris-050); border-color: var(--iris); }
 
 #typing-indicator {
     font-size: 12px;
@@ -377,7 +395,13 @@ body {
     min-height: 14px;
     order: 3;
     flex-basis: 100%;
-    padding-left: 56px;
+    /* Индикатор — перенесённая на свою строку часть флекс-шапки, поэтому отступ слева
+       у него ручной. 56px (аватарка 44 + gap 12) подгонялись под шапку без кнопки
+       возврата и с её появлением перестали приводить индикатор под название чата.
+       Ширина самой кнопки зависит от глифа, считать её в calc() — держать хрупкое
+       число, которое сломает следующая правка шапки. Ровняем индикатор по левому краю
+       шапки: под чем он стоит, не важно, важно, что он ни от чего не зависит. */
+    padding-left: 0;
     margin-top: -6px;
 }
 #typing-indicator:empty { display: none; }
