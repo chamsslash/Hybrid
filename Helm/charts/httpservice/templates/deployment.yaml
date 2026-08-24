@@ -20,6 +20,30 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8080
+          # Без readiness-пробы под считается готовым сразу после старта контейнера, а
+          # Spring поднимается ~16 с (в логе: «Started Main in 16.362 seconds», Tomcat
+          # начинает слушать только под конец). Ingress всё это время слал трафик в
+          # неготовый под, и каждый `helm upgrade` / `rollout restart` давал окно, в
+          # котором пользователь получал 502 Bad Gateway — ловилось вживую дважды подряд.
+          #
+          # Проба на /actuator/prometheus, а не на /actuator/health: health закрыт Spring
+          # Security и отвечает 302 (редирект на вход), из эндпоинтов актуатора без
+          # авторизации доступен только prometheus — он единственный числится в
+          # WebSecurity.ignoring(). Проверено изнутри пода: prometheus 200, health 302.
+          # Правильнее была бы /actuator/health/readiness, но это включение health-probes
+          # в management-конфиге плюс правка security-конфига — отдельная задача.
+          #
+          # Только httpservice: он один стоит за ingress и виден пользователю. У
+          # authservice и messegerparody проб тоже нет, но messegerparody на своём
+          # HTTP-порту 8082 не отвечает вовсе (сервис gRPC+Kafka, gRPC на 9091), так что
+          # одинаковую пробу на все три чарта наложить нельзя — нужен разбор по сервису.
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "{{ .Values.env.kafkaBootstrap }}"
