@@ -25,6 +25,23 @@ import java.util.Base64;
  * trusted-types default — имя политики из static/trusted_policy.js
  * (trustedTypes.createPolicy('default', ...)). Имена обязаны совпадать: политика с
  * незаявленным именем не создастся, и первый же policy.createHTML упадёт.
+ *
+ * ВНИМАНИЕ, ловушка. Директива trusted-types объявляет только РАЗРЕШЁННЫЕ ИМЕНА политик
+ * и сама по себе ничего не принуждает: строку по-прежнему можно присвоить в innerHTML в
+ * обход политики. Принуждение включает ОТДЕЛЬНАЯ директива
+ * require-trusted-types-for 'script', и её здесь нет НАМЕРЕННО — с ней приложение
+ * ломается целиком. Проверено на стенде: список чатов отрисовывается пустым,
+ * "chatlist bootstrap failed: Cannot set properties of null (setting 'textContent')",
+ * и DOMPurify.sanitize() возвращает пустую строку даже на безобидной разметке.
+ *
+ * Механизм: DOMPurify санитизирует, записывая вход в body.innerHTML временного
+ * документа. Под принуждением этот внутренний write — тоже sink, и он уходит в
+ * ДЕФОЛТНУЮ политику, то есть в сам DOMPurify. Рекурсия глушится, наружу выходит
+ * пустота. Корень — то, что наша политика названа 'default'.
+ *
+ * Чинится не здесь: нужно переименовать политику в trusted_policy.js и разрешить
+ * DOMPurify его собственную (trusted-types <наше-имя> dompurify), после чего
+ * require-trusted-types-for можно включать. См. beads-тикет про принуждение TT.
  */
 @Slf4j
 public final class CspNonce {
