@@ -29,7 +29,7 @@ public class ReactiveHybridAuthFilter implements WebFilter {
     // Список публичных путей (аналогично сервлетной версии)
     private static final List<String> PUBLIC_PATHS = List.of(
             "/reactive/login", "/reactive/register", "/welcome", "/authcallback",
-            "/collect-fingerprint", "/exchangeTokens", "/actuator/**",
+            "/exchangeTokens", "/actuator/**",
             "/public/**", "/static/**", "/**/*.js", "/verifylogin"
     );
 

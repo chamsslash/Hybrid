@@ -102,9 +102,7 @@ public class MvcSecurityConfig  {
                                 new AntPathRequestMatcher("/createchatpage"),
                                 new AntPathRequestMatcher("/"),
                                 new AntPathRequestMatcher("/reactive/**"),
-                                new AntPathRequestMatcher("/authcallback"),
-                                new AntPathRequestMatcher("/collect-fingerprint"),
-                                new AntPathRequestMatcher("/exchangeTokens"),
+                                new AntPathRequestMatcher("/authcallback"),                                new AntPathRequestMatcher("/exchangeTokens"),
                                 // SockJS/STOMP-хендшейк публичен: браузерный хендшейк не несёт
                                 // Authorization, аутентификация — на STOMP CONNECT
                                 // (StompAuthChannelInterceptor). Без этого GET-транспорты
