@@ -59,8 +59,8 @@ api.interceptors.response.use(
                 // Leave decision to the caller, but best-effort redirect keeps UX consistent.
                 // Здесь намеренно ЖЁСТКАЯ навигация, а не router.navigate: refresh уже не удался,
                 // сессии нет, и полная перезагрузка гарантирует чистое состояние (память, STOMP,
-                // подписки вью). Плюс этот модуль общий с не-SPA страницами (callback.html,
-                // fingerpring_collector.html) — роутера и #app-шелла там просто нет.
+                // подписки вью). Мягкий переход роутером оставил бы висеть подписки и таймеры
+                // вью, с которой прилетел этот 401.
                 try {
                     window.location.href = "/welcome";
                 } catch {
