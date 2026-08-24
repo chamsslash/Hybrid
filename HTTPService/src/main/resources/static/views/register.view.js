@@ -10,6 +10,8 @@ import { setAccessToken } from "/inmemory.js";
 
 const REGISTER_HTML = `
 <div class="post-feed" style="max-width: 440px;">
+    <button type="button" id="back-btn" class="back-button" aria-label="Назад к выбору способа входа">←</button>
+
     <div class="list-head">
         <h1 class="title"><small>TEBEGRAM</small>Регистрация</h1>
     </div>
@@ -57,6 +59,16 @@ export async function mount() {
 
     const registerForm = document.getElementById('register-form');
     const responseDiv = document.getElementById('register-response');
+
+    // Возврат явным маршрутом, а не history.back(): на /registerpage заходят и по прямой
+    // ссылке или закладке, и тогда возвращаться в истории некуда — кнопка либо увела бы с
+    // сайта, либо не сделала бы ничего. Комбинировать «назад по истории, если она есть»
+    // тоже не стали: предсказуемость важнее — с этого экрана всегда ведёт /welcome.
+    // navigate(), а не window.location.href: /welcome — роут того же app-shell'а,
+    // полная перезагрузка здесь не нужна.
+    document.getElementById('back-btn')?.addEventListener('click', () => {
+        navigate('/welcome');
+    }, { signal: ac.signal });
 
     registerForm?.addEventListener('submit', async (event) => {
         event.preventDefault();

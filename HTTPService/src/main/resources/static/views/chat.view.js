@@ -14,6 +14,7 @@ const CHAT_HTML = `
 <div class="chat-container">
 
     <div class="chat-header">
+        <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
         <div class="chat-avatar-container" id="chat-header-avatar"></div>
         <span id="chat-title"></span>
         <div id="typing-indicator"></div>
@@ -539,6 +540,13 @@ export async function mount(params) {
         navigate('/reactive/chatlist');
         return;
     }
+
+    // Возврат явным маршрутом, а не history.back(): в чат попадают и по прямой ссылке с
+    // ?id=..., и тогда в истории возвращаться некуда — пользователь ушёл бы с сайта. У
+    // экрана чата единственный родитель — список чатов, туда и ведём.
+    document.getElementById('back-btn').addEventListener('click', () => {
+        navigate('/reactive/chatlist');
+    }, { signal: ac.signal });
 
     document.getElementById('sendBtn').addEventListener('click', sendChatMessage, { signal: ac.signal });
     document.getElementById('aiBtn').addEventListener('click', requestAIResponse, { signal: ac.signal });

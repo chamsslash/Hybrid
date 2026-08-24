@@ -7,6 +7,8 @@ import { ensureAccessToken } from "/auth.js";
 
 const CREATECHAT_HTML = `
     <div class="post-feed">
+        <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
+
         <h2 style="text-align: center;">Отправка ChatData</h2>
 
         <form id="chatForm" class="add-comment" enctype="multipart/form-data">
@@ -76,6 +78,13 @@ export async function mount(params) {
 
     const app = document.getElementById("app");
     app.innerHTML = policy.createHTML(CREATECHAT_HTML);
+
+    // Возврат явным маршрутом, а не history.back(): на форму создания чата заходят и по
+    // прямой ссылке, и тогда в истории возвращаться некуда. Целевой экран у неё всегда
+    // один — список чатов, откуда её и открывают.
+    document.getElementById("back-btn").addEventListener("click", () => {
+        navigate("/reactive/chatlist");
+    }, { signal: ac.signal });
 
     document.getElementById("addUserBtn").addEventListener("click", addUserField, { signal: ac.signal });
     addUserField();
