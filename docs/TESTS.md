@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 29 | 218 | 2 | 220 |
+| HTTPService | 29 | 222 | 2 | 224 |
 | MessegerParody | 4 | 12 | 3 | 15 |
-| **Итого** | **38** | **247** | **7** | **254** |
+| **Итого** | **38** | **251** | **7** | **258** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -190,9 +190,14 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`propagatesStorageFailureWithoutPublishingToKafka`** — `putObject` падает → ошибка пробрасывается, в Kafka **ничего не публикуется**. Зачем: не рассылать событие о картинке, которая не сохранилась.
 
 ### `Services/AppShellRenderTest` — `unit` — рендеринг SPA-шелла (Thymeleaf)
-Рендерит шаблон `app.html` через `SpringWebFluxTemplateEngine` с classloader-резолвером, без поднятия контекста Spring.
+Рендерит шаблон `app.html` через `SpringWebFluxTemplateEngine` с classloader-резолвером, без поднятия контекста Spring. Маршрутные тесты идут через настоящие роутер-бины `WebFluxConfig` (`new WebFluxConfig()`, `new WEBFLUX_Service()` — рендер шелла не трогает ни одну зависимость сервиса) и пишут `ServerResponse` в mock-exchange, то есть проверяют всю цепочку «путь → хендлер → HTTP-ответ», а не только шаблон.
 
 - **`appShellRendersRootAndEntrypoint`** — в модель кладётся `nonce="testnonce"`, рендерится шаблон `app`. Проверяет: в HTML есть `id="app"` (корневой SPA-контейнер), `src="/app.js"` (точка входа фронтенда) и `nonce="testnonce"` (CSP nonce проброшен в `<script>`). Зачем: стережёт контракт SPA-шелла — если рендер сломается или nonce перестанет прокидываться, фронтенд не загрузится или упадёт по CSP.
+- **`chatListRouteServesAppShell`** — `GET /chatlist` через `WebFluxConfig.chatListRouter` → `200`, `Content-Type: text/html`, в теле `id="app"`, `src="/app.js"` и непустой `nonce`.
+- **`chatRouteServesAppShell`** — то же для `GET /chat` через `chatPageRouter`.
+- **`createChatRouteServesAppShell`** — то же для `GET /createchat` через `createChatPageRouter`.
+- Зачем эти три (beads j35): раньше у каждого маршрута был свой метод-двойник в `WEBFLUX_Service`, теперь все три ходят в общий `renderAppShell`. Общий код — общая точка отказа: одна правка ломает сразу все страницы SPA, и тесты держат по маршруту отдельно, чтобы отвалившийся роут назвал себя сам. Заодно стерегут, что маршрут не переведут на хендлер, который отдаёт что-то кроме шелла.
+- **`everyShellResponseGetsItsOwnNonce`** — два последовательных вызова `renderAppShell` (`/chatlist`, `/chat`), из тел выдёргивается значение атрибута `nonce`; проверяет, что они непустые и **различаются**. Зачем: остальные тесты довольствуются «nonce не пустой» и прошли бы с захардкоженной константой, а предсказуемый nonce не защищает ни от чего — CSP `script-src 'nonce-...'` держится ровно на неугадываемости значения.
 
 ### `Services/MvcRootRedirectTest` — `unit` — корневой маршрут отдаёт точку входа (beads 9kn)
 Standalone-MockMvc поверх `MVC_Service` без поднятия контекста Spring: `GetRoot` не обращается ни к одной зависимости контроллера, поэтому проверяется ровно наличие маппинга и цель редиректа.
