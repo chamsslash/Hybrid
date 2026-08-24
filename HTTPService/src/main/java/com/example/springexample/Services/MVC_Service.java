@@ -82,12 +82,6 @@ public class MVC_Service {
         log.info(csrfToken.getToken().toString());
         return "app";
     }
-    @GetMapping(path = "/collect-fingerprint")
-    public  String fpCollector(@RequestParam("return_url") String redirecturi,HttpServletResponse response,Model model){
-        generateandputNonce(model,response);
-        model.addAttribute("returnUrl",redirecturi);
-        return "fingerpring_collector";
-    }
     @PostMapping("/exchangeTokens")
     public ResponseEntity<?> provideNewTokens(
             @RequestParam("FpComponents")String fpparts,
