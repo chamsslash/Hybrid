@@ -30,7 +30,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
 import java.util.*;
@@ -283,20 +282,12 @@ public class MVC_Service {
 
 
 
+    // Генерация nonce и текст заголовка — в CspNonce, общем с реактивной половиной:
+    // шаблон у них один (app.html), политика обязана быть одна и та же.
     private void generateandputNonce(Model model,HttpServletResponse response){
-        String nonceId;
-
-        try {
-            nonceId  = Base64.getEncoder().encodeToString(
-                    SecureRandom.getInstanceStrong().generateSeed(16));
-
-        }catch (NoSuchAlgorithmException noSuchAlgorithmException){
-            log.warn("no such alg for nonce");
-            nonceId= null;
-        }
+        String nonceId = CspNonce.generate();
         if (nonceId!=null){
-            response.setHeader("Content-Security-Policy",
-                    "script-src 'nonce-" + nonceId + "' 'strict-dynamic'; trusted-types default; object-src 'none'; base-uri 'none';");
+            response.setHeader(CspNonce.HEADER, CspNonce.headerValue(nonceId));
             model.addAttribute("nonce",nonceId);
 
         }
