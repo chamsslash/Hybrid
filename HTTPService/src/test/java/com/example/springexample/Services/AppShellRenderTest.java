@@ -118,9 +118,14 @@ class AppShellRenderTest {
         // strict-dynamic обязателен: app.js догружает вью динамическим import(),
         // без него каждая вью отваливалась бы от политики.
         assertThat(csp).contains("'strict-dynamic'");
-        // Имя политики должно совпадать с trustedTypes.createPolicy('default', ...)
-        // в static/trusted_policy.js — иначе первый policy.createHTML упадёт.
-        assertThat(csp).contains("trusted-types default");
+        // Принуждение Trusted Types (beads szm): без этой директивы trusted-types ниже —
+        // лишь allowlist имён, и сырое присваивание в innerHTML проходит мимо политики.
+        assertThat(csp).contains("require-trusted-types-for 'script'");
+        // Оба имени обязательны: 'default' — наша политика из static/trusted_policy.js,
+        // 'dompurify' — собственная политика DOMPurify для его внутренней записи в
+        // innerHTML. Без второго имени DOMPurify рекурсирует в дефолтную политику и
+        // возвращает пустую строку. Подробности — в CspNonceTest.
+        assertThat(csp).contains("trusted-types default dompurify");
         assertThat(csp).contains("object-src 'none'");
         assertThat(csp).contains("base-uri 'none'");
     }
