@@ -386,56 +386,43 @@ public class WEBFLUX_Service {
 
 
     /**
-     * SPA-шелл списка чатов (beads 57): страница публична, данные подтягивает JS
-     * через /api/chatlist с Authorization-заголовком.
+     * Единственный путь выдачи SPA-шелла (beads j35). Все страницы SPA — /chatlist,
+     * /chat, /createchat — это один и тот же app.html: разметку рисует клиентский
+     * роутер, данные он же тянет из /api/*. Раньше на каждый маршрут был свой метод,
+     * отличавшийся от соседей только текстом в логе и формой ответа при ошибке, так что
+     * любая правка контракта шелла требовала трёх одинаковых правок, а новый маршрут —
+     * копирования метода. Теперь маршрут добавляется одной строкой в WebFluxConfig.
+     *
+     * Отдельных обёрток на маршрут нет намеренно: адрес в лог берётся из request.path(),
+     * то есть диагностика не теряется, а становится точнее — прежние три сообщения
+     * называли страницу, но не путь, по которому пришёл сбойный запрос.
+     *
+     * Карта модели создаётся заново на каждый вызов и не выносится в поле: ParseWithThymeLeaf
+     * её мутирует (кладёт CSP-nonce), а хендлер вызывается из общего пула на все запросы —
+     * общая HashMap писалась бы из нескольких потоков разом.
+     *
+     * Шелл публичен намеренно (beads 52u/57): сессию проверяет клиентская вью, а данные
+     * идут отдельными запросами к /api/*, закрытыми auth_request на ingress. Менять
+     * доступность этих GET-маршрутов нельзя — см. WebFluxRouteSecurityBoundaryTest.
+     *
+     * Атрибут pathPrefix, который до слияния клал в модель только маршрут /chatlist,
+     * убран: app.html его не читает, как и любой другой шаблон.
      */
-    public Mono<ServerResponse> getChatList(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        Map<String, Object> model = new HashMap<>();
-        model.put("pathPrefix", "/reactive");
-        return ParseWithThymeLeaf(model, "app", templateEngine)
+    public Mono<ServerResponse> renderAppShell(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
+        return ParseWithThymeLeaf(new HashMap<>(), "app", templateEngine)
                 .flatMap(htmlContent -> ServerResponse.ok()
                         .contentType(MediaType.TEXT_HTML)
                         .bodyValue(htmlContent))
                 .onErrorResume(e -> {
-                    log.error("chats_list shell render failed", e);
+                    // Подробности сбоя — только в лог. В теле ответа их быть не должно:
+                    // сюда попадает message исключения Thymeleaf, а он несёт внутренности
+                    // сервера (путь к шаблону, тип исключения) прямо в браузер анониму —
+                    // маршруты шелла публичны. Пользователю эта строка всё равно ничего не
+                    // говорит, а диагностируем мы по логу, где есть и путь запроса, и стек.
+                    log.error("app shell render failed for {}", request.path(), e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .contentType(MediaType.TEXT_PLAIN)
-                            .bodyValue("Произошла внутренняя ошибка: " + e.getMessage());
-                });
-    }
-
-    /**
-     * SPA-шелл страницы чата (beads 57): страница публична, id/title JS читает
-     * из query-параметров и грузит данные через /api/chat с Authorization.
-     */
-    public Mono<ServerResponse> renderChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        Map<String, Object> model = new HashMap<>();
-        return ParseWithThymeLeaf(model, "app", templateEngine)
-                .flatMap(htmlContent -> ServerResponse.ok()
-                        .contentType(MediaType.TEXT_HTML)
-                        .bodyValue(htmlContent))
-                .onErrorResume(e -> {
-                    log.error("chat shell render failed", e);
-                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
-                            .bodyValue("Internal Server Error: " + e.getMessage());
-                });
-    }
-
-    /**
-     * SPA-шелл страницы создания чата: отдаёт единый app-shell, клиентская
-     * вью рисует форму и шлёт POST /reactive/api/createchat.
-     * Сам шелл публичен (beads 52u) — сессию проверяет клиентская вью.
-     */
-    public Mono<ServerResponse> renderCreateChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        Map<String, Object> model = new HashMap<>();
-        return ParseWithThymeLeaf(model, "app", templateEngine)
-                .flatMap(htmlContent -> ServerResponse.ok()
-                        .contentType(MediaType.TEXT_HTML)
-                        .bodyValue(htmlContent))
-                .onErrorResume(e -> {
-                    log.error("createchat shell render failed", e);
-                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN)
-                            .bodyValue("Internal Server Error: " + e.getMessage());
+                            .bodyValue("Произошла внутренняя ошибка");
                 });
     }
 

@@ -126,13 +126,15 @@ public class WebFluxConfig {
     }
 
 
+    // Все GET-маршруты ниже отдают один и тот же SPA-шелл через WEBFLUX_Service.renderAppShell
+    // (beads j35). Новый экран SPA = ещё один такой роут, без отдельного метода в сервисе.
     @Bean
     public  RouterFunction<ServerResponse> chatPageRouter(WEBFLUX_Service wf_handler,ISpringWebFluxTemplateEngine templateEngine){
-        return route(GET("/chat"),req->wf_handler.renderChatPage(req,templateEngine));
+        return route(GET("/chat"), req -> wf_handler.renderAppShell(req, templateEngine));
     }
     @Bean
     public RouterFunction<ServerResponse> createChatPageRouter(WEBFLUX_Service wf_handler, ISpringWebFluxTemplateEngine templateEngine){
-        return route(GET("/createchat"), req -> wf_handler.renderCreateChatPage(req, templateEngine));
+        return route(GET("/createchat"), req -> wf_handler.renderAppShell(req, templateEngine));
     }
     // Мутация создания чата живёт под /api/*, т.е. снаружи это
     // POST /reactive/api/createchat (сервлет смонтирован на /reactive/*).
@@ -164,9 +166,8 @@ public class WebFluxConfig {
 
         return route(
                 GET("/chatlist"),
-                // Вместо ссылки на метод, используем лямбду,
-                // чтобы передать движок в ваш обновленный метод.
-                request -> chatListHandler.getChatList(request,templateEngine)
+                // Лямбда, а не ссылка на метод: движок нужно передать вторым аргументом.
+                request -> chatListHandler.renderAppShell(request, templateEngine)
         );
     }
 
