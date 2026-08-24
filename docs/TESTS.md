@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 29 | 218 | 2 | 220 |
+| HTTPService | 30 | 220 | 2 | 222 |
 | MessegerParody | 4 | 12 | 3 | 15 |
-| **Итого** | **38** | **247** | **7** | **254** |
+| **Итого** | **39** | **249** | **7** | **256** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -198,6 +198,12 @@ Round-trip `ImageUploadDTO` через Gson.
 Standalone-MockMvc поверх `MVC_Service` без поднятия контекста Spring: `GetRoot` не обращается ни к одной зависимости контроллера, поэтому проверяется ровно наличие маппинга и цель редиректа.
 
 - **`rootRedirectsToWelcome`** — `GET /` → `3xx` с `Location: /welcome`. Зачем: маппинга на `/` не существовало вовсе, и пользователь, набравший голый хост, получал сырую страницу Tomcat «HTTP Status 404 – Not Found» вместо страницы входа. При этом `/` числится публичным и в `MvcJwtAuthFilter.PUBLIC_PATHS`, и в `MvcSecurityConfig` — то есть отдавать по корню что-то осмысленное было задумано изначально. Тест стережёт, чтобы маппинг не пропал снова при рефакторинге контроллера.
+
+### `Services/MvcAuthCallbackShellTest` — `unit` — OAuth-callback обслуживается SPA-шеллом (beads j35)
+Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обращается ни к одной зависимости контроллера, поэтому контекст Spring не поднимается. (Соседний `/welcome` так проверить нельзя — он дёргает `csrfToken.getToken()` и без подложенного атрибута `CsrfToken` падает в standalone-MockMvc с NPE.)
+
+- **`authCallbackRendersAppShell`** — `GET /authcallback?code=one-time-code&state=st-1` → `200` и имя вьюхи `app`. Зачем: **центральный сторож тикета j35.** Раньше маршрут отдавал вьюху `callback` — отдельный Thymeleaf-документ со своим спиннером и своим набором CDN-скриптов (FingerprintJS v3 против v4 в шелле). Отдельный документ был не косметической проблемой: `accessToken`, положенный после `/verifylogin` в память (`inmemory.js`), умирал при уходе на `redirectUri`, потому что это смена документа, и восстанавливался silent refresh'ем ценой лишнего round-trip `/exchangeTokens`. Внутри шелла этот переход делает клиентский роутер, документ остаётся тем же, память живёт. Верни здесь `"callback"` — и лишний round-trip вернётся вместе с ним, причём тихо: пользователь по-прежнему доходит до чатлиста, просто через дополнительный обмен токенов, так что вручную регрессия не заметна.
+- **`authCallbackPutsNonceInModelAndCspHeader`** — `GET /authcallback` → в модели есть атрибут `nonce`, в ответе есть заголовок `Content-Security-Policy` с `'nonce-…'`. Зачем: `app.html` навешивает `nonce` на все свои `<script>`, а тот же `generateandputNonce` ставит CSP `script-src 'nonce-…' 'strict-dynamic'`. Отдать шелл, забыв про nonce, — это белая страница: HTML отрендерится, а ни один скрипт не выполнится. Проверено вручную: временно убран вызов `generateandputNonce` из `authcallbackpage` — тест покраснел на «Model attribute 'nonce'», вызов возвращён, тест снова зелёный.
 
 ### `Services/CreateChatJsonResponseTest` — `reactive-unit` — success-ответ создания чата (SPA-миграция)
 `WEBFLUX_Service.createChatSuccess` — часть миграции с 303-редиректа на `/reactive/chatlist` на JSON-ответ, чтобы SPA навигировала без перезагрузки страницы. Проверяется через `ServerResponse.writeTo` в mock-exchange (запрос в exchange — `POST /reactive/api/createchat`, фактический эндпоинт мутации; на ассерты путь не влияет).

@@ -185,10 +185,15 @@ public class MVC_Service {
 //                .header(HttpHeaders.SET_COOKIE, rc.toString())
 //                .body(Map.of("text", "Successfully established access cookie"));
 //    }
+    // OAuth-callback обслуживается тем же app-shell'ом, что и остальные экраны (beads j35).
+    // Раньше здесь отдавался отдельный Thymeleaf-документ callback.html, и accessToken,
+    // положенный после /verifylogin в память, терялся при уходе на redirectUri — смена
+    // документа. Внутри шелла этот переход делает клиентский роутер, документ остаётся тем
+    // же, и лишний /exchangeTokens на восстановление токена больше не нужен.
     @GetMapping(path = "/authcallback")
     public String authcallbackpage(Model model,HttpServletResponse response){
         generateandputNonce(model,response);
-        return "callback" ;}
+        return "app" ;}
     @PostMapping(path = "/verifylogin")
     public ResponseEntity<?> verifylogin(@RequestParam("code") String token, @RequestParam("state")String state,@RequestParam("FpComponents")String fpparts,
                                          @RequestHeader(value ="X-Fingerprint")String fingerprint,
