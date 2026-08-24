@@ -99,6 +99,71 @@ class AppShellRenderTest {
         return m.find() ? m.group(1) : null;
     }
 
+    /**
+     * Зачем эта группа тестов: реактивные маршруты отдавали app.html вообще без заголовка
+     * Content-Security-Policy, хотя сервлетные (/welcome, /registerpage, /authcallback)
+     * отдают тот же самый документ под строгой политикой. Атрибуты nonce в script при этом
+     * проставлялись — то есть выглядело как защищённое, а не было им: без заголовка
+     * script-src не ограничен ничем и Trusted Types не форсируются. Чат — экран, куда
+     * попадает пользовательский ввод, и он был как раз в незащищённой половине.
+     */
+    private String cspOf(MockServerHttpResponse response) {
+        return response.getHeaders().getFirst("Content-Security-Policy");
+    }
+
+    private void assertShellCarriesCsp(MockServerHttpResponse response, String path) {
+        String csp = cspOf(response);
+        assertThat(csp).as("CSP-заголовок на %s", path).isNotNull();
+
+        // strict-dynamic обязателен: app.js догружает вью динамическим import(),
+        // без него каждая вью отваливалась бы от политики.
+        assertThat(csp).contains("'strict-dynamic'");
+        // Имя политики должно совпадать с trustedTypes.createPolicy('default', ...)
+        // в static/trusted_policy.js — иначе первый policy.createHTML упадёт.
+        assertThat(csp).contains("trusted-types default");
+        assertThat(csp).contains("object-src 'none'");
+        assertThat(csp).contains("base-uri 'none'");
+    }
+
+    @Test
+    void chatListShellCarriesCspHeader() {
+        MockServerHttpResponse response = getThroughRouter(
+                config.chatListRouter(new WEBFLUX_Service(), engine()), "/chatlist");
+        assertShellCarriesCsp(response, "/chatlist");
+    }
+
+    @Test
+    void chatShellCarriesCspHeader() {
+        MockServerHttpResponse response = getThroughRouter(
+                config.chatPageRouter(new WEBFLUX_Service(), engine()), "/chat");
+        assertShellCarriesCsp(response, "/chat");
+    }
+
+    @Test
+    void createChatShellCarriesCspHeader() {
+        MockServerHttpResponse response = getThroughRouter(
+                config.createChatPageRouter(new WEBFLUX_Service(), engine()), "/createchat");
+        assertShellCarriesCsp(response, "/createchat");
+    }
+
+    /**
+     * Самый содержательный из группы: заголовок и атрибут обязаны нести ОДИН И ТОТ ЖЕ
+     * nonce. Разошедшиеся значения — худший из отказов: заголовок на месте, тест на его
+     * наличие зелёный, а браузер режет все до единого script'а, и приложение показывает
+     * белую страницу. Именно так ломается наивная починка «просто добавить заголовок».
+     */
+    @Test
+    void cspNonceMatchesTheNonceInHtml() {
+        MockServerHttpResponse response = getThroughRouter(
+                config.chatListRouter(new WEBFLUX_Service(), engine()), "/chatlist");
+
+        String htmlNonce = nonceOf(response.getBodyAsString().block());
+        assertThat(htmlNonce).isNotBlank();
+        assertThat(cspOf(response))
+                .as("nonce в заголовке обязан совпадать с nonce в HTML")
+                .contains("'nonce-" + htmlNonce + "'");
+    }
+
     @Test
     void appShellRendersRootAndEntrypoint() {
         Context ctx = new Context();

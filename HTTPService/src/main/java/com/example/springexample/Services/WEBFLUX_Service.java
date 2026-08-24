@@ -28,7 +28,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.security.NoSuchAlgorithmException;
 import java.security.Principal;
-import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
 import java.util.*;
@@ -397,8 +396,8 @@ public class WEBFLUX_Service {
      * то есть диагностика не теряется, а становится точнее — прежние три сообщения
      * называли страницу, но не путь, по которому пришёл сбойный запрос.
      *
-     * Карта модели создаётся заново на каждый вызов и не выносится в поле: ParseWithThymeLeaf
-     * её мутирует (кладёт CSP-nonce), а хендлер вызывается из общего пула на все запросы —
+     * Карта модели создаётся заново на каждый вызов и не выносится в поле: в неё кладётся
+     * свой CSP-nonce на каждый ответ, а хендлер вызывается из общего пула на все запросы —
      * общая HashMap писалась бы из нескольких потоков разом.
      *
      * Шелл публичен намеренно (beads 52u/57): сессию проверяет клиентская вью, а данные
@@ -409,10 +408,24 @@ public class WEBFLUX_Service {
      * убран: app.html его не читает, как и любой другой шаблон.
      */
     public Mono<ServerResponse> renderAppShell(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        return ParseWithThymeLeaf(new HashMap<>(), "app", templateEngine)
-                .flatMap(htmlContent -> ServerResponse.ok()
-                        .contentType(MediaType.TEXT_HTML)
-                        .bodyValue(htmlContent))
+        // Nonce генерируем здесь, а не внутри ParseWithThymeLeaf, потому что он нужен в
+        // двух местах сразу: атрибутом в HTML и значением в заголовке. Заголовок ставится
+        // только тут — у ParseWithThymeLeaf нет доступа к ответу, и раньше из-за этого
+        // реактивные маршруты отдавали шелл вообще без CSP (см. CspNonce).
+        String nonce = CspNonce.generate();
+        Map<String, Object> model = new HashMap<>();
+        if (nonce != null) {
+            model.put("nonce", nonce);
+        }
+        return ParseWithThymeLeaf(model, "app", templateEngine)
+                .flatMap(htmlContent -> {
+                    ServerResponse.BodyBuilder builder = ServerResponse.ok()
+                            .contentType(MediaType.TEXT_HTML);
+                    if (nonce != null) {
+                        builder.header(CspNonce.HEADER, CspNonce.headerValue(nonce));
+                    }
+                    return builder.bodyValue(htmlContent);
+                })
                 .onErrorResume(e -> {
                     // Подробности сбоя — только в лог. В теле ответа их быть не должно:
                     // сюда попадает message исключения Thymeleaf, а он несёт внутренности
@@ -428,21 +441,13 @@ public class WEBFLUX_Service {
 
 
 
+    /**
+     * Рендер шаблона с уже готовой моделью. Nonce здесь НЕ генерируется намеренно: он
+     * нужен ещё и в заголовке ответа, до которого отсюда не дотянуться, поэтому его
+     * заводит вызывающий (renderAppShell) и кладёт в model сам.
+     */
     public Mono<String> ParseWithThymeLeaf(Map<String,Object> model, String tmpl_name,  ISpringWebFluxTemplateEngine templateEngine){
         final Context thymeleafContext = new Context();
-        String nonceId;
-        try {
-            nonceId  = Base64.getEncoder().encodeToString(
-                    SecureRandom.getInstanceStrong().generateSeed(16));
-
-        }catch (NoSuchAlgorithmException noSuchAlgorithmException){
-            log.warn("no such alg for nonce");
-            nonceId= null;
-        }
-        if (nonceId!=null){
-            model.put("nonce",nonceId);
-
-        }
         thymeleafContext.setVariables(model);
         return  Mono.defer(()->Mono.just( templateEngine.process(tmpl_name, thymeleafContext)));
 
