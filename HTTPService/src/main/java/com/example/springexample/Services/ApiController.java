@@ -261,6 +261,36 @@ public class ApiController {
                     DataTransferService.ChatData chatData = DataTransferService.ChatData.newBuilder()
                             .setChatId(chatId).setTitle(title).build();
 
+                    // Заголовок чата берём с сервера, а не из query-параметра. Раньше в ответ
+                    // клался ровно тот title, который прислал клиент, поэтому переход по прямой
+                    // ссылке /reactive/chat?id=N (закладка, пересланная ссылка, адрес набран
+                    // руками) открывал чат с пустой шапкой: из списка чатов фронт подставляет
+                    // &title=..., а больше взять его было неоткуда.
+                    //
+                    // Спрашиваем только когда клиент title не прислал — на обычном переходе из
+                    // списка лишнего вызова нет. Берём из getallchatsbyid: это единственный
+                    // существующий метод, отдающий ChatData с полем title, и он же питает
+                    // /api/chatlist. Список — свои чаты пользователя, но членство здесь уже
+                    // проверено выше, так что чужой заголовок так не подсмотреть; не нашли —
+                    // остаёмся с пустой строкой, как и раньше.
+                    //
+                    // Просилось бы вернуть title прямо из transferchat (он ниже и так зовётся,
+                    // и чат в MessegerParody уже на руках), но в ChatResponse поля title нет:
+                    // это правка proto сразу в двух сервисах, то есть отдельная задача по
+                    // процессу для контрактных изменений, а не попутный фикс.
+                    Mono<String> titleMono = title.isBlank()
+                            ? reactiveGrpcClient.reactiveGetAllChatsById(
+                                    DataTransferService.ChatData.newBuilder()
+                                            .addUser(DataTransferService.User.newBuilder().setId(userId).build())
+                                            .build())
+                                .flatMapMany(list -> Flux.fromIterable(list.getChatdataListList()))
+                                .filter(c -> c.getChatId() == chatId)
+                                .next()
+                                .map(DataTransferService.ChatData::getTitle)
+                                .defaultIfEmpty("")
+                                .onErrorReturn("")
+                            : Mono.just(title);
+
                     Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId).onErrorReturn("");
                     Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
                     Mono<List<String>> membersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData)
@@ -268,7 +298,7 @@ public class ApiController {
                     Mono<String> chatImageMono = reactiveGrpcClient.reactiveGetImageUrl(chatId).onErrorReturn("");
                     Mono<String> myImageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId)).onErrorReturn("");
 
-                    return Mono.zip(usernameMono, chatResponseMono, membersMono, chatImageMono, myImageMono)
+                    return Mono.zip(usernameMono, chatResponseMono, membersMono, chatImageMono, myImageMono, titleMono)
                             .flatMap(tuple -> {
                                 JsonObject chatResp = JsonParser.parseString(tuple.getT2()).getAsJsonObject();
                                 Mono<List<MessageEvent>> messagesMono =
@@ -281,7 +311,7 @@ public class ApiController {
                                     model.put("userId", userId);
                                     model.put("username", tuple.getT1());
                                     model.put("chatId", chatId);
-                                    model.put("title", title);
+                                    model.put("title", tuple.getT6());
                                     model.put("members", tuple.getT3());
                                     model.put("chatImageUrl", tuple.getT4());
                                     model.put("myImageUrl", tuple.getT5());

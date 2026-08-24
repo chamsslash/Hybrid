@@ -91,6 +91,60 @@ class ApiControllerChatAccessTest {
         assertEquals(1, ((List<?>) model.get("messages")).size(), "история участнику отдаётся как раньше");
     }
 
+    /** Ответ getallchatsbyid — тот же источник, что питает /api/chatlist. */
+    private void myChatsAre(DataTransferService.ChatData... chats) {
+        Mockito.when(grpc.reactiveGetAllChatsById(Mockito.any()))
+                .thenReturn(Mono.just(DataTransferService.ListOfChats.newBuilder()
+                        .addAllChatdataList(List.of(chats)).build()));
+    }
+
+    private static DataTransferService.ChatData chat(long id, String title) {
+        return DataTransferService.ChatData.newBuilder().setChatId(id).setTitle(title).build();
+    }
+
+    @Test
+    void titleFromClientIsUsedAsIsWithoutExtraLookup() throws Exception {
+        membersOfChatAre(Mono.just(membersResponse(4L, 7L)));
+        chatDataIsAvailable();
+
+        ResponseEntity<Map<String, Object>> response = controller.chat(SUNNY, 3L, "мой чат").call();
+
+        assertEquals("мой чат", response.getBody().get("title"));
+        // Обычный переход из списка чатов не должен стоить лишнего gRPC-вызова.
+        Mockito.verify(grpc, Mockito.never()).reactiveGetAllChatsById(Mockito.any());
+    }
+
+    @Test
+    void missingTitleIsResolvedOnServer() throws Exception {
+        membersOfChatAre(Mono.just(membersResponse(4L, 7L)));
+        chatDataIsAvailable();
+        myChatsAre(chat(1L, "другой чат"), chat(3L, "Проверка стенда"));
+
+        ResponseEntity<Map<String, Object>> response = controller.chat(SUNNY, 3L, "").call();
+
+        // Зачем: раньше в ответ клался ровно тот title, который прислал клиент, поэтому
+        // переход по прямой ссылке /reactive/chat?id=N (закладка, пересланная ссылка)
+        // открывал чат с пустой шапкой — из списка чатов фронт подставляет &title=...,
+        // а больше взять заголовок было неоткуда.
+        assertEquals("Проверка стенда", response.getBody().get("title"));
+    }
+
+    @Test
+    void unresolvableTitleStaysEmptyInsteadOfFailing() throws Exception {
+        membersOfChatAre(Mono.just(membersResponse(4L, 7L)));
+        chatDataIsAvailable();
+        Mockito.when(grpc.reactiveGetAllChatsById(Mockito.any()))
+                .thenReturn(Mono.error(new IllegalStateException("messegerparody недоступен")));
+
+        ResponseEntity<Map<String, Object>> response = controller.chat(SUNNY, 3L, "").call();
+
+        // Заголовок — украшение, а не данные: его недоступность не должна ронять чат,
+        // историю которого пользователь имеет право читать.
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("", response.getBody().get("title"));
+        assertEquals(1, ((List<?>) response.getBody().get("messages")).size());
+    }
+
     @Test
     void outsiderGetsForbiddenAndNoChatDataIsFetched() throws Exception {
         // sunny (id=4) состоит только в чате 3, участники чата 1 — другие люди.
