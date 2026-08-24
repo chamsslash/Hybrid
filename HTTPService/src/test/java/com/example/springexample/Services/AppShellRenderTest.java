@@ -36,8 +36,12 @@ class AppShellRenderTest {
     private final WebFluxConfig config = new WebFluxConfig();
 
     private SpringWebFluxTemplateEngine engine() {
+        return engineWithPrefix("templates/");
+    }
+
+    private SpringWebFluxTemplateEngine engineWithPrefix(String prefix) {
         ClassLoaderTemplateResolver resolver = new ClassLoaderTemplateResolver();
-        resolver.setPrefix("templates/");
+        resolver.setPrefix(prefix);
         resolver.setSuffix(".html");
         resolver.setTemplateMode(TemplateMode.HTML);
         resolver.setCharacterEncoding("UTF-8");
@@ -156,4 +160,25 @@ class AppShellRenderTest {
         return exchange.getResponse().getBodyAsString().block();
     }
 
+    @Test
+    void shellRenderFailureReturns500WithoutInternals() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.method(HttpMethod.GET, "/chatlist"));
+        ServerRequest request = ServerRequest.create(
+                exchange, HandlerStrategies.withDefaults().messageReaders());
+
+        // резолвер смотрит в несуществующий каталог — templateEngine.process бросает
+        ServerResponse response = new WEBFLUX_Service()
+                .renderAppShell(request, engineWithPrefix("no-such-templates/")).block();
+        assertThat(response).isNotNull();
+        response.writeTo(exchange, responseContext()).block();
+
+        MockServerHttpResponse httpResponse = exchange.getResponse();
+        assertThat(httpResponse.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        String body = httpResponse.getBodyAsString().block();
+        assertThat(body).isNotNull();
+        assertThat(body).doesNotContain("no-such-templates");
+        assertThat(body).doesNotContain("TemplateInputException");
+        assertThat(body).doesNotContain("class path resource");
+    }
 }

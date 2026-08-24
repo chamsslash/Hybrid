@@ -414,10 +414,15 @@ public class WEBFLUX_Service {
                         .contentType(MediaType.TEXT_HTML)
                         .bodyValue(htmlContent))
                 .onErrorResume(e -> {
+                    // Подробности сбоя — только в лог. В теле ответа их быть не должно:
+                    // сюда попадает message исключения Thymeleaf, а он несёт внутренности
+                    // сервера (путь к шаблону, тип исключения) прямо в браузер анониму —
+                    // маршруты шелла публичны. Пользователю эта строка всё равно ничего не
+                    // говорит, а диагностируем мы по логу, где есть и путь запроса, и стек.
                     log.error("app shell render failed for {}", request.path(), e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .contentType(MediaType.TEXT_PLAIN)
-                            .bodyValue("Произошла внутренняя ошибка: " + e.getMessage());
+                            .bodyValue("Произошла внутренняя ошибка");
                 });
     }
 
