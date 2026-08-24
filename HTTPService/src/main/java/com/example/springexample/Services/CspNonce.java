@@ -22,26 +22,40 @@ import java.util.Base64;
  * 'strict-dynamic' обязателен: app.js — модуль, который догружает вью динамическим
  * import(), и без него каждая вью отваливалась бы от политики.
  *
- * trusted-types default — имя политики из static/trusted_policy.js
- * (trustedTypes.createPolicy('default', ...)). Имена обязаны совпадать: политика с
- * незаявленным именем не создастся, и первый же policy.createHTML упадёт.
+ * ДВЕ директивы Trusted Types делают разное, и путать их дорого:
  *
- * ВНИМАНИЕ, ловушка. Директива trusted-types объявляет только РАЗРЕШЁННЫЕ ИМЕНА политик
- * и сама по себе ничего не принуждает: строку по-прежнему можно присвоить в innerHTML в
- * обход политики. Принуждение включает ОТДЕЛЬНАЯ директива
- * require-trusted-types-for 'script', и её здесь нет НАМЕРЕННО — с ней приложение
- * ломается целиком. Проверено на стенде: список чатов отрисовывается пустым,
- * "chatlist bootstrap failed: Cannot set properties of null (setting 'textContent')",
- * и DOMPurify.sanitize() возвращает пустую строку даже на безобидной разметке.
+ *   require-trusted-types-for 'script' — ПРИНУЖДЕНИЕ. Без неё строку можно присвоить
+ *       в innerHTML в обход политики, и она пройдёт без санитизации. Именно так тут и
+ *       было: атрибуты nonce стояли, политика создавалась, а защиты не было ни на одном
+ *       маршруте. Проверялось живьём — '<img src=x onerror=alert(1)>' доезжал до DOM
+ *       целиком, вместе с onerror.
  *
- * Механизм: DOMPurify санитизирует, записывая вход в body.innerHTML временного
- * документа. Под принуждением этот внутренний write — тоже sink, и он уходит в
- * ДЕФОЛТНУЮ политику, то есть в сам DOMPurify. Рекурсия глушится, наружу выходит
- * пустота. Корень — то, что наша политика названа 'default'.
+ *   trusted-types <имена> — ALLOWLIST ИМЁН политик, сам по себе не принуждает ничего.
  *
- * Чинится не здесь: нужно переименовать политику в trusted_policy.js и разрешить
- * DOMPurify его собственную (trusted-types <наше-имя> dompurify), после чего
- * require-trusted-types-for можно включать. См. beads-тикет про принуждение TT.
+ * В allowlist ДВА имени, и второе обязательно:
+ *
+ *   default   — наша политика из static/trusted_policy.js, санитизирует через DOMPurify.
+ *               Названа 'default' намеренно: браузер зовёт дефолтную политику неявно на
+ *               любом сыром присваивании в sink, поэтому забытое место санитизируется,
+ *               а не роняет страницу.
+ *
+ *   dompurify — СОБСТВЕННАЯ политика DOMPurify. Он санитизирует, записывая вход в
+ *               innerHTML временного документа, и под принуждением эта внутренняя запись
+ *               тоже становится sink'ом. Своей политикой (createHTML: e=>e, сквозная) он
+ *               эту запись и оборачивает — но только если имя разрешено. Если не
+ *               разрешено, createPolicy бросает, DOMPurify тихо остаётся без неё, и его
+ *               внутренняя запись уходит в ДЕФОЛТНУЮ политику, то есть в него же:
+ *               DOMPurify -> default -> DOMPurify. Рекурсия глушится, наружу выходит
+ *               ПУСТАЯ СТРОКА на любой, даже безобидной разметке.
+ *
+ * Последнее — не теория: ровно так стенд и лёг при первой попытке включить принуждение
+ * с allowlist из одного 'default'. Список чатов отрисовался пустым, в консоли
+ * "chatlist bootstrap failed: Cannot set properties of null (setting 'textContent')" —
+ * querySelector('.chat-title') не находил разметки, которой DOMPurify не вернул.
+ *
+ * Имя 'dompurify' захардкожено в самом DOMPurify (purify.min.js: "dompurify" + суффикс
+ * из атрибута data-tt-policy-suffix, которого у нашего script-тега нет). Появится
+ * суффикс — allowlist надо будет править синхронно.
  */
 @Slf4j
 public final class CspNonce {
@@ -66,7 +80,8 @@ public final class CspNonce {
     /** Заголовок под конкретный nonce. Значение обязано совпасть с атрибутом в HTML. */
     public static String headerValue(String nonce) {
         return "script-src 'nonce-" + nonce + "' 'strict-dynamic'; "
-                + "trusted-types default; object-src 'none'; base-uri 'none';";
+                + "require-trusted-types-for 'script'; trusted-types default dompurify; "
+                + "object-src 'none'; base-uri 'none';";
     }
 
     public static final String HEADER = "Content-Security-Policy";
