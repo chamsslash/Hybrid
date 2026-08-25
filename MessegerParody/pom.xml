@@ -15,6 +15,17 @@
         <grpc.version>1.58.0</grpc.version>
         <testcontainers.version>1.19.7</testcontainers.version>
         <excludedGroups>integration</excludedGroups>
+        <!-- Переопределяет 1.11.3 из spring-boot-starter-parent 3.1.3 (beads c2k).
+             net.devh grpc-*-spring-boot-starter 3.1.0.RELEASE инструментирует gRPC
+             через Counter.Builder.withRegistry(MeterRegistry) — метод появился только
+             в Micrometer 1.12. Классы MetricsClientInstruments и MetricsServerInstruments
+             грузятся ТОЛЬКО при наличии бина MeterRegistry, поэтому до появления
+             micrometer-registry-prometheus несовместимость спала незаметно, а с ним
+             приложение падает на старте с NoSuchMethodError.
+             1.12.x — верхняя граница безопасного подъёма: в 1.13 реестр Prometheus
+             переехал с simpleclient на prometheus-metrics 1.x, что уже несовместимо
+             с actuator из Boot 3.1. -->
+        <micrometer.version>1.12.13</micrometer.version>
     </properties>
 
     <parent>
@@ -197,6 +208,32 @@
             <groupId>net.devh</groupId>
             <artifactId>grpc-spring-boot-starter</artifactId>
             <version>3.1.0.RELEASE</version>
+        </dependency>
+
+        <!-- HTTP-сервер (beads c2k). У сервиса его НЕ БЫЛО: ни spring-boot-starter-web,
+             ни webflux — чистый gRPC + Kafka + R2DBC, а server.port: 8082 в
+             application.yml был мёртвой настройкой (проверено: wget на 8082 изнутри
+             кластера не устанавливал соединение), при этом Service объявлял порт
+             http: 8082, ведущий в никуда. Без HTTP-сервера метрики отдавать некуда.
+
+             webflux, а не web: сервис реактивный (R2DBC), тащить сюда сервлетный
+             стек незачем.
+
+             ВНИМАНИЕ: это меняет WebApplicationType с NONE на REACTIVE — Spring
+             начинает поднимать Netty там, где раньше не поднимал ничего. Порядок
+             старта gRPC-сервера и Kafka-консьюмера при этом не меняется, но
+             проверяется живьём, а не на веру. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- Kafka -->
