@@ -1,0 +1,68 @@
+{
+  "uid": "service-health",
+  "title": "Здоровье сервисов",
+  "tags": ["hybrid", "jvm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Heap, использовано",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (app) (jvm_memory_used_bytes{area=\"heap\"})", "legendFormat": "{{app}}" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Паузы GC, среднее",
+      "description": "rate(_sum)/rate(_count) — средняя длительность паузы. Растущая средняя при неизменной нагрузке означает, что heap тесен.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (app) (rate(jvm_gc_pause_seconds_sum[5m])) / sum by (app) (rate(jvm_gc_pause_seconds_count[5m]))", "legendFormat": "{{app}}" }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Живые треды",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 7 },
+      "targets": [{ "refId": "A", "expr": "sum by (app) (jvm_threads_live_threads)", "legendFormat": "{{app}}" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "CPU процесса",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 7 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (app) (process_cpu_usage)", "legendFormat": "{{app}}" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Uptime",
+      "description": "Падение до нуля = под перезапустился. Первое, куда стоит смотреть при «отвалилось всё разом после деплоя». Полноценных метрик рестартов и OOMKilled у нас нет — их даёт kube-state-metrics, вынесенный в отдельный тикет.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 7 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (app) (process_uptime_seconds)", "legendFormat": "{{app}}" }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Время старта контекста",
+      "description": "Сколько Spring поднимал контекст. Ради этого времени и существует readinessProbe: без неё ingress слал трафик в неготовый под и пользователь получал 502.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "application_ready_time_seconds", "legendFormat": "{{app}}" }]
+    }
+  ]
+}

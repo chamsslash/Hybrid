@@ -198,10 +198,82 @@ minio:
     backoffLimit: 6
 
 prometheus:
-  image: prom/prometheus:latest
+  # Пин вместо latest (beads c2k): при :latest два деплоя одного и того же чарта
+  # могут поднять разные версии, и «у меня работало» перестаёт что-либо значить.
+  # Версия взята не «свежая стабильная из головы», а ровно та, что крутилась на
+  # стенде под :latest (prometheus --version в поде) — она заведомо существует и
+  # заведомо работает с текущим конфигом. Первая редакция плана закладывала
+  # v2.53.2, то есть даунгрейд на две мажорные версии: формат TSDB между 2.x и
+  # 3.x различается, и «пин» тихо стал бы откатом.
+  image: prom/prometheus:v3.14.0
+  # Сколько держим историю. Цель диагностическая, 15 дней перекрывают вопрос
+  # «а на прошлой неделе это уже случалось?».
+  retention: 15d
+  persistence:
+    # Расхождение с прецедентом чарта (postgres здесь на emptyDir) осознанное:
+    # emptyDir стирает историю метрик при рестарте пода — ровно тогда, когда её
+    # и собирались смотреть, потому что поды перезапускают при разборе инцидента.
+    size: 2Gi
+  # Кураторский список того, что реально храним (beads c2k).
+  #
+  # Замер ДО фильтра: 317 семейств метрик и 1295 сэмплов с ОДНОГО сервиса, из них
+  # 204 семейства (64%) — внутренности клиента Kafka, ещё 42 — spring_security,
+  # причём 30 из них это таймер на каждый фильтр цепочки по отдельности.
+  # http_server_requests при этом — четыре семейства, погребённые в этом шуме.
+  #
+  # Режем на стороне Prometheus, а не в приложениях, сознательно: вернуть выкинутый
+  # сигнал обычно нужно ровно в тот момент, когда что-то горит, и helm upgrade в этот
+  # момент несопоставимо дешевле пересборки и редеплоя Java-образа. Экономия
+  # скрейп-трафика на трёх подах при этом не стоит ничего.
+  #
+  # ВАЖНО ПРО СИНТАКСИС: Prometheus якорит регулярку в relabel-правиле ЦЕЛИКОМ —
+  # regex: foo разворачивается в ^(?:foo)$, в отличие от grep, где foo нашёл бы
+  # подстроку. Поэтому каждый элемент обязан описывать имя метрики ПОЛНОСТЬЮ:
+  # "http_server_requests" не сработает, нужен
+  # "http_server_requests_seconds_(count|sum|max|bucket)".
+  keepMetrics:
+    # Живость целей и ошибки в логах. up и scrape_* Prometheus порождает сам по
+    # результату скрейпа — инструментация для них не нужна.
+    - "up"
+    - "scrape_duration_seconds"
+    - "scrape_samples_scraped"
+    - "logback_events_total"
+    # Вход HTTP: RED плюс бакеты под p95
+    - "http_server_requests_seconds_(count|sum|max|bucket)"
+    # gRPC: серверная и клиентская стороны плюс собственный таймер из GrpcRequestsMetric
+    - "grpc_(client|server)_processing_duration_seconds_(count|sum|max|bucket)"
+    - "grpc_client_(requests_sent|responses_received)_messages_total"
+    - "grpc_server_(requests_received|responses_sent)_messages_total"
+    - "grpc_calls_counter_total"
+    - "grpc_call_duration_seconds_(count|sum|max|bucket)"
+    # Kafka: только сигнальные. Внутренности клиента (kafka_consumer_io_*,
+    # kafka_producer_node_*, размеры буферов и батчей) отсекаются целиком.
+    # Все *_rate тоже отсекаются: это производные, которые Prometheus считает сам
+    # через rate() от _total — хранить обе версии значит платить дважды за один сигнал.
+    - "spring_kafka_(listener|template)_seconds_(count|sum|max)"
+    - "kafka_consumer_fetch_manager_records_lag(_max)?"
+    - "kafka_consumer_fetch_manager_records_consumed_total"
+    - "kafka_producer_record_(send|error)_total"
+    - "kafka_consumer_coordinator_(commit|rebalance)_total"
+    # БД: пул R2DBC (MessegerParody) и Hikari (сервисы на JDBC)
+    - "r2dbc_pool_.*"
+    - "hikaricp_connections(_.*)?"
+    # Redis
+    - "lettuce_command_completion_seconds_(count|sum|max)"
+    # Бизнес-метрики
+    - "AiRequestCounter_total"
+    - "messages_persisted_total"
+    # JVM и под
+    - "jvm_memory_used_bytes"
+    - "jvm_gc_pause_seconds_(count|sum|max)"
+    - "jvm_threads_live_threads"
+    - "process_cpu_usage"
+    - "process_uptime_seconds"
+    - "application_ready_time_seconds"
 
 grafana:
-  image: grafana/grafana:latest
+  # Пин по тому же принципу: версия снята с работающего пода (/api/health).
+  image: grafana/grafana:13.2.0
   # adminPassword comes from the app Secret (secrets.grafanaAdminPassword)
 
 # Service images

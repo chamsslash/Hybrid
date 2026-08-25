@@ -13,6 +13,13 @@ spec:
     metadata:
       labels:
         app: messegerparody
+      annotations:
+        # См. пояснение в чарте httpservice. Порт здесь 8082, а не 8090: у сервиса
+        # нет бизнес-HTTP, поэтому отдельный management-порт не заводился и весь
+        # 8082 служебный (beads c2k).
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8082"
     spec:
 {{- if .Values.schemaWait.enabled }}
       # Схему создаёт Job messegerparody-liquibase (hook post-install,pre-upgrade),
@@ -69,6 +76,15 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8082
+          # Первая проба у этого сервиса. Раньше её не было, потому что на 8082
+          # никто не слушал вовсе — теперь там webflux с актуатором (beads c2k).
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "{{ .Values.env.kafkaBootstrap }}"

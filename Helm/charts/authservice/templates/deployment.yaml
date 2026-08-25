@@ -13,6 +13,12 @@ spec:
     metadata:
       labels:
         app: authservice
+      annotations:
+        # См. пояснение в чарте httpservice. Порт — management-порт контейнера,
+        # в Service он намеренно не публикуется (beads c2k).
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
     spec:
 {{- if .Values.schemaWait.enabled }}
       # Схему создаёт Job messegerparody-liquibase (hook post-install,pre-upgrade),
@@ -69,6 +75,20 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8081
+            # Management-порт (beads c2k). В Service его НЕ добавляем: Prometheus
+            # скрейпит по pod IP через kubernetes_sd_configs role: pod, а не через
+            # Service, поэтому светить порт наружу незачем.
+            - containerPort: 8090
+          # Первая проба у этого сервиса. Раньше её не было вовсе: единственным
+          # эндпоинтом был gRPC на 9092, а /actuator/health отсутствовал вместе
+          # с актуатором.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "{{ .Values.env.kafkaBootstrap }}"

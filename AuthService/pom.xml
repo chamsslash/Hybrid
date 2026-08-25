@@ -10,6 +10,20 @@
         <protobuf.version>3.25.1</protobuf.version>
         <grpc.version>1.53.0</grpc.version>
         <testcontainers.version>1.19.7</testcontainers.version>
+        <!-- Переопределяет 1.11.3 из spring-boot-starter-parent 3.1.3 (beads c2k).
+             net.devh grpc-*-spring-boot-starter 3.1.0.RELEASE инструментирует gRPC
+             через Counter.Builder.withRegistry(MeterRegistry) — метод появился только
+             в Micrometer 1.12. Классы MetricsClientInstruments и MetricsServerInstruments
+             грузятся ТОЛЬКО при наличии бина MeterRegistry, поэтому пока в сервисе не
+             было micrometer-registry-prometheus, несовместимость спала незаметно.
+             С ним приложение падает на старте: NoSuchMethodError, APPLICATION FAILED
+             TO START. Ловилось живьём на MessegerParody.
+             HTTPService этой болезнью не страдает, потому что там net.devh 2.14/2.15,
+             где классов *Instruments ещё не существует.
+             1.12.x — верхняя граница безопасного подъёма: в 1.13 реестр Prometheus
+             переехал с simpleclient на prometheus-metrics 1.x, что уже несовместимо
+             с actuator из Boot 3.1. -->
+        <micrometer.version>1.12.13</micrometer.version>
     </properties>
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -140,6 +154,20 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
             <version>3.0.10</version>
+        </dependency>
+
+        <!-- Метрики (beads c2k). Сервис не отдавал их вовсе. Три вещи, которые легко
+             перепутать: actuator вешает HTTP-эндпоинт /actuator/prometheus,
+             micrometer-registry-prometheus печатает накопленное в его формате,
+             сам Micrometer приходит транзитивно. Нужны обе зависимости.
+             Версии не указываем — ими управляет spring-boot-starter-parent 3.1.3. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- MinIO S3-совместимый объектный сторедж для аватарок Google-юзеров (beads lyo) -->

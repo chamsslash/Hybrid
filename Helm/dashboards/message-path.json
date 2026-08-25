@@ -1,0 +1,165 @@
+{
+  "uid": "message-path",
+  "title": "Путь сообщения",
+  "tags": ["hybrid", "diagnostics"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    { "id": 100, "type": "row", "title": "0. Живость", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Цели скрейпа (up)",
+      "description": "up синтезирует сам Prometheus по результату скрейпа — инструментация для этого не нужна. 0 означает, что под не отвечает вовсе. Первое, куда смотреть: хоп мёртв целиком или просто тормозит.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 1 },
+      "targets": [{ "refId": "A", "expr": "up", "legendFormat": "{{app}}" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Ошибки в логах, /с",
+      "description": "Дешёвый сигнал «что-то посыпалось» с разбивкой по сервисам, не требующий знать, что именно сломалось.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 16, "x": 8, "y": 1 },
+      "targets": [{ "refId": "A", "expr": "sum by (app) (rate(logback_events_total{level=\"error\"}[5m]))", "legendFormat": "{{app}}" }]
+    },
+    { "id": 101, "type": "row", "title": "1. Вход HTTP", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 } },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Запросы по URI, /с",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 7 },
+      "targets": [{ "refId": "A", "expr": "sum by (uri) (rate(http_server_requests_seconds_count[5m]))", "legendFormat": "{{uri}}" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Неуспешные запросы, /с",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 7 },
+      "targets": [{ "refId": "A", "expr": "sum by (uri, status) (rate(http_server_requests_seconds_count{outcome!=\"SUCCESS\"}[5m]))", "legendFormat": "{{uri}} {{status}}" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "p95 по URI",
+      "description": "Работает только благодаря percentiles-histogram в application.yml: по умолчанию http_server_requests публикуется как summary, бакетов у неё нет, и histogram_quantile неприменим. Лейбл le в sum by обязателен — без него функция не восстановит распределение и вернёт NaN без диагностики.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 7 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))", "legendFormat": "{{uri}}" }]
+    },
+    { "id": 102, "type": "row", "title": "2. gRPC между сервисами", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 } },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "p95 обработки на стороне сервера",
+      "description": "Латентность хопа так, как её видит принимающий сервис. Гистограмма доступна благодаря percentiles-histogram для grpc.server.processing.duration — по умолчанию таймер net.devh тоже summary.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, service, method) (rate(grpc_server_processing_duration_seconds_bucket[5m])))", "legendFormat": "{{service}}/{{method}}" }]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "p95 собственного таймера вызовов",
+      "description": "GrpcRequestsMetric в HTTPService — единственная гистограмма, работавшая до этой работы.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, method) (rate(grpc_call_duration_seconds_bucket[5m])))", "legendFormat": "{{method}}" }]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Клиент отправил против сервер принял",
+      "description": "Расхождение означает «вызов не долетел» — сеть или дедлайн, а не ошибка в логике сервера. Ровно этот разрыв отличает сломанный транспорт от сломанного кода.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 14 },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(grpc_client_requests_sent_messages_total[5m]))", "legendFormat": "клиент отправил" },
+        { "refId": "B", "expr": "sum(rate(grpc_server_requests_received_messages_total[5m]))", "legendFormat": "сервер принял" }
+      ]
+    },
+    { "id": 103, "type": "row", "title": "3. Kafka", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 } },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Продюсер: отправлено и ошибки, /с",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 21 },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(kafka_producer_record_send_total[5m]))", "legendFormat": "отправлено" },
+        { "refId": "B", "expr": "sum(rate(kafka_producer_record_error_total[5m]))", "legendFormat": "ошибки" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Лаг консьюмера (худшая партиция)",
+      "description": "Лаг — gauge, rate() к нему неприменим. Берём max, потому что интересует худшая партиция, а не средняя: одна отставшая партиция и есть отказ.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 21 },
+      "targets": [{ "refId": "A", "expr": "max by (client_id, topic) (kafka_consumer_fetch_manager_records_lag)", "legendFormat": "{{topic}}" }]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Падения листенера по типу исключения, /с",
+      "description": "Тег exception у spring_kafka_listener — это «сообщение упало в консьюмере» в чистом виде.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 21 },
+      "targets": [{ "refId": "A", "expr": "sum by (exception) (rate(spring_kafka_listener_seconds_count{exception!=\"none\"}[5m]))", "legendFormat": "{{exception}}" }]
+    },
+    { "id": 104, "type": "row", "title": "4. Персистентность сообщений", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 } },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Принято из Kafka минус записано в БД",
+      "description": "Ключевая панель дашборда. Устойчиво ненулевая разность означает, что сообщения теряются между брокером и таблицей message — ровно то, чего не показывал ни один конец по отдельности (beads 5l4). Кратковременные всплески нормальны: счётчики инкрементируются не в один и тот же миг.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(kafka_consumer_fetch_manager_records_consumed_total{topic=\"Messages\"}[5m])) - sum(rate(messages_persisted_total[5m]))", "legendFormat": "потеряно, /с" },
+        { "refId": "B", "expr": "sum(rate(messages_persisted_total{outcome=\"failure\"}[5m]))", "legendFormat": "провалов записи, /с" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Пул R2DBC",
+      "description": "Ненулевая очередь означает, что запись в БД встала из-за исчерпанного пула, а не из-за логики.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        { "refId": "A", "expr": "sum(r2dbc_pool_acquired_connections)", "legendFormat": "занято" },
+        { "refId": "B", "expr": "sum(r2dbc_pool_pending_connections)", "legendFormat": "в очереди" }
+      ]
+    },
+    { "id": 105, "type": "row", "title": "5. Redis и AI", "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 } },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Обращения к AI-ассистенту, /с",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 36 },
+      "targets": [{ "refId": "A", "expr": "sum(rate(AiRequestCounter_total[5m]))", "legendFormat": "AI" }]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Средняя латентность Redis",
+      "description": "lettuce публикуется как summary, поэтому здесь именно средняя: rate(_sum)/rate(_count). Перцентили по ней недоступны.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(rate(lettuce_command_completion_seconds_sum[5m])) / sum(rate(lettuce_command_completion_seconds_count[5m]))", "legendFormat": "lettuce" }]
+    }
+  ]
+}

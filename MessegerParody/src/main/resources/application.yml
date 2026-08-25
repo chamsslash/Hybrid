@@ -5,6 +5,34 @@ grpc:
   server:
     port: 9091
 
+management:
+  # Отдельный management-порт НЕ нужен, в отличие от HTTPService и AuthService:
+  # бизнес-HTTP у сервиса нет вовсе (наружу он говорит по gRPC 9091 и через
+  # Kafka), в ingress он не смотрит, поэтому весь 8082 — служебный порт, и
+  # разделять на нём нечего. До beads c2k на 8082 вообще никто не слушал.
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      # Таймер gRPC от net.devh публикуется как summary, а histogram_quantile()
+      # работает ТОЛЬКО по бакетам — без этого латентность хопа между сервисами
+      # доступна лишь средней. http.server.requests здесь не настраиваем: у сервиса
+      # нет бизнес-HTTP, весь трафик на 8082 — это скрейпы Prometheus.
+      # Кардинальность мала: теги service/method/statusCode на десяток методов,
+      # а не на открытый набор URI.
+      percentiles-histogram:
+        "[grpc.server.processing.duration]": true
+      minimum-expected-value:
+        "[grpc.server.processing.duration]": 1ms
+      maximum-expected-value:
+        "[grpc.server.processing.duration]": 5s
+
 spring:
   kafka:
     bootstrap-servers: kafka:9092

@@ -29,8 +29,8 @@
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
 | HTTPService | 31 | 235 | 2 | 237 |
-| MessegerParody | 4 | 12 | 3 | 15 |
-| **Итого** | **40** | **264** | **7** | **271** |
+| MessegerParody | 5 | 14 | 3 | 17 |
+| **Итого** | **41** | **266** | **7** | **273** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -442,8 +442,16 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 
 ## MessegerParody
 
+### `Metrics/MessagePersistenceMetricTest` — `unit` — счётчик дошедших до БД сообщений (beads c2k)
+`MessagePersistenceMetric` на живом `SimpleMeterRegistry` (без моков — проверяется именно регистрация в реестре).
+
+Зачем эта метрика существует: лаг консьюмера говорит «сообщения прочитаны из Kafka», но не «сообщения записаны в БД». Между этими двумя событиями лежит вся логика консьюмера, и именно там они терялись в beads 5l4 — ни лаг, ни счётчики продюсера потерю не показывали. Дашборд «Путь сообщения» строит разность `rate(kafka_consumer_fetch_manager_records_consumed_total{topic="Messages"}) - rate(messages_persisted_total)`, поэтому счётчик обязан вести себя предсказуемо в обоих режимах.
+
+- **`bothOutcomesAreRegisteredBeforeAnyMessageArrives`** — сразу после конструктора, до единого сообщения, запрашивает оба счётчика через `registry.get("messages_persisted").tag("outcome", ...)`. Проверяет: оба ряда существуют и равны нулю. Зачем: если создавать счётчики лениво, при первом инкременте, то до первого сбоя ряда `messages_persisted{outcome="failure"}` в Prometheus не существует вовсе — а `rate()` по несуществующему ряду возвращает пустоту, и разностная панель молча не рисует НИЧЕГО. Пустая панель визуально неотличима от панели «всё хорошо», то есть отказ мониторинга выглядел бы как исправная работа. `registry.get(...)` бросает `MeterNotFoundException` на незарегистрированном счётчике — это и есть ассерт.
+- **`successAndFailureAreCountedSeparately`** — два `recordSuccess()` и один `recordFailure()`. Проверяет: `outcome="success"` равен 2, `outcome="failure"` равен 1. Зачем: стережёт перепутанные теги — при обмене их местами предыдущий тест остался бы зелёным, а дашборд показывал бы ровно обратную картину происходящего.
+
 ### `KafkaConsumerTest` — `unit` — парсинг топиков Images (beads se2) и Messages (beads myl)
-`KafkaConsumer.listenOauthImage` с замоканным `ImageUrlPersistenceService` и `listenChatMessages` с замоканным `ReactiveRepository`.
+`KafkaConsumer.listenOauthImage` с замоканным `ImageUrlPersistenceService` и `listenChatMessages` с замоканными `ReactiveRepository` и `MessagePersistenceMetric` (последний добавлен в beads c2k: `listenChatMessages` инкрементирует счётчик на обеих ветках, и без мока `@InjectMocks` оставлял поле null, из-за чего оба сценария по топику `Messages` падали с `NullPointerException` внутри catch).
 
 - **`parsesUserimageContractAndDelegatesToPersistenceService`** — событие `userimage` → `persistImageUrl("userimage","42","userimage/42/uuid.png")`.
 - **`parsesChatimageContractAndDelegatesToPersistenceService`** — событие `chatimage` → соответствующий вызов.
