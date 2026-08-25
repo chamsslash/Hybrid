@@ -1,5 +1,6 @@
 package com.example.springexample;
 
+import com.example.springexample.Metrics.MessagePersistenceMetric;
 import com.example.springexample.R2DBC_Repositories.ReactiveRepository;
 import com.example.springexample.Services.ImageUrlPersistenceService;
 import com.google.gson.Gson;
@@ -22,6 +23,9 @@ public class KafkaConsumer {
 
     @Autowired
     private ReactiveRepository reactiveRepository;
+
+    @Autowired
+    private MessagePersistenceMetric messagePersistenceMetric;
 
     private final Gson gson = new Gson();
 
@@ -50,18 +54,31 @@ public class KafkaConsumer {
                     NullPointerException.class, com.google.gson.JsonSyntaxException.class})
     @KafkaListener(topics = "Messages")
     public void listenChatMessages(String message) {
-        ChatMessageDTO dto = gson.fromJson(message, ChatMessageDTO.class);
-        // Таймаут обязателен: дефолтный r2dbc-пул на acquire — без таймаута. Если пул
-        // исчерпан или Postgres завис, .block() без таймаута никогда не вернётся,
-        // единственный поток контейнера перестанет вызывать poll(), и через
-        // max.poll.interval.ms консьюмер выпадет из группы (бесконечный ребаланс,
-        // топик "Messages" перестанет потребляться, при этом под останется Ready).
-        reactiveRepository.insertMessage(
-                Long.parseLong(dto.getChat_id()),
-                Long.parseLong(dto.getUser_id()),
-                dto.getText(),
-                Instant.parse(dto.getTimestamp()),
-                dto.getMessage_id()
-        ).block(java.time.Duration.ofSeconds(15));
+        // В try завёрнут ВЕСЬ метод, включая разбор JSON и parseLong: с точки зрения
+        // вопроса «дошло ли сообщение до таблицы» мусорный payload — такой же
+        // недошедший, как и отказ БД (beads c2k).
+        try {
+            ChatMessageDTO dto = gson.fromJson(message, ChatMessageDTO.class);
+            // Таймаут обязателен: дефолтный r2dbc-пул на acquire — без таймаута. Если пул
+            // исчерпан или Postgres завис, .block() без таймаута никогда не вернётся,
+            // единственный поток контейнера перестанет вызывать poll(), и через
+            // max.poll.interval.ms консьюмер выпадет из группы (бесконечный ребаланс,
+            // топик "Messages" перестанет потребляться, при этом под останется Ready).
+            reactiveRepository.insertMessage(
+                    Long.parseLong(dto.getChat_id()),
+                    Long.parseLong(dto.getUser_id()),
+                    dto.getText(),
+                    Instant.parse(dto.getTimestamp()),
+                    dto.getMessage_id()
+            ).block(java.time.Duration.ofSeconds(15));
+            messagePersistenceMetric.recordSuccess();
+        } catch (RuntimeException e) {
+            // Счётчик ДО проброса, и пробрасывать обязательно: на исключении держится
+            // весь механизм @RetryableTopic — он поймает его, отправит сообщение на
+            // ретрай, а после исчерпания попыток в DLT. Проглотить исключение здесь
+            // значило бы тихо потерять сообщение и одновременно отрапортовать успех.
+            messagePersistenceMetric.recordFailure();
+            throw e;
+        }
     }
 }

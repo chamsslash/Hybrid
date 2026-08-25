@@ -1,5 +1,6 @@
 package com.example.springexample;
 
+import com.example.springexample.Metrics.MessagePersistenceMetric;
 import com.example.springexample.R2DBC_Repositories.ReactiveRepository;
 import com.example.springexample.Services.ImageUrlPersistenceService;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,12 @@ class KafkaConsumerTest {
 
     @Mock
     private ReactiveRepository reactiveRepository;
+
+    // Счётчик персистентности сообщений (beads c2k). Мок обязателен: listenChatMessages
+    // инкрементирует его на обеих ветках, а @InjectMocks не заполняет поля, для которых
+    // нет @Mock — без него оба сценария падали с NullPointerException внутри catch.
+    @Mock
+    private MessagePersistenceMetric messagePersistenceMetric;
 
     @InjectMocks
     private KafkaConsumer kafkaConsumer;
