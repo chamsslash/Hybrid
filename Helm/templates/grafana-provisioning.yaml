@@ -1,0 +1,53 @@
+{{- if .Values.infra.grafana }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        # uid зафиксирован строкой намеренно: на него ссылается КАЖДАЯ панель в
+        # Helm/dashboards/*.json. Сгенерированный uid ломал бы все дашборды сразу,
+        # причём тихо — панели просто показывали бы "Datasource not found".
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: hybrid
+        orgId: 1
+        folder: Hybrid
+        type: file
+        # Дашборды — код, живущий в гите. Правка в UI намеренно эфемерна:
+        # allowUiUpdates: false запрещает Grafana перезаписывать файл, а
+        # updateIntervalSeconds заставляет её перечитывать каталог, поэтому после
+        # helm upgrade перезапуск пода ради дашбордов не нужен — достаточно
+        # синхронизации смонтированного ConfigMap.
+        # Без этого получается дашборд, который никто не может воспроизвести и
+        # который умирает вместе с подом.
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+data:
+{{ (.Files.Glob "dashboards/*.json").AsConfig | indent 2 }}
+{{- end }}
