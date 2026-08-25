@@ -43,4 +43,12 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
+        # relabel_configs выше решают, КОГО скрейпить; metric_relabel_configs —
+        # ЧТО из принесённого сохранить. Список собирается из values.yaml, чтобы
+        # ответ на вопрос «какие метрики мы собираем» читался за минуту, а не
+        # выковыривался из регулярки в шаблоне.
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: "{{ join "|" .Values.prometheus.keepMetrics }}"
 {{- end }}

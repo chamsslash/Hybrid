@@ -13,6 +13,12 @@ spec:
     metadata:
       labels:
         app: authservice
+      annotations:
+        # См. пояснение в чарте httpservice. Порт — management-порт контейнера,
+        # в Service он намеренно не публикуется (beads c2k).
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
     spec:
 {{- if .Values.schemaWait.enabled }}
       # Схему создаёт Job messegerparody-liquibase (hook post-install,pre-upgrade),
