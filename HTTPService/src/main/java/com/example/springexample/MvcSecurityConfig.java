@@ -2,17 +2,19 @@ package com.example.springexample; // Убедитесь, что пакет пр
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.RequestCacheConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -50,14 +52,36 @@ public class MvcSecurityConfig  {
         return new CsrfRequestDataValueProcessor();
     }
 
+    /**
+     * Отдельная цепочка для эндпоинтов актуатора (beads c2k).
+     *
+     * Заменяет прежний webSecurityCustomizer, который выводил /actuator/prometheus
+     * из-под Security целиком через web.ignoring(). Тот подход был вынужденным:
+     * readinessProbe висела на этом эндпоинте, потому что /actuator/health закрыт
+     * Security и отвечает 302. Побочным эффектом весь дамп метрик отдавался наружу
+     * через ingress без аутентификации.
+     *
+     * Теперь актуатор живёт на management-порту 8090, который в ingress не смотрит
+     * и в Service не публикуется. Но цепочка всё равно нужна: management.server.port
+     * поднимает ДОЧЕРНИЙ контекст, а бины родительского он наследует — включая
+     * mvcFilterChain ниже, у которой нет securityMatcher и стоит
+     * .anyRequest().authenticated(). Без отдельной цепочки запрос к актуатору
+     * уходил бы в delegatingEntryPoint и получал редирект на /welcome; в AuthService
+     * ровно этот сценарий воспроизвёлся живьём и вернул страницу входа Google.
+     *
+     * permitAll безопасен именно из-за разделения портов, а не сам по себе.
+     * HIGHEST_PRECEDENCE обязателен: цепочки проверяются по порядку, иначе первой
+     * сматчилась бы catch-all цепочка ниже.
+     */
     @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> {
-//            web.ignoring().requestMatchers(new AntPathRequestMatcher("/reactive/**"));
-            web.ignoring().requestMatchers(new AntPathRequestMatcher("/actuator/prometheus"));
-        };
-
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
+        http.securityMatcher(EndpointRequest.toAnyEndpoint())
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .csrf(AbstractHttpConfigurer::disable);
+        return http.build();
     }
+
     @Bean
     public SecurityFilterChain mvcFilterChain(HttpSecurity http) throws Exception {
         CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
@@ -94,7 +118,6 @@ public class MvcSecurityConfig  {
                                 new AntPathRequestMatcher("/*.css"),
                                 new AntPathRequestMatcher("/error"),
                                 new AntPathRequestMatcher("/static/**"),
-                                new AntPathRequestMatcher("/actuator/prometheus"),
                                 new AntPathRequestMatcher("/verifylogin"),
                                 new AntPathRequestMatcher("/welcome"),
                                 new AntPathRequestMatcher("/registerpage"),

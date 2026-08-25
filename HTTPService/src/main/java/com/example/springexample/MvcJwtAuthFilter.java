@@ -50,7 +50,10 @@ public class MvcJwtAuthFilter extends OncePerRequestFilter {
     // Список публичных путей
     private static final List<String> PUBLIC_PATHS = List.of(
             "/reactive/login", "/reactive/register", "/welcome", "/", "/authcallback",
-            "/exchangeTokens", "/actuator/**",
+            // "/actuator/**" убран (beads c2k): актуатор переехал на management-порт
+            // 8090, который в ingress не смотрит, и защищён отдельной цепочкой
+            // actuatorFilterChain. На 8080 его больше нет, публиковать нечего.
+            "/exchangeTokens",
             "/public/**",
             "/static/**",
             "/css/**",

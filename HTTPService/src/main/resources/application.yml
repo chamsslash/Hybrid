@@ -67,6 +67,17 @@ server:
   port: 8080
 
 management:
+  server:
+    # Отдельный порт от 8080 (beads c2k). Ingress содержит правило
+    # `path: / (Prefix) -> httpservice:8080`, то есть ВЕСЬ 8080 публичен, и
+    # /actuator/prometheus отдавался наружу без аутентификации: curl на
+    # http://myapp.localtest.me/actuator/prometheus возвращал 200 с полным дампом —
+    # имена всех URI приложения, версия JVM, имена Kafka-топиков, бизнес-счётчики,
+    # uptime. Это был вынужденный костыль, потому что readinessProbe висела на этом
+    # эндпоинте: /actuator/health закрыт Security и отвечает 302.
+    # 8090 в ingress не смотрит и в Service не публикуется, поэтому исключения в
+    # Security больше не нужны — они удалены из MvcSecurityConfig и обоих фильтров.
+    port: 8090
   endpoints:
     web:
       exposure:
@@ -74,6 +85,25 @@ management:
   endpoint:
     prometheus:
       enabled: true
+    health:
+      # Даёт /actuator/health/readiness, на который переехала readinessProbe.
+      # В отличие от пробы на /actuator/prometheus она означает «Spring поднял
+      # контекст и готов», а не «процесс отвечает по HTTP».
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      # http.server.requests по умолчанию публикуется как summary, а
+      # histogram_quantile() работает ТОЛЬКО по бакетам: p95 по HTTP был
+      # недоступен в принципе, оставались лишь средняя и _max.
+      percentiles-histogram:
+        "[http.server.requests]": true
+      # Границы явные, и это не косметика: дефолтные бакеты покрывают диапазон от
+      # микросекунд до минут, и каждый — отдельный ряд на КАЖДОЕ значение uri.
+      minimum-expected-value:
+        "[http.server.requests]": 10ms
+      maximum-expected-value:
+        "[http.server.requests]": 10s
 
 logging:
   level:

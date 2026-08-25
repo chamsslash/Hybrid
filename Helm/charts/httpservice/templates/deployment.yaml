@@ -13,6 +13,16 @@ spec:
     metadata:
       labels:
         app: httpservice
+      annotations:
+        # Три аннотации, которые читает relabel_configs в
+        # Helm/templates/prometheus-config.yaml (beads c2k). До их появления правило
+        # keep по prometheus.io/scrape отбрасывало всё — это единственная
+        # поломка связки, записанная в тикете.
+        # Порт здесь — management-порт КОНТЕЙНЕРА, а не порт Service: Prometheus
+        # ходит по pod IP через kubernetes_sd_configs role: pod.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
     spec:
       containers:
         - name: httpservice
@@ -20,27 +30,31 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8080
+            # Management-порт. В Service его НЕ публикуем: Prometheus скрейпит по
+            # pod IP через kubernetes_sd_configs role: pod, а не через Service.
+            - containerPort: 8090
           # Без readiness-пробы под считается готовым сразу после старта контейнера, а
           # Spring поднимается ~16 с (в логе: «Started Main in 16.362 seconds», Tomcat
           # начинает слушать только под конец). Ingress всё это время слал трафик в
           # неготовый под, и каждый `helm upgrade` / `rollout restart` давал окно, в
           # котором пользователь получал 502 Bad Gateway — ловилось вживую дважды подряд.
           #
-          # Проба на /actuator/prometheus, а не на /actuator/health: health закрыт Spring
-          # Security и отвечает 302 (редирект на вход), из эндпоинтов актуатора без
-          # авторизации доступен только prometheus — он единственный числится в
-          # WebSecurity.ignoring(). Проверено изнутри пода: prometheus 200, health 302.
-          # Правильнее была бы /actuator/health/readiness, но это включение health-probes
-          # в management-конфиге плюс правка security-конфига — отдельная задача.
+          # Проба висела на /actuator/prometheus порта 8080, потому что /actuator/health
+          # закрыт Security и отвечает 302, а prometheus был единственным эндпоинтом
+          # актуатора вне security-цепочки. Побочным эффектом этого костыля весь дамп
+          # метрик отдавался наружу через ingress без аутентификации.
           #
-          # Только httpservice: он один стоит за ingress и виден пользователю. У
-          # authservice и messegerparody проб тоже нет, но messegerparody на своём
-          # HTTP-порту 8082 не отвечает вовсе (сервис gRPC+Kafka, gRPC на 9091), так что
-          # одинаковую пробу на все три чарта наложить нельзя — нужен разбор по сервису.
+          # Актуатор переехал на management-порт 8090 (beads c2k), который в ingress не
+          # смотрит. Там он открыт отдельной цепочкой actuatorFilterChain, поэтому проба
+          # стоит на /actuator/health/readiness: она означает «контекст поднят и готов»,
+          # а не «процесс отвечает по HTTP».
+          #
+          # Пробы теперь есть у всех трёх сервисов: у authservice на 8090, у
+          # messegerparody на 8082 — там, где раньше вообще никто не слушал.
           readinessProbe:
             httpGet:
-              path: /actuator/prometheus
-              port: 8080
+              path: /actuator/health/readiness
+              port: 8090
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 12
