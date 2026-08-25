@@ -86,10 +86,17 @@ management:
       # по HTTP не посчитать вовсе — доступны лишь средняя и _max.
       percentiles-histogram:
         "[http.server.requests]": true
+        # Таймер gRPC от net.devh публикуется как summary по тем же причинам,
+        # то есть латентность хопа между сервисами тоже была бы доступна только
+        # средней. Кардинальность здесь мала: тегов service/method/statusCode
+        # на десяток методов, а не на открытый набор URI.
+        "[grpc.server.processing.duration]": true
       # Границы заданы явно, и это не косметика: по умолчанию бакеты покрывают
       # диапазон от микросекунд до минут, и каждый бакет — отдельный временной
       # ряд на КАЖДОЕ значение uri.
       minimum-expected-value:
         "[http.server.requests]": 10ms
+        "[grpc.server.processing.duration]": 1ms
       maximum-expected-value:
         "[http.server.requests]": 10s
+        "[grpc.server.processing.duration]": 5s

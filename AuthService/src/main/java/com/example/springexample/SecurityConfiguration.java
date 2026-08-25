@@ -2,8 +2,11 @@ package com.example.springexample;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -32,6 +35,37 @@ public class SecurityConfiguration {
     // OAuth redirect-uri в application.yml). Дефолт совпадает с Helm ingress.host.
     @Value("${INGRESS_HOST:myapp.localtest.me}")
     private String ingressHost;
+
+    /**
+     * Отдельная цепочка для эндпоинтов актуатора (beads c2k).
+     *
+     * Нужна потому, что management.server.port поднимает ДОЧЕРНИЙ контекст, а бины
+     * родительского он наследует — включая filterChain ниже. Та цепочка не имеет
+     * securityMatcher и закрывает .anyRequest().authenticated(), поэтому запрос к
+     * /actuator/health/readiness на порту 8090 уходил в oauth2Login и отвечал
+     * СТРАНИЦЕЙ ВХОДА GOOGLE. Ловилось живьём: wget по podIP:8090 возвращал HTML
+     * accounts.google.com вместо {"status":"UP"}.
+     *
+     * Последствия без этой цепочки: Prometheus получал бы редирект вместо метрик,
+     * а readinessProbe никогда не увидела бы 200 и держала под вечно неготовым.
+     *
+     * permitAll здесь безопасен именно из-за разделения портов: 8090 не публикуется
+     * ни в Service, ни в ingress, поэтому эндпоинт достижим только изнутри кластера.
+     * Ровно ради этого свойства порт и разделяли — на общем порту пришлось бы
+     * выводить актуатор из-под Security точечными исключениями, что и стало
+     * дырой в HTTPService.
+     *
+     * HIGHEST_PRECEDENCE обязателен: цепочки проверяются по порядку, и без него
+     * первой сматчилась бы catch-all цепочка ниже.
+     */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
+        http.securityMatcher(EndpointRequest.toAnyEndpoint())
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .csrf(AbstractHttpConfigurer::disable);
+        return http.build();
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
