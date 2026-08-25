@@ -57,3 +57,39 @@ spring:
 grpc:
   server:
     port: 9092
+
+management:
+  server:
+    # Отдельный порт от бизнес-порта 8081. 8081 смотрит в ingress (правила
+    # /startauth и /login/oauth2/code/google в Helm/templates/http-ingress.yaml),
+    # 8090 — нет. Значит эндпоинты актуатора физически недостижимы снаружи, и их
+    # НЕ нужно выводить из-под Spring Security. Именно попытка обойтись без этого
+    # разделения и открыла дыру в HTTPService, где /actuator/prometheus отдавался
+    # публично через ingress (beads c2k).
+    port: 8090
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    health:
+      # Включает /actuator/health/readiness и /liveness — на них вешается
+      # readinessProbe. В отличие от пробы на /actuator/prometheus, проба на
+      # readiness действительно означает «Spring поднял контекст и готов»,
+      # а не «процесс отвечает по HTTP».
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      # http.server.requests по умолчанию публикуется как summary, а
+      # histogram_quantile() работает ТОЛЬКО по бакетам. Без этой настройки p95
+      # по HTTP не посчитать вовсе — доступны лишь средняя и _max.
+      percentiles-histogram:
+        "[http.server.requests]": true
+      # Границы заданы явно, и это не косметика: по умолчанию бакеты покрывают
+      # диапазон от микросекунд до минут, и каждый бакет — отдельный временной
+      # ряд на КАЖДОЕ значение uri.
+      minimum-expected-value:
+        "[http.server.requests]": 10ms
+      maximum-expected-value:
+        "[http.server.requests]": 10s

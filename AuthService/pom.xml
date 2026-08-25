@@ -142,6 +142,20 @@
             <version>3.0.10</version>
         </dependency>
 
+        <!-- Метрики (beads c2k). Сервис не отдавал их вовсе. Три вещи, которые легко
+             перепутать: actuator вешает HTTP-эндпоинт /actuator/prometheus,
+             micrometer-registry-prometheus печатает накопленное в его формате,
+             сам Micrometer приходит транзитивно. Нужны обе зависимости.
+             Версии не указываем — ими управляет spring-boot-starter-parent 3.1.3. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- MinIO S3-совместимый объектный сторедж для аватарок Google-юзеров (beads lyo) -->
         <dependency>
             <groupId>io.minio</groupId>
