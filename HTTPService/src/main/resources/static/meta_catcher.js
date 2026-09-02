@@ -49,7 +49,7 @@ function generateUUID() {
  * Генерирует и сохраняет уникальный идентификатор пользователя (UUID),
  * получает цифровой отпечаток браузера и метаданные клиента.
  *
- * @returns {Promise<object>} Объект, содержащий secureUUID, بصمة الإصبع и clientMeta.
+ * @returns {Promise<object>} Объект, содержащий secureUUID, отпечаток и clientMeta.
  */
 export async function getFingerprintData() {
     const cached = loadFpCache();
