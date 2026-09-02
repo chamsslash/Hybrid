@@ -142,6 +142,62 @@ function renderTyping(chatId) {
         : `${names.join(', ')} печатают...`;
 }
 
+// --- Картинки чатов: живое событие + догон пропущенного ---
+
+/**
+ * Подставляет картинку в плитку чата вместо спиннера или прежнего изображения.
+ *
+ * onlyIfPending разводит два вызова с разными правилами. Живое STOMP-событие меняет
+ * плитку всегда: картинку чата могут заменить и потом, когда на месте спиннера уже
+ * висит прежнее изображение. Опрос-догон, наоборот, трогает только спиннеры — иначе
+ * каждая попытка пересоздавала бы blob-URL уже отрисованным плиткам, а отзываются
+ * они лишь в unmount (beads gs2), то есть вкладка копила бы их на ровном месте.
+ */
+function applyChatImage(chatId, objectKey, { onlyIfPending } = {}) {
+    // Ключ 'pending' означает «байты ещё едут в MinIO» — рисовать по нему нечего.
+    if (!objectKey || objectKey === 'pending') return;
+    const target = document.getElementById(`chat-img-${chatId}`);
+    if (!target) return;
+    if (onlyIfPending && !target.querySelector('.spinner-avatar')) return;
+    target.innerHTML = policy.createHTML(imageTag(objectKey, 'chat-avatar', 'chat'));
+    hydrateImages(target);
+}
+
+// Догон картинок, потерянных мимо STOMP (beads 1e2).
+//
+// Подписка на /mutual/chatlist/image/{id} заводится только при монтировании списка
+// чатов, а создатель чата попадает сюда уже ПОСЛЕ того, как событие о его картинке
+// опубликовано. STOMP не переигрывает сообщения: кадр, отправленный до SUBSCRIBE,
+// потерян навсегда, и плитка автора крутила бы спиннер до ручной перезагрузки.
+// Остальных участников это не задевает — они на списке уже сидят и событие получают
+// живьём (проверено на стенде: картинка меняется без перезагрузки).
+//
+// Поэтому спиннеры добираем опросом. Паузы растут, попытки кончаются: застрявший
+// 'pending' (событие в Kafka потеряно, консюмер лежит) не должен превращаться в
+// бесконечный поток запросов к /api/chatlist с каждой открытой вкладки.
+const PENDING_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
+let pendingRetryTimer = null;
+
+function schedulePendingImageRefresh(attempt = 0) {
+    if (attempt >= PENDING_RETRY_DELAYS_MS.length) return;
+    // Ни одного спиннера — догонять нечего, дальше не планируем.
+    if (!document.querySelector('.spinner-avatar')) return;
+
+    pendingRetryTimer = setTimeout(async () => {
+        pendingRetryTimer = null;
+        try {
+            const chats = (await api.get('/api/chatlist')).data || [];
+            for (const chat of chats) {
+                applyChatImage(chat.id, chat.chat_image_url, { onlyIfPending: true });
+            }
+        } catch (e) {
+            // Не обрываем цепочку: разовый сбой сети не повод бросать оставшиеся попытки.
+            console.error("pending image refresh failed:", e);
+        }
+        schedulePendingImageRefresh(attempt + 1);
+    }, PENDING_RETRY_DELAYS_MS[attempt]);
+}
+
 // --- STOMP: все подключения с Authorization в CONNECT-заголовках ---
 // Каждый клиент регистрируется в stomp-registry вью — unmount() гасит их разом.
 function connectStomp(token) {
@@ -194,13 +250,8 @@ function connectStomp(token) {
         // подписываться на каждый чат отдельно пришлось бы по мере их добавления.
         imagesStomp.subscribe(`/mutual/chatlist/image/${user_id}`, (msg) => {
             const message = JSON.parse(msg.body);
-            const target = document.getElementById(`chat-img-${message.targetId}`);
             // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
-            if (target && message.objectKey && message.objectKey !== 'pending') {
-                target.innerHTML = policy.createHTML(
-                    imageTag(message.objectKey, 'chat-avatar', 'chat'));
-                hydrateImages(target);
-            }
+            applyChatImage(message.targetId, message.objectKey);
         });
     });
 
@@ -246,6 +297,10 @@ export async function mount(params) {
 
         const token = await ensureAccessToken();
         connectStomp(token);
+
+        // Подписка встала только сейчас — картинки, событие о которых ушло раньше,
+        // придётся добрать опросом (см. schedulePendingImageRefresh).
+        schedulePendingImageRefresh();
     } catch (e) {
         // 401 после refresh-retry интерцептор уже уводит на /welcome
         console.error("chatlist bootstrap failed:", e);
@@ -253,6 +308,12 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // Таймер догона снимаем раньше остального: иначе уже отмонтированная вью сходила бы
+    // в /api/chatlist и полезла бы в узлы, которых в DOM больше нет.
+    if (pendingRetryTimer) {
+        clearTimeout(pendingRetryTimer);
+        pendingRetryTimer = null;
+    }
     // blob-URL живут до отзыва (beads gs2) — иначе вкладка копит их при каждом переходе.
     releaseImages();
     if (stomp) stomp.disconnectAll();

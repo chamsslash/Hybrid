@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 31 | 235 | 2 | 237 |
+| HTTPService | 32 | 238 | 2 | 240 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **41** | **266** | **7** | **273** |
+| **Итого** | **42** | **269** | **7** | **276** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -229,6 +229,15 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 
 - **`successReturns200JsonWithChatIdAndTitle`** — успешный ответ бэкенда с `id=42`, `title="My Chat"` → `200 OK`, `Content-Type: application/json`, тело содержит `"chatId":42` и `"title":"My Chat"`. Зачем: контракт JSON-ответа, на который завязан клиентский роутинг SPA.
 - **`successWithoutTitleReturnsOnlyChatId`** — ответ без `title` (`id=7`) → тело содержит `"chatId":7`, поле `title` отсутствует. Зачем: опциональность `title` в ответе не должна ломать сериализацию.
+
+### `Services/ReactiveGrpcClientStompRecipientsTest` — `unit` — формат адреса STOMP-рассылки о новом чате (beads 1e2)
+`ReactiveGrpcClient.stompRecipients` — сбор получателей уведомлений о создании чата: участники плюс автор. Каждый элемент подставляется конкатенацией прямо в адрес (`/mutual/chatlist/list_update/{id}`, `/mutual/chatlist/change_chatpreview/{id}`), поэтому проверяется именно формат строки, а не только состав списка. Метод вынесен из лямбды `reactiveChatServe` ради проверяемости: до этого адрес не утверждался ничем.
+
+Что стерегут: в коде жил `String.valueOf(chatData.getAuthorId())`, а `author_id` по контракту proto — поле типа `User`, то есть вложенное сообщение. `String.valueOf` печатал его текстовый формат, и адрес получался `/mutual/chatlist/list_update/id: "6"` вместо `.../6`. Отказ был бесшумным: исключения нет, лог рапортует `stomp add new chat success`, участники уведомление получают — не получает только автор, тот самый человек, который прямо сейчас смотрит на свой список чатов. Найдено живым прогоном на стенде (beads 1e2), не тестом.
+
+- **`authorIdIsPlainIdNotProtobufTextFormat`** — чат с участником `5` и автором `6` → ровно `["5", "6"]`, и ни один элемент не содержит `id:` или кавычек. Зачем: главный тест группы, именно здесь пряталась ошибка; второй ассерт нужен, чтобы при регрессии отчёт называл причину, а не просто показывал неравенство строк.
+- **`everyRecipientIsUsableAsStompDestinationSuffix`** — автор `42`, участники `7` и `13` → каждый элемент соответствует `\d+`. Зачем: любой посторонний символ (кавычка, пробел, перевод строки) уводит кадр на несуществующий адрес, и сообщение исчезает молча.
+- **`authorIsIncludedWhenChatHasNoOtherMembers`** — чат без других участников → `["6"]`. Зачем: список получателей не должен схлопываться в пустой, иначе создатель не увидит собственный чат до перезагрузки.
 
 ### `Services/CreateChatUsernameValidationTest` — `unit` — сверка участников чата с тем, кого нашёл AuthService
 `WEBFLUX_Service.findMissingUsernames` — сравнение запрошенных имён участников с теми, кого разрезолвил AuthService. Тестируется точечно, без multipart и `ReactiveSecurityContextHolder`, как и `CreateChatJsonResponseTest`. Резолв имён лоссовый: `Auth_impl.getUserByUsername` отбрасывает ненайденных через `Optional::isPresent` и отдаёт только существующих, поэтому «не нашли никого» и «нашли не всех» на стороне вызывающего различимы только сверкой имён.
