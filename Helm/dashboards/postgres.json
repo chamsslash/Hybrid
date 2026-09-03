@@ -1,0 +1,219 @@
+{
+  "uid": "postgres",
+  "title": "PostgreSQL",
+  "tags": ["hybrid", "postgres", "infra"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "БД доступна",
+      "description": "pg_up — единственная метрика экспортера, которая приходит даже когда подключиться к базе не удалось. Ноль здесь обесценивает все остальные панели дашборда.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "нет", "color": "red" }, "1": { "text": "да", "color": "green" } } }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "pg_up", "legendFormat": "up" }]
+    },
+    {
+      "id": 2,
+      "type": "gauge",
+      "title": "Соединения от лимита",
+      "description": "Доля max_connections, занятая всеми клиентами разом: три сервиса, Liquibase-джоба, psql из отладки. Пулы в приложениях (hikaricp_*, r2dbc_pool_*) видят только СВОЮ долю и упереться в общий лимит по ним нельзя — этот вопрос закрывает только взгляд со стороны БД.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pg_stat_activity_count) / max(pg_settings_max_connections)",
+          "legendFormat": "занято"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Самая долгая транзакция",
+      "description": "Возраст старейшей открытой транзакции. Растущее без потолка значение — забытый BEGIN или зависший запрос: он держит блокировки и не даёт autovacuum убирать мёртвые кортежи, поэтому таблицы начинают пухнуть.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "max(pg_stat_activity_max_tx_duration)", "legendFormat": "макс" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Размер hybrid_db",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "pg_database_size_bytes{datname=\"hybrid_db\"}", "legendFormat": "hybrid_db" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Соединения по состояниям",
+      "description": "Разложение занятых соединений. Разрастающийся idle in transaction — тот же диагноз, что и у панели «самая долгая транзакция», но виден раньше.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (state) (pg_stat_activity_count)", "legendFormat": "{{state}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Транзакции: commit против rollback",
+      "description": "Всплеск rollback без роста нагрузки — приложение начало падать внутри транзакций. Часто это первый видимый признак несовпадения схемы с кодом (ровно класс тикета fwt).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"hybrid_db\"}[5m]))",
+          "legendFormat": "commit"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"hybrid_db\"}[5m]))",
+          "legendFormat": "rollback"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Попадание в кэш",
+      "description": "blks_hit / (blks_hit + blks_read). Для базы, целиком помещающейся в shared_buffers, здоровое значение около единицы. Просадка означает, что данных стало больше памяти и чтения пошли с диска.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(pg_stat_database_blks_hit{datname=\"hybrid_db\"}[5m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{datname=\"hybrid_db\"}[5m])) + sum(rate(pg_stat_database_blks_read{datname=\"hybrid_db\"}[5m])), 1)",
+          "legendFormat": "hit ratio"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Блокировки и дедлоки",
+      "description": "Дедлоки в этой схеме не ожидаются вовсе: писатели идут по разным таблицам. Любой ненулевой счётчик здесь — повод разбираться, а не наблюдать.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (mode) (pg_locks_count{datname=\"hybrid_db\"})", "legendFormat": "lock: {{mode}}" },
+        {
+          "refId": "B",
+          "expr": "sum(increase(pg_stat_database_deadlocks{datname=\"hybrid_db\"}[5m]))",
+          "legendFormat": "дедлоки за 5м"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Строки в таблицах (живые)",
+      "description": "n_live_tup по таблицам. Прямой ответ на вопрос «сообщения вообще сохраняются?» — тот самый, который в тикете 5l4 приходилось проверять руками через psql.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "targets": [
+        { "refId": "A", "expr": "pg_stat_user_tables_n_live_tup{datname=\"hybrid_db\"}", "legendFormat": "{{relname}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Мёртвые кортежи",
+      "description": "n_dead_tup. Копится, если autovacuum не успевает или ему мешает долгая транзакция. Растущая линия при стабильном числе живых строк — предвестник распухания таблицы и деградации запросов.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "targets": [
+        { "refId": "A", "expr": "pg_stat_user_tables_n_dead_tup{datname=\"hybrid_db\"}", "legendFormat": "{{relname}}" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Размер таблиц и индексов",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "pg_stat_user_tables_table_size_bytes{datname=\"hybrid_db\"}", "legendFormat": "таблица {{relname}}" },
+        { "refId": "B", "expr": "pg_stat_user_tables_index_size_bytes{datname=\"hybrid_db\"}", "legendFormat": "индексы {{relname}}" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Seq scan против index scan",
+      "description": "Растущий seq_scan по таблице, у которой есть индекс, означает, что запрос индекс не использует. На объёмах стенда это незаметно по времени ответа и видно только здесь.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(pg_stat_user_tables_seq_scan{datname=\"hybrid_db\"}[5m])", "legendFormat": "seq {{relname}}" },
+        { "refId": "B", "expr": "rate(pg_stat_user_tables_idx_scan{datname=\"hybrid_db\"}[5m])", "legendFormat": "idx {{relname}}" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Чекпоинты и запись буферов",
+      "description": "Преобладание checkpoints_req над checkpoints_timed = чекпоинты срабатывают по переполнению WAL, а не по расписанию. Признак, что max_wal_size мал для текущего темпа записи.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "targets": [
+        { "refId": "A", "expr": "rate(pg_stat_bgwriter_checkpoints_timed_total[5m])", "legendFormat": "чекпоинт по времени" },
+        { "refId": "B", "expr": "rate(pg_stat_bgwriter_checkpoints_req_total[5m])", "legendFormat": "чекпоинт по требованию" },
+        { "refId": "C", "expr": "rate(pg_stat_bgwriter_buffers_checkpoint_total[5m])", "legendFormat": "буферы: чекпоинт" },
+        { "refId": "D", "expr": "rate(pg_stat_bgwriter_buffers_backend_total[5m])", "legendFormat": "буферы: backend" }
+      ]
+    }
+  ]
+}
