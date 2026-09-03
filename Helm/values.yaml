@@ -45,6 +45,10 @@ infra:
   kafkaExporter: true
   postgresExporter: true
   kubeStateMetrics: true
+  # Alertmanager (beads zei). Правила алертинга живут в Prometheus и работают
+  # независимо от этого тумблера — выключение отнимает только группировку,
+  # дедупликацию и гашение, но не сами срабатывания (видны в Prometheus /alerts).
+  alertmanager: true
 
 # Local ingress domain. Keep in sync with global.ingressHost above.
 # myapp.localtest.me (not myapp.local) — Google OAuth Console rejects
@@ -355,6 +359,11 @@ postgresExporter:
   image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
 kubeStateMetrics:
   image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.17.0
+
+# Alertmanager (beads zei). Приёмников намеренно нет — доставлять алерты на стенде
+# с одним пользователем некому; подробности в шапке templates/alertmanager.yaml.
+alertmanager:
+  image: prom/alertmanager:v0.28.1
 
 # Service images
 authservice:
