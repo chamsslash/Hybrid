@@ -1,0 +1,80 @@
+{{- if .Values.infra.kafkaExporter }}
+# kafka-exporter: взгляд на брокер СО СТОРОНЫ БРОКЕРА (beads 3nt).
+#
+# Зачем он нужен, если c2k уже собирает kafka_consumer_* из приложений: клиентские
+# метрики приходят ВМЕСТЕ С КЛИЕНТОМ. Если консьюмер MessegerParody мёртв целиком —
+# упал, не стартовал, завис на ребалансе — он не отдаёт ничего, и лаг по его группе
+# в Prometheus выглядит не как «лаг растёт», а как отсутствие ряда. Ровно тот случай,
+# ради которого мониторинг и ставят, слепая зона.
+#
+# Экспортер опрашивает брокер по обычному Kafka-протоколу и знает офсеты групп
+# независимо от того, жив ли хоть один их участник.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+  labels:
+    app: kafka-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-exporter
+  template:
+    metadata:
+      labels:
+        app: kafka-exporter
+      annotations:
+        # Скрейпится тем же job'ом kubernetes-pods, что и приложения: discovery
+        # идёт по pod IP, поэтому порт здесь — порт КОНТЕЙНЕРА, не Service.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9308"
+    spec:
+      containers:
+        - name: kafka-exporter
+          image: {{ .Values.kafkaExporter.image }}
+          args:
+            - '--kafka.server={{ .Values.kafka.hostName }}:9092'
+            - '--web.listen-address=:9308'
+            # Лаг по каждой группе в разрезе партиций. Без этого флага
+            # kafka_consumergroup_lag не появляется вовсе — то есть ради чего
+            # экспортер и ставился, того бы и не было.
+            - '--topic.filter=.*'
+            - '--group.filter=.*'
+          ports:
+            - name: metrics
+              containerPort: 9308
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9308
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            # Экспортер поднимается быстрее брокера и до его готовности отдаёт
+            # ошибку. failureThreshold с запасом, чтобы холодный старт стенда
+            # (kafka форматирует том и выбирает лидеров) не ронял под.
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  labels:
+    app: kafka-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9308
+      targetPort: 9308
+      protocol: TCP
+  selector:
+    app: kafka-exporter
+{{- end }}

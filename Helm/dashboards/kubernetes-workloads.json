@@ -1,0 +1,204 @@
+{
+  "uid": "kubernetes-workloads",
+  "title": "Нагрузки Kubernetes",
+  "tags": ["hybrid", "kubernetes", "infra"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Рестартов за 6 часов",
+      "description": "Закрывает дыру, честно записанную в описании панели «Uptime» дашборда «Здоровье сервисов»: до kube-state-metrics рестарты не было видно НИЧЕМ. process_uptime_seconds падает в ноль только у пода, который успел подняться и отдать метрику; под в CrashLoopBackOff молчит, и на графике это неотличимо от «Prometheus его не скрейпит».",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(kube_pod_container_status_restarts_total[6h]))", "legendFormat": "рестарты" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Подов не Running",
+      "description": "Сумма фаз Pending/Failed/Unknown. Ненулевое значение дольше минуты — под не может стартовать: не тянется образ, не монтируется том, не проходит init-контейнер ожидания схемы.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_pod_status_phase{phase=~\"Pending|Failed|Unknown\"})",
+          "legendFormat": "поды"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Деплойментов с нехваткой реплик",
+      "description": "Число деплойментов, у которых available меньше желаемого. Это ровно то состояние, в котором ingress уже шлёт трафик, а обслуживать его некому.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(kube_deployment_status_replicas_available < kube_deployment_spec_replicas) or vector(0)",
+          "legendFormat": "деплойменты"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Рестарты по контейнерам",
+      "description": "increase() за час по каждому контейнеру. Ступеньки у одного пода — он и падает; одновременные ступеньки у всех — упала общая зависимость (обычно postgres или kafka) либо перезапустился сам узел.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total[1h]))",
+          "legendFormat": "{{pod}} / {{container}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Причина последнего падения",
+      "description": "OOMKilled против Error — разные диагнозы и разные починки: первое лечится лимитом памяти или настройками JVM, второе смотрят в логах приложения. Без этой метрики причину можно узнать только через kubectl describe, то есть уже постфактум и только пока под жив.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_pod_container_status_last_terminated_reason > 0",
+          "legendFormat": "{{pod}} / {{container}} / {{reason}}",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Контейнеры в ожидании",
+      "description": "waiting_reason: ImagePullBackOff, CrashLoopBackOff, ContainerCreating, CreateContainerConfigError. Первое, куда стоит смотреть, когда деплой «прошёл», а сервис не отвечает.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_pod_container_status_waiting_reason > 0",
+          "legendFormat": "{{pod}} / {{container}} / {{reason}}",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Реплики деплойментов: есть против желаемых",
+      "description": "Расхождение линий во время helm upgrade нормально и коротко. Расхождение, которое не сходится, — застрявшая выкатка.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        { "refId": "A", "expr": "kube_deployment_spec_replicas", "legendFormat": "желаемые {{deployment}}" },
+        { "refId": "B", "expr": "kube_deployment_status_replicas_available", "legendFormat": "доступные {{deployment}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Готовность контейнеров",
+      "description": "Единица = readinessProbe проходит. Ноль при живом поде означает, что контейнер запущен, но трафик в него не идёт — состояние, которое по логам выглядит как полная тишина.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_pod_container_status_ready",
+          "legendFormat": "{{pod}} / {{container}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Тома (PVC)",
+      "description": "Фаза каждого PVC и запрошенный объём. PVC в Pending — единственная причина, по которой Prometheus и Kafka молча не стартуют: local-path в kind не расширяет тома, и застрявший PVC чинится только пересозданием.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_persistentvolumeclaim_status_phase > 0",
+          "legendFormat": "{{persistentvolumeclaim}} / {{phase}}",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "expr": "kube_persistentvolumeclaim_resource_requests_storage_bytes",
+          "legendFormat": "{{persistentvolumeclaim}}",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Джобы чарта",
+      "description": "liquibase, kafka-topics, minio-provision живут на Helm-хуках и удаляются после успеха, поэтому в спокойном состоянии панель пуста — это норма, а не поломка. Ненулевой failed означает, что хук не отработал, и релиз при этом мог отчитаться об успехе.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 29 },
+      "targets": [
+        { "refId": "A", "expr": "kube_job_status_active", "legendFormat": "активна {{job_name}}" },
+        { "refId": "B", "expr": "kube_job_status_failed", "legendFormat": "провал {{job_name}}" },
+        { "refId": "C", "expr": "kube_job_status_succeeded", "legendFormat": "успех {{job_name}}" }
+      ]
+    }
+  ]
+}

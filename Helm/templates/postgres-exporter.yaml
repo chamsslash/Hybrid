@@ -1,0 +1,88 @@
+{{- if .Values.infra.postgresExporter }}
+# postgres-exporter: состояние БД со стороны САМОЙ БД (beads 3nt).
+#
+# c2k собирает hikaricp_* и r2dbc_pool_* — это метрики ПУЛА В ПРИЛОЖЕНИИ. Они
+# отвечают на «сервису хватает соединений?», но принципиально не отвечают на
+# «что происходит в базе»: сколько всего соединений держат ВСЕ клиенты разом
+# (три сервиса + Liquibase-джоба + psql из отладки), не упёрлись ли в
+# max_connections, какая транзакция висит полчаса, как растут таблицы.
+#
+# Ходит в БД тем же пользователем postgres, что и приложения. Отдельная роль с
+# pg_monitor была бы правильнее для прода, но потребовала бы миграции с GRANT —
+# на стенде это цена без выгоды.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  labels:
+    app: postgres-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9187"
+    spec:
+      containers:
+        - name: postgres-exporter
+          image: {{ .Values.postgresExporter.image }}
+          env:
+            # DATA_SOURCE_* (URI/USER/PASS) вместо единого DATA_SOURCE_NAME
+            # осознанно: DSN одной строкой означал бы пароль внутри неё, то есть
+            # либо пароль в values.yaml, либо сборка строки в шаблоне. Разделённая
+            # форма позволяет взять пароль из того же Secret'а, что и приложения,
+            # и он не появляется ни в манифесте, ни в `helm get values`.
+            - name: DATA_SOURCE_URI
+              # sslmode=disable — postgres в чарте поднят без TLS (templates/postgres.yaml);
+              # без этого параметра клиент требует шифрование и не подключается вовсе.
+              # Хост literal'ом: Service в templates/postgres.yaml назван `postgres`
+              # жёстко, без values-ключа — параметризовать здесь означало бы завести
+              # ручку, которая ничего не переключает.
+              value: "postgres:5432/{{ .Values.postgres.database }}?sslmode=disable"
+            - name: DATA_SOURCE_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
+          ports:
+            - name: metrics
+              containerPort: 9187
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  labels:
+    app: postgres-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: 9187
+      protocol: TCP
+  selector:
+    app: postgres-exporter
+{{- end }}

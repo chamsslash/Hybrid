@@ -1,0 +1,155 @@
+{
+  "uid": "kafka-broker",
+  "title": "Kafka со стороны брокера",
+  "tags": ["hybrid", "kafka", "infra"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Лаг консьюмер-групп, суммарно",
+      "description": "Главное число дашборда. Источник — kafka-exporter, который спрашивает офсеты у САМОГО БРОКЕРА. Клиентская метрика kafka_consumer_fetch_manager_records_lag приходит вместе с клиентом: если консьюмер умер, ряд просто исчезает, и растущий лаг выглядит как «нет данных». Здесь он виден и при мёртвом консьюмере.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "sum(kafka_consumergroup_lag)", "legendFormat": "лаг" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Брокеров в кластере",
+      "description": "Стенд одноброкерный, поэтому здоровое значение ровно 1. Ноль означает, что экспортер не смог поговорить с брокером — все остальные панели в этот момент недостоверны.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "kafka_brokers", "legendFormat": "брокеры" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Недореплицированные партиции",
+      "description": "На одном брокере с replication-factor 1 всегда 0. Значение выше нуля на стенде означает не потерю реплики, а что партиция осталась без лидера — обычно после падения брокера с неготовым томом.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "sum(kafka_topic_partition_under_replicated_partition)", "legendFormat": "партиции" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Лаг по группам и топикам",
+      "description": "Разложение суммы сверху. Устойчиво растущая линия = консьюмер разбирает медленнее, чем продюсер пишет. Ступенька, которая не рассасывается, — консьюмер встал совсем.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag)",
+          "legendFormat": "{{consumergroup}} / {{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Темп записи в топики",
+      "description": "rate() от текущего офсета партиции = сообщений в секунду, пришедших в топик. Сравнивать с темпом разбора справа: расхождение и есть источник лага.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset[5m]))",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Темп разбора консьюмерами",
+      "description": "rate() от офсета группы. Ноль при ненулевом темпе записи слева — консьюмер не читает, и это точная картина сценария 5l4: сообщения уходили в топик Messages, где их никто не ждал.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset[5m]))",
+          "legendFormat": "{{consumergroup}} / {{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Участников в группе",
+      "description": "Падение до нуля = в группе не осталось живых консьюмеров. Именно этот сигнал отличает «лаг растёт, потому что нагрузка выросла» от «лаг растёт, потому что читать некому».",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kafka_consumergroup_members",
+          "legendFormat": "{{consumergroup}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Глубина партиций (сейчас)",
+      "description": "current − oldest = сколько сообщений реально лежит в партиции. Разъезд между партициями одного топика означает перекошенный ключ партиционирования: часть консьюмеров простаивает, часть не справляется.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kafka_topic_partition_current_offset - kafka_topic_partition_oldest_offset",
+          "legendFormat": "{{topic}} / {{partition}}",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

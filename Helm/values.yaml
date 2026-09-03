@@ -38,6 +38,13 @@ infra:
   prometheus: true
   grafana: true
   ingress: true
+  # Инфра-exporter'ы (beads 3nt). Отдельные тумблеры, а не один общий: это три
+  # независимых источника, и выключать их приходится по разным причинам —
+  # kafkaExporter бессмыслен без брокера, postgresExporter без БД, а
+  # kubeStateMetrics требует прав на чтение объектов API кластера.
+  kafkaExporter: true
+  postgresExporter: true
+  kubeStateMetrics: true
 
 # Local ingress domain. Keep in sync with global.ingressHost above.
 # myapp.localtest.me (not myapp.local) — Google OAuth Console rejects
@@ -270,11 +277,84 @@ prometheus:
     - "process_cpu_usage"
     - "process_uptime_seconds"
     - "application_ready_time_seconds"
+    #
+    # ─── Инфра-exporter'ы (beads 3nt) ───────────────────────────────────────
+    #
+    # Списки ниже — НЕ по памяти: каждое имя снято с живого скрейпа
+    # соответствующего экспортера в кластере. Проверять обязательно, потому что
+    # имена расходятся с ожидаемыми (у postgres-exporter, например,
+    # pg_stat_bgwriter_* оканчиваются на _total, а pg_database_size_bytes живёт
+    # отдельно от pg_stat_database_*), а ошибка здесь тихая: keep просто не
+    # совпадёт, метрики не сохранятся, и панель покажет "No data" — неотличимо
+    # от «экспортер не работает».
+    #
+    # kafka-exporter: взгляд со стороны брокера. Отброшены kafka_broker_info,
+    # kafka_topic_partition_leader(_is_preferred), _replicas — топология
+    # одноброкерного стенда не меняется, панелей по ней нет.
+    - "kafka_brokers"
+    - "kafka_topic_partitions"
+    - "kafka_topic_partition_(current|oldest)_offset"
+    - "kafka_topic_partition_in_sync_replica"
+    - "kafka_topic_partition_under_replicated_partition"
+    - "kafka_consumergroup_current_offset"
+    - "kafka_consumergroup_lag(_sum)?"
+    - "kafka_consumergroup_members"
+    # postgres-exporter. Экспортер отдаёт ~250 семейств pg_settings_* — это
+    # СТАТИЧЕСКАЯ конфигурация БД, а не сигнал: она не меняется до рестарта
+    # постгреса, и хранить её в TSDB бессмысленно. Оставлен ровно один
+    # pg_settings_max_connections — он нужен как ЗНАМЕНАТЕЛЬ для
+    # pg_stat_activity_count, иначе «40 соединений» нельзя истолковать.
+    - "pg_up"
+    - "pg_settings_max_connections"
+    - "pg_stat_activity_count"
+    - "pg_stat_activity_max_tx_duration"
+    - "pg_locks_count"
+    - "pg_database_size_bytes"
+    - "pg_wal_size_bytes"
+    - "pg_stat_database_(numbackends|xact_commit|xact_rollback|deadlocks|blks_hit|blks_read)"
+    - "pg_stat_database_tup_(inserted|updated|deleted|fetched|returned)"
+    - "pg_stat_user_tables_(n_live_tup|n_dead_tup|table_size_bytes|index_size_bytes)"
+    - "pg_stat_user_tables_(seq_scan|idx_scan)"
+    - "pg_stat_bgwriter_checkpoints_(timed|req)_total"
+    - "pg_stat_bgwriter_buffers_(checkpoint|clean|backend)_total"
+    # kube-state-metrics: то, чего не даёт НИ ОДНА метрика из приложения —
+    # рестарты, причина последнего падения (OOMKilled/Error), застревание в
+    # ContainerCreating/ImagePullBackOff. Под в CrashLoopBackOff метрик не
+    # отдаёт вовсе, поэтому увидеть его можно только отсюда.
+    - "kube_pod_container_status_restarts_total"
+    - "kube_pod_container_status_(last_terminated|waiting|terminated)_reason"
+    - "kube_pod_container_status_ready"
+    - "kube_pod_status_(phase|ready)"
+    - "kube_pod_container_resource_(requests|limits)"
+    - "kube_deployment_spec_replicas"
+    - "kube_deployment_status_replicas(_available|_ready|_unavailable|_updated)?"
+    - "kube_persistentvolumeclaim_status_phase"
+    - "kube_persistentvolumeclaim_resource_requests_storage_bytes"
+    - "kube_node_status_condition"
+    # Джобы чарта (liquibase, kafka-topics, minio-provision) живут на хуках и
+    # удаляются после успеха, поэтому в момент составления списка объектов Job
+    # в кластере не было и снять имена со скрейпа было НЕ С ЧЕГО. Имена взяты
+    # из схемы kube-state-metrics; проверяются первым же прогоном хуков —
+    # если панель «Джобы» пуста при работающей джобе, причина здесь.
+    - "kube_job_status_(active|succeeded|failed)"
+    - "kube_job_failed"
 
 grafana:
   # Пин по тому же принципу: версия снята с работающего пода (/api/health).
   image: grafana/grafana:13.2.0
   # adminPassword comes from the app Secret (secrets.grafanaAdminPassword)
+
+# Инфра-exporter'ы (beads 3nt). Теги пинятся, как и всё остальное в чарте; каждый
+# проверен `docker pull` на arm64 — стенд крутится в colima на Apple Silicon, а
+# у части экспортеров arm64-варианта исторически не было, и обнаруживалось это
+# только подом в ImagePullBackOff/exec format error.
+kafkaExporter:
+  image: danielqsj/kafka-exporter:v1.9.0
+postgresExporter:
+  # quay.io, а не Docker Hub: prometheus-community публикует туда канонически.
+  image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+kubeStateMetrics:
+  image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.17.0
 
 # Service images
 authservice:
