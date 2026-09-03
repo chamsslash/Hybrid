@@ -17,6 +17,23 @@ data:
         url: http://prometheus:9090
         isDefault: true
         editable: false
+{{- if .Values.infra.alertmanager }}
+      # Alertmanager отдельным источником данных: раздел Alerting в Grafana тогда
+      # показывает активные срабатывания и молчанки рядом с дашбордами, и лезть в
+      # отдельный UI Alertmanager'а не нужно.
+      # implementation: prometheus — Grafana поддерживает несколько диалектов
+      # Alertmanager API (свой собственный и ванильный); без этого поля она
+      # выбирает свой и не находит алерты, отдавая пустой список без ошибки.
+      - name: Alertmanager
+        uid: alertmanager
+        type: alertmanager
+        access: proxy
+        url: http://alertmanager:9093
+        editable: false
+        jsonData:
+          implementation: prometheus
+          handleGrafanaManagedAlerts: false
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap

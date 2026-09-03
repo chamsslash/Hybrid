@@ -1,0 +1,228 @@
+{{- if .Values.infra.prometheus }}
+# Правила алертинга (beads zei).
+#
+# Отдельный файл по той же причине, что и prometheus-config.yaml: Deployment
+# считает от него checksum, и общий файл дал бы "nested reference" в Helm.
+#
+# ЧТО ЗДЕСЬ ВАЖНО ПОНЯТЬ: ценность этого тикета — не в Alertmanager как процессе,
+# а в самих правилах. Правило — это записанный ответ на вопрос «что в этой системе
+# считается поломкой», причём записанный один раз и одинаково для всех, вместо того
+# чтобы каждый раз выводиться заново по дашборду. Alertmanager без правил бесполезен;
+# правила без Alertmanager всё равно видны в Prometheus /alerts и уже полезны.
+#
+# Все выражения опираются на метрики, ПРОШЕДШИЕ keep-список prometheus.keepMetrics.
+# Правило на отфильтрованную метрику молча никогда не сработает — это тот же класс
+# тихой поломки, что и цель up при нуле сохранённых рядов (см. docs/observability.md §11.4).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+data:
+  alerts.yml: |
+    groups:
+      # ── Живость ───────────────────────────────────────────────────────────
+      - name: liveness
+        rules:
+          - alert: TargetDown
+            expr: up == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Цель {{ `{{ $labels.app }}` }} не отвечает на скрейп"
+              description: >-
+                Prometheus не может забрать метрики с {{ `{{ $labels.instance }}` }}
+                более двух минут. Под либо мёртв, либо не пускает на management-порт.
+
+          - alert: PodCrashLooping
+            # increase() за 15 минут, а не мгновенное значение счётчика: счётчик
+            # рестартов растёт и после единичного давнего падения, и алерт по нему
+            # висел бы вечно. Порог 3 отделяет CrashLoopBackOff от одного рестарта
+            # при выкатке.
+            expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Контейнер {{ `{{ $labels.container }}` }} перезапускается по кругу"
+              description: >-
+                Под {{ `{{ $labels.pod }}` }} перезапустился более трёх раз за 15 минут.
+                Причину последнего падения смотреть на дашборде «Нагрузки Kubernetes».
+
+          - alert: ContainerOOMKilled
+            # Отдельно от CrashLooping: OOM лечится лимитом памяти или настройками
+            # JVM, а не разбором логики приложения. Разные алерты — разные действия.
+            expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Контейнер {{ `{{ $labels.container }}` }} убит по памяти"
+              description: >-
+                Последнее завершение {{ `{{ $labels.pod }}` }} — OOMKilled.
+                Смотреть limits контейнера и -Xmx JVM, а не логи приложения.
+
+          - alert: DeploymentReplicasUnavailable
+            expr: kube_deployment_status_replicas_available < kube_deployment_spec_replicas
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "У деплоймента {{ `{{ $labels.deployment }}` }} не хватает реплик"
+              description: >-
+                Доступных реплик меньше желаемых более 10 минут. Во время helm upgrade
+                это нормально и коротко; затянувшееся расхождение — застрявшая выкатка.
+
+          - alert: PersistentVolumeClaimPending
+            expr: kube_persistentvolumeclaim_status_phase{phase="Pending"} > 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PVC {{ `{{ $labels.persistentvolumeclaim }}` }} висит в Pending"
+              description: >-
+                Том не выделен. Prometheus и Kafka в этом состоянии молча не стартуют;
+                local-path в kind тома не расширяет, чинится пересозданием PVC.
+
+      # ── Вход HTTP ─────────────────────────────────────────────────────────
+      - name: http
+        rules:
+          - alert: HttpServerErrorRate
+            # Доля 5xx, а не абсолютное число: на стенде с одним пользователем
+            # абсолютный порог либо не срабатывает никогда, либо срабатывает от
+            # единичной ошибки. clamp_min в знаменателе защищает от деления на ноль
+            # при полном отсутствии трафика.
+            expr: >-
+              sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+              / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 0.001) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Более 5% HTTP-ответов — 5xx"
+              description: >-
+                Разбивку по uri смотреть на дашборде «Путь сообщения», ряд 1.
+
+          - alert: TokenExchangeFailing
+            # Прицельно под beads kz6: /exchangeTokens синхронно ходит в Gemini и
+            # отдаёт 500 при исчерпании квоты. Общий HttpServerErrorRate этот случай
+            # размывает — на фоне остального трафика доля 5xx остаётся ниже порога,
+            # а вход при этом сломан у всех.
+            expr: sum(rate(http_server_requests_seconds_count{uri="/exchangeTokens",status=~"5.."}[5m])) > 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Обновление токена отдаёт 5xx"
+              description: >-
+                Сломан вход: новая вкладка не может обменять refresh на access.
+                Известная причина — исчерпанная квота Gemini на пути refresh (beads kz6).
+
+      # ── Kafka ─────────────────────────────────────────────────────────────
+      - name: kafka
+        rules:
+          - alert: KafkaConsumerGroupEmpty
+            # Метрика брокера, а не клиента: именно этот алерт невозможно построить
+            # на клиентских метриках, потому что мёртвый консьюмер их не отдаёт.
+            expr: kafka_consumergroup_members == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "В группе {{ `{{ $labels.consumergroup }}` }} не осталось консьюмеров"
+              description: >-
+                Читать топик некому. Ровно состояние тикета 5l4: сообщения уходили
+                в Messages, где их никто не ждал.
+
+          - alert: KafkaConsumerLagGrowing
+            expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 1000
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Лаг группы {{ `{{ $labels.consumergroup }}` }} по топику {{ `{{ $labels.topic }}` }}"
+              description: >-
+                Более 1000 неразобранных сообщений дольше 10 минут: консьюмер читает
+                медленнее, чем продюсер пишет.
+
+          - alert: KafkaProducerErrors
+            expr: sum(rate(kafka_producer_record_error_total[5m])) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Продюсер Kafka не может записать сообщения"
+
+      # ── PostgreSQL ────────────────────────────────────────────────────────
+      - name: postgres
+        rules:
+          - alert: PostgresDown
+            expr: pg_up == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PostgreSQL недоступен"
+              description: >-
+                Экспортер не может подключиться к базе. Все остальные панели
+                дашборда PostgreSQL в этот момент недостоверны.
+
+          - alert: PostgresConnectionsHigh
+            expr: sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Занято более 80% соединений PostgreSQL"
+              description: >-
+                Считается по ВСЕМ клиентам разом: три сервиса, Liquibase-джоба, psql.
+                Пулы в приложениях этого не видят — каждый знает только свою долю.
+
+          - alert: PostgresLongRunningTransaction
+            expr: max(pg_stat_activity_max_tx_duration) > 300
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Транзакция открыта дольше пяти минут"
+              description: >-
+                Держит блокировки и не даёт autovacuum убирать мёртвые кортежи —
+                таблицы начнут пухнуть.
+
+          - alert: PostgresDeadlocks
+            expr: increase(pg_stat_database_deadlocks{datname="hybrid_db"}[15m]) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "В hybrid_db случился дедлок"
+              description: >-
+                В этой схеме дедлоки не ожидаются вовсе: писатели идут по разным
+                таблицам. Любое срабатывание — повод разбираться.
+
+      # ── Бизнес-путь ───────────────────────────────────────────────────────
+      - name: business
+        rules:
+          - alert: MessagesConsumedButNotPersisted
+            # Разностное правило: консьюмер разбирает топик Messages, но счётчик
+            # записей в таблицу не растёт. Именно этот разрыв и был тикетом 5l4,
+            # и по отдельности ни одна из двух метрик его не показывает.
+            expr: >-
+              sum(rate(kafka_consumer_fetch_manager_records_consumed_total{topic="Messages"}[10m]))
+              - sum(rate(messages_persisted_total[10m])) > 0.05
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Сообщения разбираются из Kafka, но не доезжают до таблицы"
+              description: >-
+                Консьюмер читает топик Messages, а messages_persisted_total не растёт
+                в том же темпе. История чата в этот момент не сохраняется.
+
+          - alert: ApplicationErrorLogs
+            expr: sum by (app) (rate(logback_events_total{level="error"}[5m])) > 0.1
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ `{{ $labels.app }}` }} пишет ошибки в лог"
+{{- end }}
