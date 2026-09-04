@@ -1,0 +1,57 @@
+{{- if .Values.infra.tempo }}
+# Grafana Tempo — хранилище трейсов (beads izv).
+#
+# Конфиг вынесен в ОТДЕЛЬНЫЙ файл: Deployment в tempo.yaml считает от него checksum,
+# и в одном файле шаблон включал бы сам себя ("nested reference"). Та же причина, что
+# у prometheus-config.yaml и alertmanager-config.yaml.
+#
+# ЗАЧЕМ TEMPO, ЕСЛИ ЕСТЬ МЕТРИКИ. Метрика — агрегат: она складывает тысячу запросов в
+# одно число и отвечает на вопрос «на каком хопе просело». Восстановить по ней судьбу
+# ОДНОГО сообщения нельзя в принципе. Трейс — это ровно одна такая судьба: цепочка
+# span'ов с общим trace-id, прошедшая через HTTP, gRPC и Kafka. Для сценариев вроде
+# тикета 5l4 («сообщения не сохраняются») это точнее любой метрики.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        # Только zipkin-приёмник. OTLP выглядит современнее, но потянул бы за собой
+        # матрицу версий opentelemetry-bom: Spring Boot 3.1.3 управляет OTel 1.28,
+        # а micrometer-tracing-bridge-otel новых версий требует 1.32+. Brave и
+        # zipkin-reporter Boot держит согласованным набором, поэтому мостом выбран
+        # Brave — см. docs/observability.md §13.2.
+        zipkin:
+          endpoint: 0.0.0.0:9411
+
+    ingester:
+      # Секунды вместо минут по умолчанию: на стенде трейс нужен сразу после действия,
+      # а не через пять минут. Цена — больше мелких блоков, что при нашем объёме
+      # не значит ничего.
+      max_block_duration: 30s
+      complete_block_timeout: 1m
+
+    compactor:
+      compaction:
+        # Ретенция трейсов. Меньше, чем 15 дней у метрик, и намеренно: трейс нужен
+        # «здесь и сейчас, разобрать конкретный инцидент», а объём на трейс несопоставимо
+        # больше. Вопрос «а на прошлой неделе такое было?» закрывают метрики.
+        block_retention: 48h
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/blocks
+        wal:
+          path: /var/tempo/wal
+
+    usage_report:
+      # Отключено: стенд локальный, отправлять телеметрию наружу незачем.
+      reporting_enabled: false
+{{- end }}

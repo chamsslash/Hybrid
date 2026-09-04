@@ -34,6 +34,35 @@ data:
           implementation: prometheus
           handleGrafanaManagedAlerts: false
 {{- end }}
+{{- if .Values.infra.tempo }}
+      # Tempo — хранилище трейсов (beads izv).
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        editable: false
+        jsonData:
+          # Связка трейс → метрики: из span'а можно перейти к RED-метрикам того же
+          # сервиса. Обратной связки (метрика → exemplar → трейс) здесь нет
+          # осознанно: exemplar'ы требуют, чтобы приложения publish'или их в
+          # прометеевском формате, а keep-список в prometheus.keepMetrics их бы
+          # всё равно не пропустил — см. docs/observability.md §13.7.
+          tracesToMetrics:
+            datasourceUid: prometheus
+            tags:
+              - key: service.name
+                value: app
+          # Node graph строит граф вызовов из span'ов трейса — ровно та картинка
+          # «кто кого зовёт», ради которой этот тикет и заводился.
+          nodeGraph:
+            enabled: true
+          # Trace-to-logs намеренно НЕ настроен: логов в системе хранения нет,
+          # Loki не разворачивался. Пустая настройка рисовала бы в UI кнопку,
+          # ведущую в никуда.
+          search:
+            hide: false
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap

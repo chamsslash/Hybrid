@@ -116,3 +116,13 @@ spec:
               value: "{{ .Values.env.redisPort }}"
             - name: SPRING_KAFKA_CONSUMER_GROUP_ID
               value: "{{ .Values.env.kafkaConsumerGroup }}"
+
+            # ── Трейсинг (beads izv) ──────────────────────────────────
+            # Значения приходят из global, потому что подчарт видит только то, что
+            # лежит буквально под `global` в values.yaml зонтичного чарта.
+            - name: TRACING_ENABLED
+              value: "{{ .Values.global.tracing.enabled }}"
+            - name: TRACING_SAMPLING
+              value: "{{ .Values.global.tracing.samplingProbability }}"
+            - name: TRACING_ZIPKIN_ENDPOINT
+              value: "{{ .Values.global.tracing.zipkinEndpoint }}"
