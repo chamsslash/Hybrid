@@ -146,3 +146,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
                   key: MINIO_SECRET_KEY
+
+            # ── Трейсинг (beads izv) ──────────────────────────────────
+            # Значения приходят из global, потому что подчарт видит только то, что
+            # лежит буквально под `global` в values.yaml зонтичного чарта.
+            - name: TRACING_ENABLED
+              value: "{{ .Values.global.tracing.enabled }}"
+            - name: TRACING_SAMPLING
+              value: "{{ .Values.global.tracing.samplingProbability }}"
+            - name: TRACING_ZIPKIN_ENDPOINT
+              value: "{{ .Values.global.tracing.zipkinEndpoint }}"

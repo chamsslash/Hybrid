@@ -10,6 +10,20 @@ global:
   # `global`, not templated references to sibling top-level keys). Used by
   # authservice to build the Google OAuth2 redirect-uri.
   ingressHost: myapp.localtest.me
+  # Распределённый трейсинг (beads izv). Читается ВСЕМИ тремя подчартами, поэтому
+  # живёт здесь, а не рядом с `tempo` наверху: подчарт видит только то, что лежит
+  # буквально под `global`.
+  tracing:
+    # false — приложения продолжают создавать span'ы (инструментация вкомпилирована),
+    # но не пытаются их отправлять. Именно этот тумблер нужно выключать вместе с
+    # infra.tempo, иначе каждый span будет упираться в отсутствующий эндпоинт.
+    enabled: true
+    zipkinEndpoint: http://tempo:9411/api/v2/spans
+    # 1.0 = писать КАЖДЫЙ запрос. Дефолт Spring Boot — 0.1 (10%), и на стенде это
+    # худший из возможных вариантов: ты воспроизводишь баг, идёшь за трейсом, а его
+    # нет — не потому что сломано, а потому что не повезло попасть в выборку.
+    # В проде это значение снижают: там платят объёмом хранилища.
+    samplingProbability: "1.0"
 
 # Sensitive values. DO NOT COMMIT REAL SECRETS HERE.
 # Defaults are intentionally EMPTY placeholders. Supply real values at deploy
@@ -49,6 +63,11 @@ infra:
   # независимо от этого тумблера — выключение отнимает только группировку,
   # дедупликацию и гашение, но не сами срабатывания (видны в Prometheus /alerts).
   alertmanager: true
+  # Tempo — хранилище трейсов (beads izv). Выключение тумблера НЕ отключает
+  # инструментацию в приложениях: они продолжат создавать span'ы и пытаться их
+  # отправить. Экспорт отключается в самих сервисах через
+  # management.tracing.export.enabled (см. docs/observability.md §13.5).
+  tempo: true
 
 # Local ingress domain. Keep in sync with global.ingressHost above.
 # myapp.localtest.me (not myapp.local) — Google OAuth Console rejects
@@ -342,6 +361,18 @@ prometheus:
     # если панель «Джобы» пуста при работающей джобе, причина здесь.
     - "kube_job_status_(active|succeeded|failed)"
     - "kube_job_failed"
+    # Tempo (beads izv). Мониторим сам мониторинг: сколько span'ов доехало и
+    # сколько отброшено. Без этого «трейсов нет» неотличимо от «трейсы есть, но
+    # Tempo их не принял» — а причины у этих двух состояний разные.
+    # Имена сняты со скрейпа tempo:3200 ПОСЛЕ первого реального трейса: до него
+    # счётчики приёма не существуют вовсе (Prometheus-клиент не публикует
+    # counter, который ни разу не инкрементировали).
+    - "tempo_distributor_spans_received_total"
+    - "tempo_distributor_bytes_received_total"
+    - "tempo_discarded_spans_total"
+    - "tempo_ingester_blocks_flushed_total"
+    - "tempo_ingester_failed_flushes_total"
+    - "tempo_request_duration_seconds_(count|sum)"
 
 grafana:
   # Пин по тому же принципу: версия снята с работающего пода (/api/health).
@@ -364,6 +395,17 @@ kubeStateMetrics:
 # с одним пользователем некому; подробности в шапке templates/alertmanager.yaml.
 alertmanager:
   image: prom/alertmanager:v0.28.1
+
+# Tempo (beads izv). Монолитный режим, локальное хранилище на PVC.
+tempo:
+  image: grafana/tempo:2.9.1
+  persistence:
+    # Трейсы объёмнее метрик на событие, но живут 48 часов против 15 дней —
+    # ретенция задана в tempo-config.yaml. 4Gi с запасом для стенда.
+    size: 4Gi
+  # Куда приложения шлют span'ы — под `global.tracing` ниже: подчарты видят только
+  # literal-значения под `global`, а не ссылки на соседние ключи верхнего уровня
+  # (та же причина, что у global.ingressHost).
 
 # Service images
 authservice:

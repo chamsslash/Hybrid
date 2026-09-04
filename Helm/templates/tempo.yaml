@@ -1,0 +1,109 @@
+{{- if .Values.infra.tempo }}
+# Tempo: монолитный режим (all-in-one). Зачем он и почему zipkin-приёмник — в шапке
+# tempo-config.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.tempo.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  labels:
+    app: tempo
+spec:
+  replicas: 1
+  # Тот же случай, что у Prometheus: RWO-том не примонтируется к двум подам разом,
+  # а RollingUpdate поднимает новый под до удаления старого и вешает выкатку
+  # намертво в ContainerCreating.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/tempo-config.yaml") . | sha256sum }}
+        # Tempo отдаёт собственные метрики в prometheus-формате на порту 3200.
+        # Скрейпятся тем же job'ом, что и всё остальное; в keepMetrics оставлены
+        # только счётчики принятых и отброшенных span'ов — по ним видно, доезжают
+        # ли трейсы вообще (см. §13.6).
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "3200"
+    spec:
+      # Образ бежит от uid 10001; без fsGroup каталог PVC принадлежит root, и Tempo
+      # падает на создании WAL. Тот же грабли, что с Prometheus, только другой uid.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        fsGroup: 10001
+      containers:
+        - name: tempo
+          image: {{ .Values.tempo.image }}
+          args:
+            - '-config.file=/etc/tempo/tempo.yaml'
+          ports:
+            - name: http
+              containerPort: 3200
+            - name: zipkin
+              containerPort: 9411
+          volumeMounts:
+            - name: tempo-config
+              mountPath: /etc/tempo
+            - name: tempo-data
+              mountPath: /var/tempo
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3200
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: tempo-config
+          configMap:
+            name: tempo-config
+        - name: tempo-data
+          persistentVolumeClaim:
+            claimName: tempo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  labels:
+    app: tempo
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3200
+      targetPort: 3200
+      protocol: TCP
+    # Порт, куда сервисы шлют span'ы. Именно он прописан в
+    # management.zipkin.tracing.endpoint у всех трёх приложений.
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+      protocol: TCP
+  selector:
+    app: tempo
+{{- end }}
