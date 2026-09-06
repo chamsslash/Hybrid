@@ -3,6 +3,7 @@ package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.GeminiService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import com.example.springexample.Metrics.MembershipCacheMetric;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -59,11 +60,14 @@ class AiAssistMembershipTest {
 
     private final GrpcRequestsMetric grpcMetric = new GrpcRequestsMetric(new SimpleMeterRegistry());
 
+    // Кеш членства (beads 9wi) — сервису нужен свой счётчик попаданий.
+    private final MembershipCacheMetric cacheMetric = new MembershipCacheMetric(new SimpleMeterRegistry());
+
     // Спай, а не голый экземпляр (beads cgu): все методы выполняются настоящие, но тест
     // может (а) убедиться, что хендлер спрашивает членство единственным законным способом,
     // и (б) укоротить membershipTimeout() там, где таймаут проверяется по-настоящему.
     private final ChatMembershipService membership =
-            Mockito.spy(new ChatMembershipService(stub, grpcMetric));
+            Mockito.spy(new ChatMembershipService(stub, grpcMetric, cacheMetric));
 
     private final GeminiService geminiService = Mockito.mock(GeminiService.class);
 

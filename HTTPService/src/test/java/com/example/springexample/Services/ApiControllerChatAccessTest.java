@@ -2,6 +2,7 @@ package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import com.example.springexample.Metrics.MembershipCacheMetric;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.example.springexample.MessageEvent;
 import org.junit.jupiter.api.Test;
@@ -40,8 +41,11 @@ class ApiControllerChatAccessTest {
 
     private final GrpcRequestsMetric grpcMetric = new GrpcRequestsMetric(new SimpleMeterRegistry());
 
+    // Кеш членства (beads 9wi) — сервису нужен свой счётчик попаданий.
+    private final MembershipCacheMetric cacheMetric = new MembershipCacheMetric(new SimpleMeterRegistry());
+
     private final ApiController controller =
-            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric));
+            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric, cacheMetric));
 
     private static final Authentication SUNNY =
             new UsernamePasswordAuthenticationToken("4", null, List.of());

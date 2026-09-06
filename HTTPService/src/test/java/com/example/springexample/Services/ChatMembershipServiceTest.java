@@ -2,6 +2,7 @@ package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import com.example.springexample.Metrics.MembershipCacheMetric;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.micrometer.core.instrument.Timer;
@@ -33,7 +34,9 @@ class ChatMembershipServiceTest {
 
     private final GrpcRequestsMetric metric = new GrpcRequestsMetric(registry);
 
-    private final ChatMembershipService service = new ChatMembershipService(stub, metric);
+    private final MembershipCacheMetric cacheMetric = new MembershipCacheMetric(registry);
+
+    private final ChatMembershipService service = new ChatMembershipService(stub, metric, cacheMetric);
 
     private Timer membersTimer(String outcome) {
         return registry.find(GrpcRequestsMetric.CALL_TIMER)
@@ -124,7 +127,7 @@ class ChatMembershipServiceTest {
 
         // Укороченный таймаут по уже существующему в этом файле образцу: иначе тест ждёт
         // 4 секунды (2 с на попытку x 2 попытки — таймаут транзиентен и повторяется).
-        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric, cacheMetric) {
             @Override
             Duration membershipTimeout() {
                 return Duration.ofMillis(50);
@@ -240,7 +243,7 @@ class ChatMembershipServiceTest {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.never());
 
-        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric, cacheMetric) {
             @Override
             Duration membershipTimeout() {
                 return Duration.ofMillis(50);
@@ -260,7 +263,7 @@ class ChatMembershipServiceTest {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.never());
 
-        ChatMembershipService guarded = new ChatMembershipService(stub, metric) {
+        ChatMembershipService guarded = new ChatMembershipService(stub, metric, cacheMetric) {
             @Override
             Duration blockingGuard() {
                 return Duration.ofMillis(50);
@@ -290,7 +293,7 @@ class ChatMembershipServiceTest {
         Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
                 .thenReturn(Mono.never());
 
-        ChatMembershipService fastService = new ChatMembershipService(stub, metric) {
+        ChatMembershipService fastService = new ChatMembershipService(stub, metric, cacheMetric) {
             @Override
             Duration membershipTimeout() {
                 return Duration.ofMillis(50);
@@ -329,4 +332,146 @@ class ChatMembershipServiceTest {
         assertNull(membersTimer("success"));
     }
 
+    // ─── Кеш состава чата (beads 9wi) ────────────────────────────────────────────
+
+    private double cacheCounter(String result) {
+        return registry.get(MembershipCacheMetric.METRIC).tag("result", result).counter().count();
+    }
+
+    private int grpcCalls() {
+        return Mockito.mockingDetails(stub).getInvocations().stream()
+                .filter(i -> i.getMethod().getName().equals("getAllUsersByChatId"))
+                .toList()
+                .size();
+    }
+
+    /**
+     * Что делает: дважды спрашивает состав одного и того же чата.
+     * Что проверяет: в gRPC ушёл ровно ОДИН вызов, второй ответ пришёл из кеша;
+     * счётчики дали miss=1, hit=1.
+     * Зачем: собственно цель тикета — снять повторный вызов с горячего пути (события
+     * набора текста летят примерно дважды за заход). Счётчики проверяются здесь же,
+     * потому что именно ими тикет предлагал добрать недостающие замеры.
+     */
+    @Test
+    void secondLookupForSameChatIsServedFromCache() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L, 9L)));
+
+        assertEquals(2, service.members(5L).block().size());
+        assertEquals(2, service.members(5L).block().size());
+
+        assertEquals(1, grpcCalls(), "второй запрос обязан обслуживаться кешем");
+        assertEquals(1.0, cacheCounter(MembershipCacheMetric.RESULT_MISS));
+        assertEquals(1.0, cacheCounter(MembershipCacheMetric.RESULT_HIT));
+    }
+
+    /**
+     * Что делает: спрашивает состав двух РАЗНЫХ чатов.
+     * Что проверяет: оба запроса ушли в gRPC, попаданий нет.
+     * Зачем: сторожит ключ кеша. Кеш без chatId в ключе отдавал бы состав чужого чата —
+     * это не промах производительности, а прямая утечка членства.
+     */
+    @Test
+    void differentChatsDoNotShareCacheEntry() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L)));
+
+        service.members(1L).block();
+        service.members(2L).block();
+
+        assertEquals(2, grpcCalls(), "состав разных чатов не имеет права смешиваться");
+        assertEquals(0.0, cacheCounter(MembershipCacheMetric.RESULT_HIT));
+    }
+
+    /**
+     * Что делает: gRPC возвращает ПУСТОЙ список участников дважды подряд.
+     * Что проверяет: оба раза был реальный вызов — пустота не осела в кеше.
+     * Зачем: decide() трактует пустой список как NOT_MEMBER. Закешированная пустота
+     * приколотила бы ложный отказ на весь TTL, а достижима она гонкой с созданием чата:
+     * строка чата уже есть, а связки в user_chat ещё пишутся (ReactiveImpl.transferchat
+     * вставляет их отдельными операциями после save чата).
+     */
+    @Test
+    void emptyMemberListIsNotCached() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(DataTransferService.UserListResponse.newBuilder().build()));
+
+        assertTrue(service.members(5L).block().isEmpty());
+        assertTrue(service.members(5L).block().isEmpty());
+
+        assertEquals(2, grpcCalls(), "пустой список не имеет права кешироваться");
+        assertEquals(0.0, cacheCounter(MembershipCacheMetric.RESULT_HIT));
+    }
+
+    /**
+     * Что делает: первый запрос падает детерминированной ошибкой (не ретраится), второй
+     * получает нормальный ответ.
+     * Что проверяет: второй запрос дошёл до gRPC и вернул состав.
+     * Зачем: исход UNKNOWN обязан оставаться живым. Закешируйся отказ — одна сетевая
+     * заминка замораживала бы «состояние неизвестно» на весь TTL, и на fail-closed путях
+     * это выглядело бы как отказ в доступе на минуту.
+     */
+    @Test
+    void failedLookupIsNotCached() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.error(new StatusRuntimeException(Status.INVALID_ARGUMENT)))
+                .thenReturn(Mono.just(responseWith(9L)));
+
+        assertEquals(MembershipDecision.UNKNOWN, service.decide(5L, "9").block());
+        assertEquals(MembershipDecision.MEMBER, service.decide(5L, "9").block());
+
+        assertEquals(2, grpcCalls(), "неуспешный ответ не имеет права кешироваться");
+    }
+
+    /**
+     * Что делает: сервис с укороченным до 50 мс TTL; запрос, ожидание сверх срока, ещё запрос.
+     * Что проверяет: после истечения TTL снова случился вызов gRPC.
+     * Зачем: TTL здесь не средство корректности (состав чата неизменяем), а страховка —
+     * ограничение памяти и потолок экспозиции на случай, если удаление участника из чата
+     * когда-нибудь появится, а про кеш забудут. Тест сторожит, что срок вообще
+     * соблюдается, а не задан декоративно.
+     */
+    @Test
+    void cacheEntryExpiresAfterTtl() throws InterruptedException {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L)));
+
+        ChatMembershipService shortTtl = new ChatMembershipService(stub, metric, cacheMetric) {
+            @Override
+            Duration cacheTtl() {
+                return Duration.ofMillis(50);
+            }
+        };
+
+        shortTtl.members(5L).block();
+        Thread.sleep(120);
+        shortTtl.members(5L).block();
+
+        assertEquals(2, grpcCalls(), "после истечения TTL состав обязан перезапрашиваться");
+    }
+
+    /**
+     * Что делает: собирает цепочку members(), не подписываясь на неё, затем подписывается.
+     * Что проверяет: до подписки в кеш ничего не попало и счётчики не двигались.
+     * Зачем: без Mono.defer поиск в кеше выполнялся бы при СБОРКЕ цепочки. Тогда повторная
+     * подписка на один и тот же Mono отдавала бы снимок, снятый в прошлом, а промах,
+     * случившийся при сборке, не стал бы попаданием при подписке — то есть кеш врал бы
+     * и в поведении, и в собственных метриках.
+     */
+    @Test
+    void cacheIsConsultedOnSubscriptionNotOnAssembly() {
+        Mockito.when(stub.getAllUsersByChatId(Mockito.any(DataTransferService.ChatData.class)))
+                .thenReturn(Mono.just(responseWith(7L)));
+
+        Mono<List<DataTransferService.UserDataRequest>> assembled = service.members(5L);
+
+        assertEquals(0.0, cacheCounter(MembershipCacheMetric.RESULT_MISS));
+        assertEquals(0, grpcCalls());
+
+        assembled.block();
+
+        assertEquals(1.0, cacheCounter(MembershipCacheMetric.RESULT_MISS));
+        assertEquals(1, grpcCalls());
+    }
 }
