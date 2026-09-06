@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 33 | 267 | 2 | 269 |
+| HTTPService | 34 | 270 | 2 | 272 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **43** | **298** | **7** | **305** |
+| **Итого** | **44** | **301** | **7** | **308** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -145,6 +145,13 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`eachSubscriptionIsCountedSeparately`** — одна и та же собранная цепочка подписана дважды. Проверяет: 2 записи в таймере и 2 в счётчике. Зачем: замер живёт на подписке (`Mono.defer`), поэтому переиспользование `Mono` считается честно — это обратная сторона того же бага, что и в первом тесте.
 - **`latencyIsExposedAsPrometheusHistogramNotOnlyAverage`** — замер на настоящем `PrometheusMeterRegistry` (в приложении стоит именно он, actuator `/prometheus`), затем разбор текста `scrape()`. Проверяет: в выдаче есть `grpc_call_duration_seconds_bucket` с метками `method="members"`/`outcome="success"` и по-прежнему есть `grpc_calls_counter_total`. Зачем: (1) требование тикета — латентность распределением, а не средним: бакеты percentile-гистограммы материализует только реестр с агрегируемыми перцентилями, на `SimpleMeterRegistry` они пусты, поэтому проверка идёт на проде-реестре; (2) исторический счётчик обязан остаться на месте — на него могли смотреть снаружи.
 - **`legacyIncrementStillFeedsOldCounter`** — старый `increment()` без аргументов. Проверяет: `grpc_calls_counter{type=GrpcMetric}` вырос. Зачем: метод остаётся в API ради `AuthGrpc`, который на него завязан и в периметр тикета не входил.
+
+### `Metrics/FpCheckMetricTest` — `unit` — счётчик деградации проверки отпечатка (beads kz6)
+`FpCheckMetric` поверх `SimpleMeterRegistry`, без контекста Spring. Тесты сторожат **имена**, а не арифметику: имя метрики и значения тега — это контракт с `prometheus.keepMetrics` в `Helm/values.yaml` и с правилами алертинга, а расхождение там тихое (keep не совпадёт → ряда нет → панель «No data», неотличимо от неработающей метрики).
+
+- **`aiDegradedIncrementsOnlyItsOwnSeries`** — `aiDegraded()` → `fp_check_degraded{reason="ai"}` = 1, соседний ряд = 0. Зачем: ветки обязаны быть раздельными рядами, на них стоят алерты разной severity.
+- **`verdictUnavailableIncrementsOnlyItsOwnSeries`** — `verdictUnavailable()` → `fp_check_degraded{reason="unavailable"}` = 1, соседний = 0. Зачем: это ветка fail-closed под critical-алертом; смешение с AI-веткой замаскировало бы баг проверки под штатную деградацию.
+- **`bothSeriesExistBeforeAnyIncrement`** — оба ряда существуют со значением 0 до первого инкремента. Зачем: лениво зарегистрированный счётчик отсутствует в `/actuator/prometheus` до первого сбоя, и алерт на `rate()` по нему не переходит в `inactive` — молчит не потому, что всё хорошо, а потому, что смотреть не на что.
 
 ### `ReactiveStubGenConfigTest` — `unit` — канал ReactiveTransferService реально получает keepalive/round_robin из конфига (beads 16t)
 До фикса `ReactiveStubGen` собирал `ManagedChannel` вручную (`ManagedChannelBuilder.forTarget(...).usePlaintext().build()`), полностью игнорируя блок `grpc.client.ReactiveTransferService.*` в `application.yml` (keepalive, `default-load-balancing-policy`) — эти ключи применяет только стартер `net.devh` и только для полей с `@GrpcClient`. Из `dns:///messegerparody:9091` резолвился один адрес без keepalive и без перебалансировки — на канале, по которому идёт проверка членства на каждое сообщение/typing-событие. Тесты не сравнивают код с yml-диффом, а прогоняют настоящий код `net.devh` (`ShadedNettyChannelFactory.newChannelBuilder`+`configure`) на настоящем `application.yml` и читают итоговое состояние живого `NettyChannelBuilder` рефлексией — это чтение фактической рантайм-конфигурации канала, а не просто чтение исходников. Оба теста проверены на «кусаемость»: временный откат `ReactiveStubGen` на ручной `ManagedChannelBuilder` красит первый тест, временная порча `keep-alive-time` в yml красит второй.
