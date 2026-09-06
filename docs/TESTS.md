@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 33 | 267 | 2 | 269 |
+| HTTPService | 35 | 278 | 2 | 280 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **43** | **298** | **7** | **305** |
+| **Итого** | **45** | **309** | **7** | **316** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -146,6 +146,13 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`latencyIsExposedAsPrometheusHistogramNotOnlyAverage`** — замер на настоящем `PrometheusMeterRegistry` (в приложении стоит именно он, actuator `/prometheus`), затем разбор текста `scrape()`. Проверяет: в выдаче есть `grpc_call_duration_seconds_bucket` с метками `method="members"`/`outcome="success"` и по-прежнему есть `grpc_calls_counter_total`. Зачем: (1) требование тикета — латентность распределением, а не средним: бакеты percentile-гистограммы материализует только реестр с агрегируемыми перцентилями, на `SimpleMeterRegistry` они пусты, поэтому проверка идёт на проде-реестре; (2) исторический счётчик обязан остаться на месте — на него могли смотреть снаружи.
 - **`legacyIncrementStillFeedsOldCounter`** — старый `increment()` без аргументов. Проверяет: `grpc_calls_counter{type=GrpcMetric}` вырос. Зачем: метод остаётся в API ради `AuthGrpc`, который на него завязан и в периметр тикета не входил.
 
+### `Metrics/FpCheckMetricTest` — `unit` — счётчик деградации проверки отпечатка (beads kz6)
+`FpCheckMetric` поверх `SimpleMeterRegistry`, без контекста Spring. Тесты сторожат **имена**, а не арифметику: имя метрики и значения тега — это контракт с `prometheus.keepMetrics` в `Helm/values.yaml` и с правилами алертинга, а расхождение там тихое (keep не совпадёт → ряда нет → панель «No data», неотличимо от неработающей метрики).
+
+- **`aiDegradedIncrementsOnlyItsOwnSeries`** — `aiDegraded()` → `fp_check_degraded{reason="ai"}` = 1, соседний ряд = 0. Зачем: ветки обязаны быть раздельными рядами, на них стоят алерты разной severity.
+- **`verdictUnavailableIncrementsOnlyItsOwnSeries`** — `verdictUnavailable()` → `fp_check_degraded{reason="unavailable"}` = 1, соседний = 0. Зачем: это ветка fail-closed под critical-алертом; смешение с AI-веткой замаскировало бы баг проверки под штатную деградацию.
+- **`bothSeriesExistBeforeAnyIncrement`** — оба ряда существуют со значением 0 до первого инкремента. Зачем: лениво зарегистрированный счётчик отсутствует в `/actuator/prometheus` до первого сбоя, и алерт на `rate()` по нему не переходит в `inactive` — молчит не потому, что всё хорошо, а потому, что смотреть не на что.
+
 ### `ReactiveStubGenConfigTest` — `unit` — канал ReactiveTransferService реально получает keepalive/round_robin из конфига (beads 16t)
 До фикса `ReactiveStubGen` собирал `ManagedChannel` вручную (`ManagedChannelBuilder.forTarget(...).usePlaintext().build()`), полностью игнорируя блок `grpc.client.ReactiveTransferService.*` в `application.yml` (keepalive, `default-load-balancing-policy`) — эти ключи применяет только стартер `net.devh` и только для полей с `@GrpcClient`. Из `dns:///messegerparody:9091` резолвился один адрес без keepalive и без перебалансировки — на канале, по которому идёт проверка членства на каждое сообщение/typing-событие. Тесты не сравнивают код с yml-диффом, а прогоняют настоящий код `net.devh` (`ShadedNettyChannelFactory.newChannelBuilder`+`configure`) на настоящем `application.yml` и читают итоговое состояние живого `NettyChannelBuilder` рефлексией — это чтение фактической рантайм-конфигурации канала, а не просто чтение исходников. Оба теста проверены на «кусаемость»: временный откат `ReactiveStubGen` на ручной `ManagedChannelBuilder` красит первый тест, временная порча `keep-alive-time` в yml красит второй.
 
@@ -170,11 +177,16 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`getObjectPropagatesErrorAsMonoError`** — исключение SDK → `Mono.error` (а не выброс наружу). Зачем: ошибки не рвут реактивную цепочку.
 
 ### `Services/MVC_ServiceComputeLikelihoodTest` — `unit` — скоринг доверия (AI + эвристика)
-`MVC_Service.computeLikelihood` с замоканными `GeminiService` и `FpSimilarityScore`.
+`MVC_Service.computeLikelihood` с замоканными `GeminiService` и `FpSimilarityScore`. Счётчик `FpCheckMetric` — настоящий, поверх `SimpleMeterRegistry`: тесты проверяют имя ряда, потому что оно контракт с `keepMetrics` и алертами.
 
 - **`passesWhenAverageAboveThreshold`** — AI=90, эвристика=40 → среднее 65 ≥ 60 → `true`.
 - **`failsWhenAverageBelowThreshold`** — AI=20, эвристика=40 → среднее 30 < 60 → `false`. Зачем: **регрессия бага** — раньше `"20"+40.0` конкатенировалось в `"2040.0"` и проверка всегда проходила.
 - **`fallsBackToHeuristicWhenAiFails`** — AI-вызов падает (`Mono.error`), эвристика=75 → `true`. Зачем: деградация без AI (в логе при этом ожидаемый ERROR — это не падение теста).
+- **`fallsBackToHeuristicWhenPromptBuildThrows`** — `BuildSecurityCheckPrompt` бросает → `true` по эвристике 75, ряд `fp_check_degraded{reason="ai"}`=1. Зачем: строка построения промпта стояла ВНЕ `try`, её исключение уходило мимо фолбэка и становилось 500 на `/exchangeTokens` (beads kz6).
+- **`fallsBackToHeuristicWhenAiCallThrowsSynchronously`** — `aiSecurePredict` бросает до возврата `Mono` (так ведёт себя `requireApiKey()` при пустом `GEMINI_API_KEY`) → `true` по эвристике, ряд `reason="ai"`=1. Зачем: отличается от `fallsBackToHeuristicWhenAiFails` — там `Mono.error`, то есть отказ ВНУТРИ `.block()`, единственный случай, который старый `catch` и так ловил.
+- **`fallsBackToHeuristicWhenAiTimesOut`** — `aiSecurePredict` возвращает `Mono.never()` → метод возвращается за 10 с (таймаут вызова 4 с) с решением по эвристике, ряд `reason="ai"`=1. Зачем: старый `.block()` без аргумента ждал бесконечно, а `/exchangeTokens` браузер дёргает в фоне каждые 15 минут на вкладку. Используется `assertTimeoutPreemptively`, а не `assertTimeout`: второй не прерывает выполнение и на сломанном коде вешал весь прогон Maven вместо падения (проверено).
+- **`failsClosedWhenHeuristicThrows`** — `similarCheck` бросает → `false` (не исключение), ряд `reason="unavailable"`=1, ряд `reason="ai"`=0. Зачем: главный тест задачи — это падало в beads uok и становилось 500. Fail-closed выбран сознательно: отказ не сносит сессию, цена — один перелогин.
+- **`failsClosedWhenHeuristicThrowsAndAiIsNeverCalled`** — `similarCheck` бросает → `false`, `GeminiService` не вызывался ни разу. Зачем: фиксирует, что без вердикта эвристики AI не может «спасти» решение — наивный фикс «занести все три строки в один `try`» ломал бы именно это, потому что фолбэк `catch` опирается на `checkresult`, которого в той ветке не существует.
 
 ### `Services/RegisterHandleErrorTest` — `reactive-unit` — ошибка регистрации на WebFlux (beads 93e)
 `WEBFLUX_Service.registerHandle` c замоканными `ParsingDataService`/`AuthGrpc`, реальная запись `ServerResponse` в mock-exchange.
@@ -507,3 +519,10 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`heavyFieldsAreReplacedByHashes`** — проверяет, что `geometry` и `text` в выходе не содержат исходную строку-заполнитель. Зачем: сторожит смысл свёртки. Без неё в Redis уезжали бы десятки килобайт сырого отпечатка на каждую сессию; заодно не даёт «починить» гонку, выбросив обработку полей целиком.
 - **`truncatedInputFailsLoudly`** — подаёт заведомо оборванный JSON. Проверяет: свёртка бросает исключение. Зачем: фиксирует границу ответственности — обрыв входа обязан быть шумным, а тихий частичный результат это ровно то поведение, которое породило исходный баг.
 - **`similarCheckAcceptsFoldedComponents`** — прогоняет реальный выход свёртки через `similarCheck`, сравнивая отпечаток сам с собой. Проверяет: сравнение не падает и даёт балл выше 60. Зачем: это и есть тот кадр стека, где падал стенд (`FpSimilarityScore:200` — разбор `components` входящего отпечатка). Связывает свёртку с её потребителем, а не проверяет её в вакууме.
+
+### `Utils/FpSimilarityScoreTest` — `unit` — устойчивость скоринга к пустым сетевым полям (beads kz6)
+`FpSimilarityScore.similarCheck` на настоящем объекте, без моков. Блок начисления баллов за ASN/Org был единственным участком метода без проверок на `null` (`asn.split`, `org.equals`, `normalize(ptr)` — `normalize` сразу делает `s.toLowerCase()`), и NPE оттуда уходил мимо фолбэка в `computeLikelihood`, становясь 500 на `/exchangeTokens`. Прежняя проверка `if (initialASN != null && secASN != null)` была бесполезна: до неё NPE уже случался на `split`, а `split` на непустой строке `null` не отдаёт.
+
+- **`survivesNullNetworkFieldsOnBothSides`** — `asn`/`org`/`ptr` = `null` у обоих отпечатков → исключения нет, балл конечный и ≥ 0.
+- **`survivesNullNetworkFieldsOnOneSide`** — поля заполнены у одного и пусты у другого, в обоих порядках аргументов → исключения нет. Зачем: асимметричный случай реальнее — сессия могла быть записана до того, как поля начали заполняться.
+- **`filledNetworkFieldsStillScoreHigherThanEmptyOnes`** — заполненные поля дают строго больший балл, чем обнулённые. Зачем: страховка от «починки» удалением блока целиком — guard обязан пропускать заполненный случай, а не гасить его вместе с пустым.
