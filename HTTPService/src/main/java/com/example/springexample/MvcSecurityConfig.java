@@ -82,6 +82,79 @@ public class MvcSecurityConfig  {
         return http.build();
     }
 
+    /**
+     * Путь отдачи объектов из MinIO. Вынесен в константу, потому что его же проверяет
+     * тест: от ширины этого шаблона зависит, какие ответы теряют {@code no-store}.
+     */
+    public static final String IMAGES_PATH = "/api/images/**";
+
+    /** Матчер цепочки картинок. Публичный ради теста границы (beads cbq). */
+    public static final RequestMatcher IMAGES_MATCHER = new AntPathRequestMatcher(IMAGES_PATH);
+
+    /**
+     * Отдельная цепочка для картинок — ровно ради одной строки: снятого
+     * {@code cacheControl} (beads cbq).
+     *
+     * <p><b>Что было сломано.</b> {@code ApiController.image} выставляет
+     * {@code CacheControl.maxAge(30 дней).cachePrivate()}, но это не работало. Замер на
+     * живом стенде:
+     * <pre>
+     * Cache-Control: no-cache, no-store, max-age=0, must-revalidate, max-age=2592000, private
+     * Pragma: no-cache
+     * Expires: 0
+     * </pre>
+     * Директивы пишет {@code CacheControlHeadersWriter} из {@code HeaderWriterFilter} —
+     * он включён по умолчанию, а {@code headers()} в этом классе не настраивался вовсе.
+     * Заголовок не заменяется, а склеивается, и {@code no-store} выигрывает: браузер не
+     * имеет права сохранить ответ ни на 30 суток, ни на секунду. Аватарка на 7 МБ
+     * перекачивалась при каждой перерисовке списка чатов.
+     *
+     * <p><b>Почему отдельная цепочка, а не глобальное отключение.</b>
+     * {@code headers().cacheControl().disable()} на общей цепочке открыло бы кеширование
+     * ВСЕМ ответам, включая {@code /api/me} и {@code /api/chat} с содержимым переписки.
+     * Здесь же снятие ограничено {@code securityMatcher}, а всё остальное — включая
+     * {@code /api/me}, {@code /api/chat}, {@code /api/chatlist} — по-прежнему обслуживает
+     * цепочка ниже и по-прежнему получает {@code no-store}.
+     *
+     * <p><b>Почему @Order(1).</b> Цепочки проверяются по порядку. Цепочка актуатора выше
+     * стоит на {@code HIGHEST_PRECEDENCE}, а {@code mvcFilterChain} ниже — catch-all без
+     * {@code securityMatcher}: без явного порядка первой сматчилась бы она, и эта
+     * цепочка не отработала бы никогда.
+     *
+     * <p>Аутентификация здесь настоящая, а не ослабленная: путь закрыт
+     * {@code authenticated()}, тот же {@code mvcJwtAuthFilter}, тот же
+     * stateless-режим — всё это ставит {@link #applyStatelessJwtAuth}, общий с
+     * основной цепочкой, чтобы две цепочки не разъехались при будущих правках.
+     * Проверка владения объектом MinIO живёт в контроллере и этой правкой не затронута.
+     */
+    @Bean
+    @Order(1)
+    public SecurityFilterChain imagesFilterChain(HttpSecurity http) throws Exception {
+        http.securityMatcher(IMAGES_MATCHER)
+                .headers(headers -> headers.cacheControl(cache -> cache.disable()))
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                // Bearer-API не подвержен CSRF (нет cookie-аутентификации) — та же
+                // причина, по которой /api/** исключён из CSRF в цепочке ниже.
+                .csrf(AbstractHttpConfigurer::disable);
+        applyStatelessJwtAuth(http, new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED));
+        return http.build();
+    }
+
+    /**
+     * Настройки, обязательные для любой цепочки, обслуживающей аутентифицированные
+     * запросы SPA: без сессий, JWT-фильтр до формы логина, свой entry point.
+     *
+     * <p>Вынесено в общий метод не ради краткости, а ради синхронности: цепочек стало
+     * две, и разъехавшийся stateless-режим или потерянный {@code mvcJwtAuthFilter} в
+     * одной из них — это тихая дыра, а не заметная поломка.
+     */
+    private void applyStatelessJwtAuth(HttpSecurity http, AuthenticationEntryPoint entryPoint) throws Exception {
+        http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(RequestCacheConfigurer::disable)
+                .addFilterBefore(mvcJwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(entryPoint));
+    }
+
     @Bean
     public SecurityFilterChain mvcFilterChain(HttpSecurity http) throws Exception {
         CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
@@ -103,12 +176,11 @@ public class MvcSecurityConfig  {
         DelegatingAuthenticationEntryPoint delegatingEntryPoint = new DelegatingAuthenticationEntryPoint(entryPoints);
         delegatingEntryPoint.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint("/welcome"));
 
-        http.
-        sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-        )
-                .requestCache(RequestCacheConfigurer::disable)
-                .authorizeHttpRequests(auth -> auth
+        // Stateless + JWT-фильтр + entry point ставит общий метод: те же настройки
+        // обязана иметь цепочка картинок выше, и разъехаться они не должны.
+        applyStatelessJwtAuth(http, delegatingEntryPoint);
+
+        http.authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 new AntPathRequestMatcher("/js/**"),
                                 new AntPathRequestMatcher("/css/**"),
@@ -136,9 +208,6 @@ public class MvcSecurityConfig  {
 
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(mvcJwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
-                .exceptionHandling(ex -> ex.authenticationEntryPoint(delegatingEntryPoint))
-
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
                         .csrfTokenRequestHandler(spaCsrfHandler)

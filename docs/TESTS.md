@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 35 | 278 | 2 | 280 |
+| HTTPService | 36 | 281 | 2 | 283 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **45** | **309** | **7** | **316** |
+| **Итого** | **46** | **312** | **7** | **319** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -276,6 +276,19 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`createChatMutationIsRoutedUnderProtectedApiPrefix`** — `POST /api/createchat` (снаружи `/reactive/api/createchat`, сервлет смонтирован на `/reactive/*`) → роутер `createchatHandle` матчится. Зачем: путь мутации должен попадать под правило `/reactive/api/createchat` ingress `http-protected`; при рассинхроне путей POST начнёт отдавать 404.
 - **`createChatMutationIsNotRoutedUnderPublicShellPath`** — `POST /createchat` (снаружи `/reactive/createchat`) → роутер `createchatHandle` **не** матчится. Зачем: главный ассерт тикета — возврат POST-роута на путь публичного шелла означал бы создание чата без `auth_request`, т.е. дыру вместо UX-фикса (`MvcSecurityConfig` даёт `permitAll` на `/reactive/**`, а `ReactiveSecurityConfig` — на GET-шеллы, так что мутация на этом пути не защищена ничем). С beads 1fs подделка личности заголовками там уже невозможна — `ReactiveHybridAuthFilter` берёт принципала из подписи токена, — но обход проверки ревокации на `/jwtcheck` остаётся, поэтому разведение путей по-прежнему обязательно.
 - **`createChatShellStaysGetOnlyOnPublicPath`** — `GET /createchat` матчится роутером шелла, `POST /createchat` — нет. Зачем: публичный путь остаётся только read-only рендером app-shell.
+
+### `MvcSecurityImagesChainBoundaryTest` — `unit` — граница цепочки картинок (beads cbq)
+Матчер `MvcSecurityConfig.IMAGES_MATCHER` на `MockHttpServletRequest`, без контекста Spring.
+
+Контекст: `/api/images` отдавал склеенный заголовок `no-cache, no-store, max-age=0, must-revalidate, max-age=2592000, private` — директиву контроллера дописывал в хвост `CacheControlHeadersWriter` Spring Security, и `no-store` выигрывал, то есть 30-дневное кеширование не работало вовсе (аватарка на 7 МБ качалась заново при каждой перерисовке). Лечится отдельной `SecurityFilterChain` со снятым `cacheControl`, а значит **ширина её `securityMatcher` — решение о безопасности**: всё, что под него попадает, теряет `no-store` и становится кешируемым на диске у пользователя.
+
+Проверяется матчер, а не заголовки ответа: заголовки — поведение всей цепочки фильтров, его проверяет живой замер из приёмки тикета. Здесь пришит вход, от которого зависит, к какому ответу это поведение применится.
+
+- **`matchesImageObjectPaths`** — `/api/images/userimage/7/<uuid>.png` и `/api/images/chatimage/42/<uuid>.jpg` матчатся. Зачем: не срабатывал бы матчер — фикс просто не применялся бы, а тикет считался бы закрытым зря.
+- **`doesNotMatchOtherApiEndpoints`** — `/api/me`, `/api/chat`, `/api/chatlist`, `/api/imagesomething` **не** матчатся. Зачем: главный ассерт файла. Эти ответы обязаны сохранить `no-store`: два из них несут содержимое переписки. Расширение шаблона до `/api/**` уронит именно этот тест.
+- **`doesNotMatchAuthOrStaticPaths`** — `/exchangeTokens`, `/images/logo.png`, `/welcome` не матчатся. Зачем: путь аутентификации обслуживается общей цепочкой со своим CSRF и делегирующим entry point и утечь под цепочку картинок не должен.
+
+Ловушка теста, стоившая ложно-зелёного прогона: `AntPathRequestMatcher` складывает путь из `getServletPath()` + `getPathInfo()`, а конструктор `MockHttpServletRequest(method, uri)` заполняет только `requestURI`. Без явного `setServletPath` путь пуст — положительная проверка краснеет, а **все отрицательные проходят вхолостую**.
 
 ### `Services/ChatMembershipServiceTest` — `unit` — три состояния членства, таймаут и один повтор (beads 8wh), предикат членства поверх готового списка (beads 40i)
 `ChatMembershipService` с замоканным `ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub` и настоящим `GrpcRequestsMetric` поверх `SimpleMeterRegistry` (beads cwo — метрика инжектится в сервис, поэтому у конструктора два аргумента). До 8wh ответ был булевым: `false` означало одновременно «пользователя нет в списке» и «список получить не удалось», и STOMP-интерцептор рвал WebSocket-сессию при любой транзиентной заминке MessegerParody. Теперь основной метод — `decide()`, возвращающий `MembershipDecision` (`MEMBER`/`NOT_MEMBER`/`UNKNOWN`); `isMemberReactive` и блокирующий `decideBlocking` — тонкие обёртки над ним, а сам gRPC-вызов внутри `members()` получил таймаут 2 с и одну повторную попытку для транзиентных ошибок, с задержкой 100 мс между попытками (`Retry.fixedDelay`, не `Retry.max`) — мгновенный повтор в лежащий канал не даёт ему шанса восстановиться и просто удваивает нагрузку на умирающий бэкенд. Метод `isMember` удалён — вызывающие обязаны знать, что перед ними отсутствие ответа, а не ответ «нет».
