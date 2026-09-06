@@ -1,6 +1,7 @@
 package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.*;
+import com.example.springexample.Metrics.FpCheckMetric;
 import com.example.springexample.Utils.*;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -50,6 +51,16 @@ public class MVC_Service {
     ParsingDataService dataParser;
     @Autowired
     GeminiService gptService;
+    @Autowired
+    FpCheckMetric fpCheckMetric;
+
+    /**
+     * Потолок ожидания вердикта Gemini. Четыре секунды: {@code /exchangeTokens}
+     * выполняется браузером в фоне, и задержка сверх нескольких секунд неотличима для
+     * пользователя от зависшей вкладки; типичный ответ {@code gemini-2.5-flash-lite}
+     * укладывается в 1–2 с.
+     */
+    private static final Duration AI_VERDICT_TIMEOUT = Duration.ofSeconds(4);
 
 
     // Корень отдаёт редирект на точку входа (beads 9kn). Маппинга на "/" не было вовсе, и
@@ -292,22 +303,71 @@ public class MVC_Service {
 
         }
     }
+    /**
+     * Сравнивает два отпечатка браузера и решает, тот ли это пользователь.
+     *
+     * <p><b>Метод не выбрасывает исключений — это его контракт (beads kz6).</b> Он стоит
+     * на пути аутентификации в двух местах: на Google-логине ({@code MVC_Service:228}) и
+     * на обновлении токена ({@code TokensResolver:220}). Второй вызывающий исключения не
+     * гасит — {@code CheckRefreshAndGetSub} логирует и делает {@code throw e}, — поэтому
+     * любое исключение отсюда становилось <b>500 на {@code /exchangeTokens}</b>: живой
+     * пользователь внутри приложения терял сессию и уезжал на {@code /welcome}.
+     *
+     * <p>Раньше в {@code try} стоял только {@code .block()}, а три строки выше — расчёт
+     * эвристики, построение промпта и сам вызов Gemini — стояли вне его. Мимо фолбэка
+     * улетали: обрыв JSON в {@code similarCheck} (beads uok), NPE на незаполненных сетевых
+     * полях и синхронный бросок {@code requireApiKey()} при пустом {@code GEMINI_API_KEY}.
+     *
+     * <p><b>Почему два раздельных try, а не один расширенный.</b> Фолбэк AI-ветки — это
+     * {@code checkresult >= 60}, а {@code checkresult} даёт {@code similarCheck}. Занеси
+     * её в тот же {@code try} — и в ветке отказа фолбэка не существует, потому что упало
+     * ровно то, что им является. Поэтому исходов три, а не два:
+     * <ul>
+     *   <li>вердикт получен — {@code (AI + эвристика) / 2 >= 60}, как и было;</li>
+     *   <li>AI не ответил — решаем одной эвристикой (задуманная деградация);</li>
+     *   <li>эвристика упала — вердикта нет, <b>fail-closed</b>.</li>
+     * </ul>
+     *
+     * <p>Fail-closed здесь недорог: отказ не уничтожает сессию — {@code rotateTokens:124}
+     * кидает {@code FORBIDDEN "NotSimilar"}, запись в Redis остаётся жива, другие
+     * устройства не разлогиниваются. Цена — один повторный вход. Fail-open отвергнут:
+     * проверка отпечатка — единственный барьер против украденной refresh-куки с чужой
+     * машины, и открывать его при внутренней ошибке значит превращать любой баг парсинга
+     * в обход защиты.
+     *
+     * <p>Оба нештатных исхода идут в {@link FpCheckMetric}: тихий fail-closed выглядит для
+     * пользователя как «меня иногда разлогинивает» и не расследуется.
+     */
     public boolean computeLikelihood (FpSimilarityScore.ClientMeta newMeta,
                                       FpSimilarityScore.ClientMeta oldMeta,FpSimilarityScore FpUtils){
-
-        double checkresult = FpUtils.similarCheck(oldMeta, newMeta);
-        GeminiPrompt prompt = gptService.BuildSecurityCheckPrompt(oldMeta,newMeta);
-        Mono<String> securitypredict= gptService.aiSecurePredict(prompt);
-        boolean conclusion;
+        double checkresult;
         try {
-            // probability приходит строкой "0".."100"; среднее между эвристикой и AI-оценкой
-            double res = securitypredict.map(doub -> (Double.parseDouble(doub.trim()) + checkresult) / 2).block();
-            return res>=60;
+            checkresult = FpUtils.similarCheck(oldMeta, newMeta);
         } catch (Exception e) {
-            log.error("Ai security predict failed",e);
-            conclusion = checkresult>=60;
-            log.warn(Objects.toString(conclusion));
-            return conclusion;
+            log.error("Fingerprint heuristic failed — verdict unavailable", e);
+            fpCheckMetric.verdictUnavailable();
+            return false;
+        }
+
+        try {
+            GeminiPrompt prompt = gptService.BuildSecurityCheckPrompt(oldMeta, newMeta);
+            // probability приходит строкой "0".."100"; среднее между эвристикой и AI-оценкой.
+            // block(Duration) вместо block(): /exchangeTokens браузер выполняет в фоне, и
+            // неограниченное ожидание внешнего HTTP держало бы запрос сколько угодно.
+            // Таймаут даёт IllegalStateException — его ловит этот же catch, отдельная
+            // ветка не нужна.
+            Double res = gptService.aiSecurePredict(prompt)
+                    .map(doub -> (Double.parseDouble(doub.trim()) + checkresult) / 2)
+                    .block(AI_VERDICT_TIMEOUT);
+            if (res == null) {
+                // Пустой Mono — вердикта AI нет; распаковка null дала бы NPE уже вне try.
+                throw new IllegalStateException("Ai security predict returned empty result");
+            }
+            return res >= 60;
+        } catch (Exception e) {
+            log.warn("Ai security predict failed, falling back to heuristic", e);
+            fpCheckMetric.aiDegraded();
+            return checkresult >= 60;
         }
     }
 

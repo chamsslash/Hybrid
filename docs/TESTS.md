@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 34 | 270 | 2 | 272 |
+| HTTPService | 34 | 275 | 2 | 277 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **44** | **301** | **7** | **308** |
+| **Итого** | **44** | **306** | **7** | **313** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -177,11 +177,16 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`getObjectPropagatesErrorAsMonoError`** — исключение SDK → `Mono.error` (а не выброс наружу). Зачем: ошибки не рвут реактивную цепочку.
 
 ### `Services/MVC_ServiceComputeLikelihoodTest` — `unit` — скоринг доверия (AI + эвристика)
-`MVC_Service.computeLikelihood` с замоканными `GeminiService` и `FpSimilarityScore`.
+`MVC_Service.computeLikelihood` с замоканными `GeminiService` и `FpSimilarityScore`. Счётчик `FpCheckMetric` — настоящий, поверх `SimpleMeterRegistry`: тесты проверяют имя ряда, потому что оно контракт с `keepMetrics` и алертами.
 
 - **`passesWhenAverageAboveThreshold`** — AI=90, эвристика=40 → среднее 65 ≥ 60 → `true`.
 - **`failsWhenAverageBelowThreshold`** — AI=20, эвристика=40 → среднее 30 < 60 → `false`. Зачем: **регрессия бага** — раньше `"20"+40.0` конкатенировалось в `"2040.0"` и проверка всегда проходила.
 - **`fallsBackToHeuristicWhenAiFails`** — AI-вызов падает (`Mono.error`), эвристика=75 → `true`. Зачем: деградация без AI (в логе при этом ожидаемый ERROR — это не падение теста).
+- **`fallsBackToHeuristicWhenPromptBuildThrows`** — `BuildSecurityCheckPrompt` бросает → `true` по эвристике 75, ряд `fp_check_degraded{reason="ai"}`=1. Зачем: строка построения промпта стояла ВНЕ `try`, её исключение уходило мимо фолбэка и становилось 500 на `/exchangeTokens` (beads kz6).
+- **`fallsBackToHeuristicWhenAiCallThrowsSynchronously`** — `aiSecurePredict` бросает до возврата `Mono` (так ведёт себя `requireApiKey()` при пустом `GEMINI_API_KEY`) → `true` по эвристике, ряд `reason="ai"`=1. Зачем: отличается от `fallsBackToHeuristicWhenAiFails` — там `Mono.error`, то есть отказ ВНУТРИ `.block()`, единственный случай, который старый `catch` и так ловил.
+- **`fallsBackToHeuristicWhenAiTimesOut`** — `aiSecurePredict` возвращает `Mono.never()` → метод возвращается за 10 с (таймаут вызова 4 с) с решением по эвристике, ряд `reason="ai"`=1. Зачем: старый `.block()` без аргумента ждал бесконечно, а `/exchangeTokens` браузер дёргает в фоне каждые 15 минут на вкладку. Используется `assertTimeoutPreemptively`, а не `assertTimeout`: второй не прерывает выполнение и на сломанном коде вешал весь прогон Maven вместо падения (проверено).
+- **`failsClosedWhenHeuristicThrows`** — `similarCheck` бросает → `false` (не исключение), ряд `reason="unavailable"`=1, ряд `reason="ai"`=0. Зачем: главный тест задачи — это падало в beads uok и становилось 500. Fail-closed выбран сознательно: отказ не сносит сессию, цена — один перелогин.
+- **`failsClosedWhenHeuristicThrowsAndAiIsNeverCalled`** — `similarCheck` бросает → `false`, `GeminiService` не вызывался ни разу. Зачем: фиксирует, что без вердикта эвристики AI не может «спасти» решение — наивный фикс «занести все три строки в один `try`» ломал бы именно это, потому что фолбэк `catch` опирается на `checkresult`, которого в той ветке не существует.
 
 ### `Services/RegisterHandleErrorTest` — `reactive-unit` — ошибка регистрации на WebFlux (beads 93e)
 `WEBFLUX_Service.registerHandle` c замоканными `ParsingDataService`/`AuthGrpc`, реальная запись `ServerResponse` в mock-exchange.
