@@ -2,6 +2,9 @@ package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import com.example.springexample.Metrics.MembershipCacheMetric;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +55,52 @@ public class ChatMembershipService {
 
     private final GrpcRequestsMetric grpcRequestsMetric;
 
+    private final MembershipCacheMetric cacheMetric;
+
+    /**
+     * Кеш состава чата (beads 9wi). Создаётся лениво в {@link #cache()}, чтобы TTL можно
+     * было укоротить в тесте, не трогая продовое значение — тем же приёмом, что и у
+     * {@link #membershipTimeout()}.
+     */
+    private volatile Cache<Long, List<DataTransferService.UserDataRequest>> cache;
+
+    /**
+     * Срок жизни записи. Здесь он НЕ средство корректности: состав чата неизменяем
+     * (см. {@link #members(long)}), поэтому запись не может протухнуть по смыслу.
+     * Шестьдесят секунд стоят по двум другим причинам — ограничить память и оставить
+     * страховку на случай, если удаление участника из чата когда-нибудь появится, а про
+     * этот кеш забудут: тогда экспозиция будет минутой, а не бесконечностью.
+     */
+    Duration cacheTtl() {
+        return Duration.ofSeconds(60);
+    }
+
+    /**
+     * Потолок числа чатов в кеше. Запись — это список участников одного чата, поэтому
+     * тысяча записей стоит десятки килобайт; ограничение здесь ради того, чтобы память
+     * не росла с числом когда-либо открытых чатов, а не ради экономии.
+     */
+    long cacheMaxSize() {
+        return 1000;
+    }
+
+    private Cache<Long, List<DataTransferService.UserDataRequest>> cache() {
+        Cache<Long, List<DataTransferService.UserDataRequest>> local = cache;
+        if (local == null) {
+            synchronized (this) {
+                local = cache;
+                if (local == null) {
+                    local = Caffeine.newBuilder()
+                            .expireAfterWrite(cacheTtl())
+                            .maximumSize(cacheMaxSize())
+                            .build();
+                    cache = local;
+                }
+            }
+        }
+        return local;
+    }
+
     /**
      * Таймаут ОДНОЙ попытки. Вынесено в метод, чтобы тест мог укоротить ожидание,
      * не ломая продовое значение.
@@ -75,7 +124,68 @@ public class ChatMembershipService {
     }
 
     /**
-     * Список участников чата с таймаутом и одной повторной попыткой.
+     * Список участников чата — с кешем поверх gRPC-вызова (beads 9wi).
+     *
+     * <p>Через этот метод ходят ВСЕ потребители членства: фрейм SEND и событие набора
+     * текста в {@code ChatBoxStompController}, SUBSCRIBE в {@code StompAuthChannelInterceptor},
+     * веерная рассылка аватарки чата, {@code /api/chat}, картинки чата и реактивный путь
+     * {@code WEBFLUX_Service}. Поэтому кеш живёт здесь и только здесь: одна точка входа —
+     * одно место, где решается, идти ли в сеть.
+     *
+     * <p><b>НЕСУЩИЙ ИНВАРИАНТ: состав чата неизменяем.</b> Кеш корректен ровно потому,
+     * что участник чата не может перестать быть участником. Проверено по коду:
+     * в {@code user_chat} есть только INSERT ({@code ReactiveUserChatRepository}), DELETE
+     * нет нигде; среди RPC нет ни добавления, ни удаления участника существующего чата;
+     * {@code ReactiveImpl.transferchat} либо находит чат с ТОЧНО таким же составом и
+     * ничего не пишет, либо создаёт новый чат и вставляет все связки разом.
+     *
+     * <p><b>Если этот инвариант когда-нибудь сломается — здесь появится дыра в
+     * авторизации.</b> Спека 2026-08-14 (beads g9x) отвергла кеш именно из-за окна, в
+     * котором исключённый из чата ещё может писать; окна нет только потому, что нет
+     * исключения. Тот, кто добавит удаление участника или дозапись в существующий чат,
+     * обязан прийти сюда и сбрасывать запись по chatId — иначе удалённый пользователь
+     * останется полноправным на весь {@link #cacheTtl()}.
+     *
+     * <p>Кешируется только непустой успешный список; про пустые и ошибочные исходы —
+     * в комментариях по месту.
+     *
+     * <p>Сам вызов gRPC вынесен в {@link #fetchMembers(long)}; тайминги, повтор и
+     * порядок операторов описаны там.
+     */
+    public Mono<List<DataTransferService.UserDataRequest>> members(long chatId) {
+        // Mono.defer обязателен: без него поиск в кеше выполнился бы при СБОРКЕ цепочки,
+        // а не при подписке, и повторная подписка на один и тот же Mono отдавала бы
+        // результат, снятый в прошлом. Здесь же он даёт и второе: промах, случившийся
+        // при сборке, не превратился бы в попадание при подписке.
+        return Mono.defer(() -> {
+            List<DataTransferService.UserDataRequest> cached = cache().getIfPresent(chatId);
+            if (cached != null) {
+                cacheMetric.hit();
+                return Mono.just(cached);
+            }
+            cacheMetric.miss();
+            return fetchMembers(chatId)
+                    // Кладём в кеш ТОЛЬКО непустой успешный список.
+                    //
+                    // Пустой не кешируем намеренно: decide() трактует пустоту как
+                    // NOT_MEMBER, и закешированная пустота приколотила бы ложный отказ на
+                    // весь TTL. А пустота тут достижима — например, гонкой с созданием
+                    // чата, когда строка чата уже есть, а связки в user_chat ещё пишутся.
+                    //
+                    // Ошибки и таймауты не кешируются просто в силу устройства doOnNext:
+                    // он не срабатывает на onError. Это существенно — исход UNKNOWN обязан
+                    // оставаться живым, иначе одна сетевая заминка замерзала бы на минуту.
+                    .doOnNext(members -> {
+                        if (!members.isEmpty()) {
+                            cache().put(chatId, members);
+                        }
+                    });
+        });
+    }
+
+    /**
+     * Собственно gRPC-вызов за составом чата, в обход кеша: таймаут и одна повторная
+     * попытка.
      *
      * ПОРЯДОК ОПЕРАТОРОВ КРИТИЧЕН: .timeout() и .retryWhen() стоят СНАРУЖИ measure().
      * measure реализован через Mono.defer, поэтому при таком порядке он перезапускается
@@ -83,7 +193,7 @@ public class ChatMembershipService {
      * по таймауту ложится как outcome=cancel. При обратном порядке ретраи слились бы
      * в один замер — ровно та слепота, из-за которой 8wh требовал сначала закрыть cwo.
      */
-    public Mono<List<DataTransferService.UserDataRequest>> members(long chatId) {
+    private Mono<List<DataTransferService.UserDataRequest>> fetchMembers(long chatId) {
         // Вызов стаба обёрнут в Mono.defer нарочно: без этого reactiveStub.getAllUsersByChatId(...)
         // выполняется один раз при сборке цепочки (Java вычисляет аргумент до вызова measure()),
         // и retryWhen просто пересматривает уже готовый (и уже упавший) Mono вместо повторного

@@ -296,6 +296,9 @@ prometheus:
     # Деградация проверки отпечатка (beads kz6). Тег reason различает два исхода:
     # ai — решение принято без Gemini, unavailable — вердикта нет и доступ закрыт.
     - "fp_check_degraded_total"
+    # Кеш членства в чате (beads 9wi). Тег result: hit — gRPC-вызов, которого НЕ было,
+    # miss — случившийся. Доля попаданий и есть те цифры, которых тикету не хватало.
+    - "membership_cache_total"
     # JVM и под
     - "jvm_memory_used_bytes"
     - "jvm_gc_pause_seconds_(count|sum|max)"

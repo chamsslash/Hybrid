@@ -255,6 +255,12 @@
             <artifactId>micrometer-core</artifactId>
             <version>1.11.3</version>
         </dependency>
+        <!-- Кеш членства в чате (beads 9wi). Версию задаёт BOM spring-boot-starter-parent,
+             поэтому пина здесь нет намеренно: Caffeine входит в managed-зависимости Boot. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <!-- Spring Boot тестов -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
