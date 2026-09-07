@@ -10,6 +10,29 @@ global:
   # `global`, not templated references to sibling top-level keys). Used by
   # authservice to build the Google OAuth2 redirect-uri.
   ingressHost: myapp.localtest.me
+  # Схема, по которой приложение доступно СНАРУЖИ (beads ybg). Влияет на три вещи
+  # разом, и все три обязаны переключаться вместе, иначе вход ломается молча:
+  #   publicScheme  -> redirect-uri для Google OAuth (AuthService/application.yml)
+  #   cookieSecure  -> атрибут Secure на куке сессии (HTTPService)
+  #   forwardHeadersStrategy -> доверие к X-Forwarded-Proto от прокси
+  #
+  # http (дефолт) — текущий стенд: kind + ingress-nginx без TLS.
+  # https — публикация наружу, когда TLS терминируется ДО кластера (Caddy на хосте
+  #   VM). При этом tls.enabled ниже остаётся false: tls-секция в Ingress включила бы
+  #   ssl-redirect у ingress-nginx, а редиректить нечего — внутрь кластера трафик и
+  #   так приходит по HTTP.
+  #
+  # Переключая на https, не забудь добавить https://<ingressHost>/login/oauth2/code/google
+  # в консоль Google — иначе вход через Google отдаст redirect_uri_mismatch.
+  publicScheme: http
+  # Ставить ли Secure на куку сессии. Обязан быть true при publicScheme=https и false
+  # при http: кука с Secure по plain HTTP браузером отбрасывается, и пользователь
+  # остаётся без сессии вовсе.
+  cookieSecure: false
+  # none | native | framework. framework — только когда перед сервисом реально стоит
+  # прокси, который проставляет X-Forwarded-*. Доверие к этим заголовкам от
+  # произвольного клиента означает, что клиент сам объявляет схему соединения.
+  forwardHeadersStrategy: none
   # Распределённый трейсинг (beads izv). Читается ВСЕМИ тремя подчартами, поэтому
   # живёт здесь, а не рядом с `tempo` наверху: подчарт видит только то, что лежит
   # буквально под `global`.

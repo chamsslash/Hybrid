@@ -18,6 +18,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -57,6 +58,15 @@ public class WEBFLUX_Service {
     AuthGrpc authGrpc;
     @Autowired
     TokensResolver tokensResolver;
+
+    /**
+     * Ставить ли на куку сессии атрибут {@code Secure} (beads ybg). Тот же тумблер
+     * {@code COOKIE_SECURE}, что и в {@code MVC_Service}: реактивный и сервлетный входы
+     * ставят ОДНУ И ТУ ЖЕ куку, и разъехаться по этому атрибуту они не должны.
+     */
+    @Value("${COOKIE_SECURE:false}")
+    boolean cookieSecure;
+
     private final Gson gson= new Gson();
     @Autowired
     private MvcJwtAuthFilter mvcJwtAuthFilter;
@@ -233,13 +243,7 @@ public class WEBFLUX_Service {
 
 
     public Mono<ServerResponse> ResultSet( MvcJwtAuthFilter.jwt_refresh_auths tokens) {
-        ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
-                .httpOnly(true)
-//                .secure(true)
-                .sameSite("Strict")
-                .path("/")
-                .maxAge(Duration.ofDays(7))
-                .build();
+        ResponseCookie refreshCookie = AuthCookies.refresh(tokens.refresh(), cookieSecure);
         Map<String, Object> responseBody = Map.of(
                 "redirectUri", "/reactive/chatlist",
                 "accessToken", tokens.jwt(),

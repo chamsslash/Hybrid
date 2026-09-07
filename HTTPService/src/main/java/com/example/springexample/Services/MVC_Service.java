@@ -18,6 +18,7 @@ import org.springframework.http.*;
 
 import com.google.gson.Gson;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
@@ -53,6 +54,17 @@ public class MVC_Service {
     GeminiService gptService;
     @Autowired
     FpCheckMetric fpCheckMetric;
+
+    /**
+     * Ставить ли на куку сессии атрибут {@code Secure} (beads ybg).
+     *
+     * <p>Дефолт {@code false} — это текущий стенд на plain HTTP: кука с {@code Secure}
+     * по HTTP браузером отбрасывается, и вход перестал бы работать вовсе. При публикации
+     * по HTTPS значение переключается переменной окружения {@code COOKIE_SECURE}, чтобы
+     * refresh-токен не ходил в открытом виде. Атрибуты самой куки — в {@link AuthCookies}.
+     */
+    @Value("${COOKIE_SECURE:false}")
+    boolean cookieSecure;
 
     /**
      * Потолок ожидания вердикта Gemini. Четыре секунды: {@code /exchangeTokens}
@@ -113,8 +125,8 @@ public class MVC_Service {
                     .body(Map.of("error", "Отсутствует обязательный заголовок X-Fingerprint."));
         }
         // Backward-compat: clear legacy access cookie (we no longer use access-in-cookie).
-        ResponseCookie deleteAccess = ResponseCookie.from("access", "").maxAge(0).path("/").build();
-        ResponseCookie deleteRefresh = ResponseCookie.from("refresh", "").maxAge(0).path("/").build();
+        ResponseCookie deleteAccess = AuthCookies.deleteLegacyAccess();
+        ResponseCookie deleteRefresh = AuthCookies.deleteRefresh();
         MvcJwtAuthFilter.jwt_refresh_auths newTokens;
         try {
             FpSimilarityScore FpUtils = new FpSimilarityScore();
@@ -138,20 +150,7 @@ public class MVC_Service {
             }
 
             // 3. Формируем новую HttpOnly cookie
-//            ResponseCookie newRefreshTokenCookie = ResponseCookie.from("Refresh", newTokens.refresh())
-//                    .httpOnly(true)
-//                    .secure(true) // В продакшене должно быть true
-//                    .path("/") // Используйте тот же путь, что и при установке
-//                    .maxAge(Duration.ofDays(7))
-//                    .sameSite("Strict")
-//                    .build();
-            ResponseCookie refreshCookie = ResponseCookie.from("refresh", newTokens.refresh())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofDays(7))
-                    .build();
+            ResponseCookie refreshCookie = AuthCookies.refresh(newTokens.refresh(), cookieSecure);
 
 
             return ResponseEntity.ok()
@@ -247,13 +246,7 @@ public class MVC_Service {
 
             MvcJwtAuthFilter.jwt_refresh_auths tokens = tokensResolver.genPairOfToken(subRole,newMeta);
 //            String bindingToken = tokensResolver.getBindingToken(subRole.getSub());
-            ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofDays(7))
-                    .build();
+            ResponseCookie refreshCookie = AuthCookies.refresh(tokens.refresh(), cookieSecure);
             Map<String, String> responseBody = Map.of(
                     "redirectUri", "/reactive/chatlist",
                     "accessToken", tokens.jwt(),
