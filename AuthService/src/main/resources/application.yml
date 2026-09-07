@@ -1,5 +1,12 @@
 server:
   port: 8081
+  # Доверять X-Forwarded-* от прокси (beads ybg). none — дефолт Spring Boot и текущее
+  # поведение стенда: заголовки игнорируются. При терминации TLS снаружи (Caddy перед
+  # кластером) значение переключается в framework, иначе приложение считает соединение
+  # незащищённым — request.isSecure() = false, и любой построенный им абсолютный URL
+  # уходит с http://. Включать ТОЛЬКО когда перед сервисом реально стоит прокси:
+  # доверие к X-Forwarded-Proto от произвольного клиента — это подделка схемы.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   reactive:
     session:
       cookie:
@@ -34,7 +41,14 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET}
             scope:
               - profile
-            redirect-uri: "http://${INGRESS_HOST:myapp.localtest.me}/login/oauth2/code/google"
+            # Схема вынесена в PUBLIC_SCHEME (beads ybg). Раньше здесь было жёсткое
+            # http://, и публикация по HTTPS ломала вход через Google молча: Google
+            # редиректил на http://, ingress отдавал редирект на https://, а параметр
+            # redirect_uri в запросе переставал совпадать с зарегистрированным.
+            # Дефолт http сохраняет поведение стенда; при публикации ставится https
+            # И ТОТ ЖЕ адрес обязан быть добавлен в консоль Google — сверка точная,
+            # включая схему, регистр и завершающий слэш.
+            redirect-uri: "${PUBLIC_SCHEME:http}://${INGRESS_HOST:myapp.localtest.me}/login/oauth2/code/google"
 
 
   autoconfigure:

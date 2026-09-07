@@ -70,6 +70,10 @@ grpc:
 
 server:
   port: 8080
+  # Доверять X-Forwarded-* от прокси (beads ybg). Тот же тумблер и та же оговорка,
+  # что в AuthService: none — дефолт Spring Boot и текущее поведение стенда,
+  # framework — только когда перед сервисом реально стоит терминирующий TLS прокси.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 management:
 

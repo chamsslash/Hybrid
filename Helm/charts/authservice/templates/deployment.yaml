@@ -122,6 +122,12 @@ spec:
               value: "{{ .Values.google.clientId }}"
             - name: INGRESS_HOST
               value: "{{ .Values.global.ingressHost | default "myapp.localtest.me" }}"
+            # Схема внешнего адреса: вместе с INGRESS_HOST собирает redirect-uri для
+            # Google OAuth. Должна совпадать с тем, что зарегистрировано в консоли Google.
+            - name: PUBLIC_SCHEME
+              value: "{{ .Values.global.publicScheme | default "http" }}"
+            - name: FORWARD_HEADERS_STRATEGY
+              value: "{{ .Values.global.forwardHeadersStrategy | default "none" }}"
             - name: GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:

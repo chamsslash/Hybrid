@@ -49,18 +49,35 @@ fi
 # приложения это выглядит ровно как потеря сообщений. Проверка не чинит часы (это
 # настройка машины разработчика, не репозитория), но не даёт диагностировать симптом
 # заново с нуля. Подробности и лечение — docs/kind-stand-clock.md.
-echo "▶ create kind cluster"
-cat <<'EOF' >/tmp/kind-hybrid-config.yaml
+# Порты хоста, на которые выводится ingress кластера (beads ybg). Были захардкожены
+# 80/443 на всех интерфейсах — то есть стенд торчал наружу, и его недоступность
+# держалась только на firewall-правилах облака.
+#
+# Два сценария, ради которых это вынесено в переменные:
+#   1. Публикация через прокси на хосте (Caddy с сертификатом Let's Encrypt): 80 и 443
+#      занимает он, кластер уезжает на KIND_HTTP_HOST_PORT=8081 и слушает только
+#      loopback — снаружи к нему в обход прокси не подключиться в принципе.
+#   2. Доступ только через SSH-туннель: KIND_LISTEN_ADDRESS=127.0.0.1 и вопрос «а не
+#      забыл ли я закрыть порт в firewall» перестаёт существовать.
+# Дефолты сохраняют прежнее поведение.
+: "${KIND_HTTP_HOST_PORT:=80}"
+: "${KIND_HTTPS_HOST_PORT:=443}"
+: "${KIND_LISTEN_ADDRESS:=0.0.0.0}"
+
+echo "▶ create kind cluster (ingress -> ${KIND_LISTEN_ADDRESS}:${KIND_HTTP_HOST_PORT}/${KIND_HTTPS_HOST_PORT})"
+cat <<EOF >/tmp/kind-hybrid-config.yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
     extraPortMappings:
       - containerPort: 80
-        hostPort: 80
+        hostPort: ${KIND_HTTP_HOST_PORT}
+        listenAddress: "${KIND_LISTEN_ADDRESS}"
         protocol: TCP
       - containerPort: 443
-        hostPort: 443
+        hostPort: ${KIND_HTTPS_HOST_PORT}
+        listenAddress: "${KIND_LISTEN_ADDRESS}"
         protocol: TCP
 EOF
 kind create cluster --name "$CLUSTER" --config /tmp/kind-hybrid-config.yaml || true

@@ -92,6 +92,12 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
                   key: GEMINI_API_KEY
+            # Атрибут Secure на куке сессии (beads ybg). Обязан идти в паре с
+            # global.publicScheme: true только при https, иначе браузер отбросит куку.
+            - name: COOKIE_SECURE
+              value: "{{ .Values.global.cookieSecure | default false }}"
+            - name: FORWARD_HEADERS_STRATEGY
+              value: "{{ .Values.global.forwardHeadersStrategy | default "none" }}"
             - name: GEMINI_MODEL
               value: "{{ .Values.env.geminiModel }}"
             - name: MINIO_ENDPOINT
