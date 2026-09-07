@@ -98,6 +98,17 @@ spec:
               value: "{{ .Values.global.cookieSecure | default false }}"
             - name: FORWARD_HEADERS_STRATEGY
               value: "{{ .Values.global.forwardHeadersStrategy | default "none" }}"
+            # Внешний хост и схема. Здесь они нужны не для OAuth (его ведёт authservice), а
+            # для списка разрешённых Origin на handshake STOMP/SockJS — см. StompConfig.
+            - name: INGRESS_HOST
+              value: "{{ .Values.global.ingressHost | default "myapp.localtest.me" }}"
+            - name: PUBLIC_SCHEME
+              value: "{{ .Values.global.publicScheme | default "http" }}"
+            # Без `default`: пустая строка здесь — ОСМЫСЛЕННОЕ значение «дополнительных
+            # origin'ов нет», а Helm-функция default считает её отсутствующей и вернула бы
+            # http://localhost обратно, молча отменив values-public.yaml.
+            - name: EXTRA_ALLOWED_ORIGINS
+              value: "{{ .Values.global.extraAllowedOrigins }}"
             - name: GEMINI_MODEL
               value: "{{ .Values.env.geminiModel }}"
             - name: MINIO_ENDPOINT

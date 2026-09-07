@@ -64,6 +64,22 @@ fi
 : "${KIND_HTTPS_HOST_PORT:=443}"
 : "${KIND_LISTEN_ADDRESS:=0.0.0.0}"
 
+# Доверять ли X-Forwarded-* от того, кто пришёл на ingress (beads ybg).
+#
+# Обязателен, когда TLS терминируется ДО кластера (Caddy на хосте VM). Без него
+# ingress-nginx НЕ пробрасывает схему, а вычисляет её сам: в lua_ingress.lua
+# pass_access_scheme перезаписывается из http_x_forwarded_proto только под
+# `if config.use_forwarded_headers`, иначе остаётся равным $scheme. А $scheme на участке
+# Caddy -> ingress всегда http. То есть Spring с forward-headers-strategy: framework
+# получил бы X-Forwarded-Proto: http поверх реального https и собрал бы OAuth
+# redirect-uri по http — Google ответил бы redirect_uri_mismatch, а причина выглядела бы
+# как ошибка конфигурации приложения, а не прокси.
+#
+# Включать ТОЛЬКО вместе с KIND_LISTEN_ADDRESS=127.0.0.1: доверие к этим заголовкам от
+# произвольного клиента означает, что клиент сам объявляет схему своего соединения.
+# На loopback-адресе достучаться до ingress в обход Caddy неоткуда.
+: "${INGRESS_USE_FORWARDED_HEADERS:=false}"
+
 echo "▶ create kind cluster (ingress -> ${KIND_LISTEN_ADDRESS}:${KIND_HTTP_HOST_PORT}/${KIND_HTTPS_HOST_PORT})"
 cat <<EOF >/tmp/kind-hybrid-config.yaml
 kind: Cluster
@@ -121,7 +137,8 @@ kind load docker-image messegerparody:latest --name "$CLUSTER"
 echo "▶ install ingress-nginx"
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 kubectl wait -n ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
-kubectl -n ingress-nginx patch configmap ingress-nginx-controller --type merge -p '{"data":{"allow-snippet-annotations":"true"}}'
+kubectl -n ingress-nginx patch configmap ingress-nginx-controller --type merge \
+  -p "{\"data\":{\"allow-snippet-annotations\":\"true\",\"use-forwarded-headers\":\"${INGRESS_USE_FORWARDED_HEADERS}\"}}"
 kubectl -n ingress-nginx rollout restart deployment ingress-nginx-controller
 kubectl wait -n ingress-nginx --for=condition=available deployment/ingress-nginx-controller --timeout=180s
 kubectl wait -n ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s

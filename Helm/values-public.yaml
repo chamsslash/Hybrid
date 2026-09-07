@@ -1,0 +1,42 @@
+# Overlay для публичной раскатки: приложение отдаётся наружу по HTTPS на настоящем
+# домене, TLS терминирует Caddy на хосте VM (см. deploy/Caddyfile и docs/public-deploy.md).
+#
+# Применяется ПОВЕРХ values.yaml, а не вместо него:
+#   helm upgrade --install hybrid ./Helm -n hybrid-platform \
+#     -f Helm/values.yaml -f Helm/values-public.yaml \
+#     --set global.ingressHost=<домен> --set ingress.host=<домен> ...секреты...
+#
+# Домен намеренно НЕ зашит в этот файл: он у каждой раскатки свой, а два места, где его
+# надо держать синхронными (global.ingressHost и ingress.host), слишком легко развести
+# руками — пусть их задаёт одна команда.
+#
+# Файл трогает ровно те значения, которые обязаны меняться ВМЕСТЕ. Переключить их по
+# отдельности — самый дорогой способ сломать вход: каждое расхождение даёт молчаливый
+# отказ, а не ошибку.
+global:
+  # Схема, по которой браузер реально приходит. Из неё authservice собирает
+  # redirect-uri для Google — он обязан совпадать с зарегистрированным в консоли Google
+  # (https://console.cloud.google.com/apis/credentials, Authorized redirect URIs):
+  #   https://<домен>/login/oauth2/code/google
+  publicScheme: https
+
+  # Атрибут Secure на куке сессии. Без него refresh-токен ушёл бы по HTTPS-соединению
+  # в куке, которую браузер согласился бы отдать и по обычному HTTP.
+  cookieSecure: true
+
+  # Доверие к X-Forwarded-* от прокси. Работает только в связке с
+  # INGRESS_USE_FORWARDED_HEADERS=true у deploy-kind.sh: иначе ingress-nginx подставит
+  # собственную схему (http на участке Caddy -> ingress) поверх той, что прислал Caddy,
+  # и Spring соберёт http-адреса на https-стенде.
+  forwardHeadersStrategy: framework
+
+  # Пусто: на публичном хосте http://localhost — не «локальная разработка», а лишний
+  # разрешённый Origin. Список получается ровно из домена, обе схемы.
+  extraAllowedOrigins: ""
+
+# TLS в чарте остаётся ВЫКЛЮЧЕННЫМ, и это не упущение. Сертификат живёт у Caddy, внутрь
+# кластера трафик приходит по HTTP. Появление tls-секции в Ingress включило бы у
+# ingress-nginx ssl-redirect на всех путях разом — включая auth_request к /jwtcheck и
+# SockJS-хендшейк, которым редиректить некуда.
+tls:
+  enabled: false

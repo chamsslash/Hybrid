@@ -128,6 +128,12 @@ spec:
               value: "{{ .Values.global.publicScheme | default "http" }}"
             - name: FORWARD_HEADERS_STRATEGY
               value: "{{ .Values.global.forwardHeadersStrategy | default "none" }}"
+            # Origin'ы сверх выводимых из INGRESS_HOST (CORS). Значение общее с httpservice,
+            # где тот же список ограничивает handshake STOMP/SockJS.
+            # Без `default`: пустая строка — осмысленное «дополнительных нет», а Helm
+            # default принял бы её за отсутствующее значение (см. чарт httpservice).
+            - name: EXTRA_ALLOWED_ORIGINS
+              value: "{{ .Values.global.extraAllowedOrigins }}"
             - name: GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
