@@ -28,13 +28,13 @@ IP-сертификата.
 
 ## Что нужно подготовить руками
 
-1. **Домен указывает на VM.** `dig +short <домен>` обязан вернуть внешний IP машины.
+1. **Домен указывает на VM.** `dig +short gyattalert.duckdns.org` обязан вернуть внешний IP машины.
    У GCP-инстанса внешний IP по умолчанию *ephemeral* и меняется при пересоздании —
    либо резервируй static, либо обновляй запись DuckDNS по крону.
 2. **Firewall облака: открыты 80 и 443.** Порт 80 нужен не «на всякий случай», а для
-   HTTP-01: Let's Encrypt ходит на `http://<домен>/.well-known/acme-challenge/`.
+   HTTP-01: Let's Encrypt ходит на `http://gyattalert.duckdns.org/.well-known/acme-challenge/`.
 3. **Google OAuth-клиент** (<https://console.cloud.google.com/apis/credentials>) →
-   Authorized redirect URIs → добавить `https://<домен>/login/oauth2/code/google`.
+   Authorized redirect URIs → добавить `https://gyattalert.duckdns.org/login/oauth2/code/google`.
    Сверка строго точная, включая схему. Старый localtest.me-адрес можно оставить рядом.
 
    Приложение при этом останется в режиме **Testing**: поле Authorized domains на consent
@@ -51,14 +51,25 @@ kind delete cluster --name hybrid
 
 # 2. Одна команда: ingress уезжает на loopback:8081, начинает доверять X-Forwarded-*
 #    от Caddy, чарт раскатывается с values-public.yaml и доменом.
-PUBLIC_HOST=<домен> \
+PUBLIC=true \
 KIND_HTTP_HOST_PORT=8081 \
 KIND_LISTEN_ADDRESS=127.0.0.1 \
 INGRESS_USE_FORWARDED_HEADERS=true \
 ./deploy-kind.sh
 
 # 3. Прокси на хосте
-PUBLIC_HOST=<домен> caddy run --config deploy/Caddyfile
+PUBLIC_HOST=gyattalert.duckdns.org caddy run --config deploy/Caddyfile
+```
+
+Домен проекта — `gyattalert.duckdns.org` — зашит в `Helm/values-public.yaml`, поэтому
+называть его в команде не нужно. Раскатать на другом домене:
+`PUBLIC_HOST=<другой> ./deploy-kind.sh` — эта переменная перекрывает домен из overlay и
+сама по себе включает публичный режим.
+
+Посмотреть, что именно уедет в кластер, до применения:
+
+```bash
+helm template hybrid ./Helm -f Helm/values-public.yaml | grep -E 'host:|INGRESS_HOST|PUBLIC_SCHEME|COOKIE_SECURE'
 ```
 
 Overlay подмешивает **скрипт**, а не отдельная команда `helm upgrade` следом, и это не

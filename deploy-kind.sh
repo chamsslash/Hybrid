@@ -80,26 +80,34 @@ fi
 # На loopback-адресе достучаться до ingress в обход Caddy неоткуда.
 : "${INGRESS_USE_FORWARDED_HEADERS:=false}"
 
-# Публичный домен (beads ybg). Задан — раскатываем публичный стенд: к чарту
-# подмешивается Helm/values-public.yaml (https + Secure-кука + доверие к
-# X-Forwarded-*), а домен проставляется в ОБА места, где он нужен и обязан совпадать.
+# Публичная раскатка (beads ybg): к чарту подмешивается Helm/values-public.yaml — https,
+# Secure-кука, доверие к X-Forwarded-* и домен проекта.
 #
-#   PUBLIC_HOST=example.duckdns.org KIND_HTTP_HOST_PORT=8081 \
+#   PUBLIC=true KIND_HTTP_HOST_PORT=8081 \
 #   KIND_LISTEN_ADDRESS=127.0.0.1 INGRESS_USE_FORWARDED_HEADERS=true ./deploy-kind.sh
+#
+# PUBLIC_HOST=<домен> перекрывает домен из overlay и сам по себе включает публичный режим
+# (задать хост и не получить публичный стенд было бы ловушкой).
 #
 # Почему это делает скрипт, а не отдельная команда helm следом: ключи подписи живут в
 # $KEYDIR, который удаляется по trap EXIT. Отдельный `helm upgrade` без --set-file на них
 # откатил бы приватный ключ к плейсхолдеру из values.yaml — то есть починил бы домен и
 # сломал выдачу токенов. Пустое значение = прежний локальный стенд.
+: "${PUBLIC:=false}"
 : "${PUBLIC_HOST:=}"
 HELM_PUBLIC_ARGS=()
-if [ -n "$PUBLIC_HOST" ]; then
-  HELM_PUBLIC_ARGS=(
-    -f Helm/values-public.yaml
-    --set "global.ingressHost=$PUBLIC_HOST"
-    --set "ingress.host=$PUBLIC_HOST"
-  )
-  echo "▶ публичная раскатка на ${PUBLIC_HOST} (values-public.yaml)"
+if [ "$PUBLIC" = "true" ] || [ -n "$PUBLIC_HOST" ]; then
+  HELM_PUBLIC_ARGS=(-f Helm/values-public.yaml)
+  if [ -n "$PUBLIC_HOST" ]; then
+    # Домен перекрывается ТОЛЬКО когда его задали явно: иначе выигрывает тот, что зашит
+    # в values-public.yaml, и раскатка совпадает с тем, что показывает
+    # `helm template -f Helm/values-public.yaml`. Дублировать домен ещё и здесь незачем —
+    # две копии константы расходятся ровно тогда, когда про вторую забываешь.
+    HELM_PUBLIC_ARGS+=(--set "global.ingressHost=$PUBLIC_HOST" --set "ingress.host=$PUBLIC_HOST")
+    echo "▶ публичная раскатка на ${PUBLIC_HOST} (values-public.yaml + override домена)"
+  else
+    echo "▶ публичная раскатка на домене из Helm/values-public.yaml"
+  fi
 fi
 
 echo "▶ create kind cluster (ingress -> ${KIND_LISTEN_ADDRESS}:${KIND_HTTP_HOST_PORT}/${KIND_HTTPS_HOST_PORT})"
