@@ -45,22 +45,26 @@ IP-сертификата.
 ## Раскатка
 
 ```bash
-# 1. Кластер: ingress уезжает на loopback:8081 и начинает доверять X-Forwarded-* от Caddy
+# 1. Пересоздать кластер: проброс портов задаётся ТОЛЬКО при создании,
+#    у живого кластера его не поменять (скрипт это проверяет и останавливается).
+kind delete cluster --name hybrid
+
+# 2. Одна команда: ingress уезжает на loopback:8081, начинает доверять X-Forwarded-*
+#    от Caddy, чарт раскатывается с values-public.yaml и доменом.
+PUBLIC_HOST=<домен> \
 KIND_HTTP_HOST_PORT=8081 \
 KIND_LISTEN_ADDRESS=127.0.0.1 \
 INGRESS_USE_FORWARDED_HEADERS=true \
 ./deploy-kind.sh
 
-# 2. Чарт: публичный overlay + домен
-helm upgrade --install hybrid ./Helm -n hybrid-platform \
-  -f Helm/values.yaml -f Helm/values-public.yaml \
-  --set global.ingressHost=<домен> \
-  --set ingress.host=<домен> \
-  ...секреты как обычно...
-
 # 3. Прокси на хосте
 PUBLIC_HOST=<домен> caddy run --config deploy/Caddyfile
 ```
+
+Overlay подмешивает **скрипт**, а не отдельная команда `helm upgrade` следом, и это не
+вопрос удобства. Ключи подписи минтятся во временный каталог, который удаляется по
+`trap EXIT`; повторный `helm upgrade` без `--set-file` откатил бы приватный ключ к
+плейсхолдеру из `values.yaml` — то есть починил бы домен и сломал выдачу токенов.
 
 ## Что именно переключается и почему вместе
 
