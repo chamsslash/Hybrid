@@ -24,6 +24,9 @@ global:
   #
   # Переключая на https, не забудь добавить https://<ingressHost>/login/oauth2/code/google
   # в консоль Google — иначе вход через Google отдаст redirect_uri_mismatch.
+  #
+  # Переключать эти значения по одному руками не нужно: готовый набор лежит в
+  # Helm/values-public.yaml, полная процедура публикации — в docs/public-deploy.md.
   publicScheme: http
   # Ставить ли Secure на куку сессии. Обязан быть true при publicScheme=https и false
   # при http: кука с Secure по plain HTTP браузером отбрасывается, и пользователь
@@ -33,6 +36,15 @@ global:
   # прокси, который проставляет X-Forwarded-*. Доверие к этим заголовкам от
   # произвольного клиента означает, что клиент сам объявляет схему соединения.
   forwardHeadersStrategy: none
+  # Origin'ы сверх выводимых из ingressHost, через запятую. Читают ОБА сервиса: authservice
+  # — для CORS, httpservice — для handshake STOMP/SockJS. Список у них обязан совпадать,
+  # иначе браузер проходит CORS и отваливается на WebSocket (или наоборот), а симптом
+  # выглядит как случайно неработающий realtime.
+  #
+  # http://localhost в дефолте — наследие стенда: прямое обращение к порту 80 хоста в обход
+  # ingress-хоста. На публичной раскатке его убирают (см. Helm/values-public.yaml).
+  # "*" возвращает прежнее поведение STOMP «принимать handshake откуда угодно».
+  extraAllowedOrigins: "http://localhost"
   # Распределённый трейсинг (beads izv). Читается ВСЕМИ тремя подчартами, поэтому
   # живёт здесь, а не рядом с `tempo` наверху: подчарт видит только то, что лежит
   # буквально под `global`.

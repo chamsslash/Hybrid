@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 37 | 290 | 2 | 292 |
+| HTTPService | 38 | 296 | 2 | 298 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **47** | **321** | **7** | **328** |
+| **Итого** | **48** | **327** | **7** | **334** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -557,3 +557,13 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`plainHttpCookieHasNoSecureAttribute`** — `refresh(value, false)` → `Secure` отсутствует и в объекте, и в сериализованном заголовке; `HttpOnly`, `SameSite=Strict`, `Path=/`, срок 7 дней на месте. Зачем: `Secure` по plain HTTP заставляет браузер отбросить куку целиком, то есть ошибка здесь = полностью неработающий вход на стенде.
 - **`httpsCookieCarriesSecureAttribute`** — `refresh(value, true)` → `Secure` есть и в объекте, и в строке `Set-Cookie`. Зачем: это единственное, что удерживает refresh-токен от передачи в открытом виде при публикации наружу. Проверка заголовка отдельно от объекта ловит случай «флаг выставлен, но в заголовок не попал».
 - **`deletionCookiesExpireImmediatelyAndSkipSecure`** — гасящие куки `refresh`/`access`: `Max-Age=0`, пустое значение, `Path=/`, `Secure` НЕТ ни у одной. Зачем: стережёт ловушку из javadoc `deleteRefresh` — гасящая кука с `Secure`, отданная по plain HTTP, отбрасывается браузером, и старая кука переживает выход из системы. Для сопоставления `Secure` не нужен: браузер ищет замену по имени, домену и пути.
+
+### `Utils/AllowedOriginsTest` — `unit` — список разрешённых Origin для STOMP/SockJS (beads ybg)
+`AllowedOrigins.forHost` собирает список Origin из внешнего хоста (`INGRESS_HOST`), схемы (`PUBLIC_SCHEME`) и дополнительных значений (`EXTRA_ALLOWED_ORIGINS`). До него на всех шести STOMP-эндпоинтах в `StompConfig` стояло `setAllowedOriginPatterns("*")` — handshake принимался с любого сайта. Пока стенд слушал loopback, это ничего не стоило; на публичном хосте цена появляется, потому что нативный WebSocket не подчиняется CORS и уходит с куками. Тесты нужны потому, что ошибка в этом списке не падает ни одним другим тестом и не пишет в лог: handshake молча отдаёт 403, а симптом выглядит как случайно отвалившийся realtime.
+
+- **`httpStandListsBothSchemesPrimaryFirst`** — `("http", "myapp.localtest.me", "")` → ровно `http://…`, `https://…` в этом порядке. Зачем: фиксирует поведение текущего стенда, чтобы правка ради публикации не сломала его молча.
+- **`httpsStandKeepsHttpVariantForMigrationWindow`** — `("https", "gyattalert.duckdns.org", "")` → https первым, но http-вариант ОСТАЁТСЯ. Зачем: во время миграции приложение какое-то время достижимо по обеим схемам; выкинуть http-вариант значит получить 403 на handshake у всех, кто пришёл по старой ссылке.
+- **`extraOriginsAreAppendedAndBlanksDropped`** — CSV с пробелами и пустым элементом (`" http://localhost , , https://front.example "`) → три origin'а после хостовых, пустой элемент отброшен. Зачем: `EXTRA_ALLOWED_ORIGINS=""` обязан означать «дополнительных нет», а не «разрешить пустой Origin».
+- **`duplicateOriginIsNotRepeated`** — хост, продублированный в extras, не удваивает элемент. Зачем: список уходит в `setAllowedOriginPatterns` как есть, дубли там — мусор, маскирующий реальный состав.
+- **`blankHostProducesNoSchemeOnlyOrigin`** — пустой `INGRESS_HOST` не даёт огрызка `http://`. Зачем: такой огрызок — синтаксически валидный, но бессмысленный паттерн, который тихо расширил бы список.
+- **`nullExtrasAreTreatedAsEmpty`** — `null` вместо CSV не роняет сборку. Зачем: значение приходит из окружения, и отсутствующая переменная не должна валить старт контекста.

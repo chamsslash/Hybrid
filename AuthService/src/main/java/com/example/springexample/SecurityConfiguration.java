@@ -19,6 +19,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @EnableWebSecurity
@@ -35,6 +36,13 @@ public class SecurityConfiguration {
     // OAuth redirect-uri в application.yml). Дефолт совпадает с Helm ingress.host.
     @Value("${INGRESS_HOST:myapp.localtest.me}")
     private String ingressHost;
+
+    // Origin'ы, которые из ingressHost не выводятся, через запятую (beads ybg). Раньше
+    // http://localhost стоял в списке литералом — на публичном хосте он уже не «локальная
+    // разработка», а просто лишний разрешённый источник, который никак не отключить.
+    // Пустое значение означает «дополнительных нет».
+    @Value("${EXTRA_ALLOWED_ORIGINS:http://localhost}")
+    private String extraAllowedOrigins;
 
     /**
      * Отдельная цепочка для эндпоинтов актуатора (beads c2k).
@@ -107,11 +115,17 @@ public class SecurityConfiguration {
         // проксировал в auth_request-сабреквест к /jwtcheck, а Spring CorsFilter отбивал
         // его 403 ДО контроллера (beads 2q5). GET'ы не страдали: браузер не шлёт Origin
         // на same-origin GET.
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost",
+        List<String> origins = new ArrayList<>(List.of(
                 "http://" + ingressHost,
                 "https://" + ingressHost
         ));
+        for (String extra : extraAllowedOrigins.split(",")) {
+            String trimmed = extra.trim();
+            if (!trimmed.isEmpty() && !origins.contains(trimmed)) {
+                origins.add(trimmed);
+            }
+        }
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET","POST"));
 
         // Разрешаем все стандартные и ваши кастомные заголовки
