@@ -83,13 +83,9 @@ PATH: качает с официальных адресов проектов, с
 #    у живого кластера его не поменять (скрипт это проверяет и останавливается).
 kind delete cluster --name hybrid
 
-# 2. Одна команда: ingress уезжает на loopback:8081, начинает доверять X-Forwarded-*
-#    от Caddy, чарт раскатывается с values-public.yaml и доменом.
-PUBLIC=true \
-KIND_HTTP_HOST_PORT=8081 \
-KIND_LISTEN_ADDRESS=127.0.0.1 \
-INGRESS_USE_FORWARDED_HEADERS=true \
-./deploy-kind.sh
+# 2. Одна переменная. PUBLIC=true сам уводит ingress на 127.0.0.1:8081/8443,
+#    включает доверие к X-Forwarded-* и подмешивает values-public.yaml с доменом.
+PUBLIC=true ./deploy-kind.sh
 
 # 3. Прокси на хосте
 PUBLIC_HOST=gyattalert.duckdns.org caddy run --config deploy/Caddyfile
@@ -120,6 +116,15 @@ Overlay подмешивает **скрипт**, а не отдельная ко
 | `global.forwardHeadersStrategy` | `none` | `framework` | Spring считает соединение http'шным и строит http-адреса |
 | `global.extraAllowedOrigins` | `http://localhost` | `""` | лишний разрешённый Origin на публичном хосте |
 | `INGRESS_USE_FORWARDED_HEADERS` | `false` | `true` | см. ниже — самая неочевидная из связок |
+| `KIND_HTTP_HOST_PORT` / `KIND_HTTPS_HOST_PORT` | `80` / `443` | `8081` / `8443` | kind дерётся с Caddy за порты и не стартует |
+| `KIND_LISTEN_ADDRESS` | `0.0.0.0` | `127.0.0.1` | ingress доступен снаружи в обход прокси |
+
+Все значения в колонке «публикация» — **дефолты режима**, их задаёт `PUBLIC=true`.
+Переопределять по одному можно, но обычно не нужно; смысл в том, что забыть одну из
+переменных больше нельзя. Отдельно про пару портов: при переносе только HTTP-порта kind
+падает на `failed to bind host port 127.0.0.1:443: address already in use` — HTTPS-маппинг
+остаётся на 443, который держит Caddy. Кластеру 443 не нужен и по существу: TLS
+терминирует прокси, внутрь трафик идёт по обычному HTTP.
 
 Ловушка с последней строкой стоит отдельного абзаца. `forwardHeadersStrategy: framework`
 сам по себе бесполезен, если ingress-nginx не пробрасывает заголовки: в его
