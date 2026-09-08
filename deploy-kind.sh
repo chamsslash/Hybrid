@@ -4,6 +4,27 @@ set -e
 CLUSTER=hybrid
 NS=hybrid-platform
 
+# Предполётная проверка инструментов. Заведена после того, как на чистом сервере не
+# оказалось kind: `kind create cluster ... || true` проглотил «command not found» ровно
+# так же, как проглатывает «кластер уже существует», скрипт поехал дальше, потратил три
+# минуты на сборку образов и упал только на `kind load` — то есть в месте, никак не
+# связанном с настоящей причиной. Дешевле сказать это первой строкой.
+missing_tools=()
+for tool in docker kind kubectl helm openssl; do
+  command -v "$tool" >/dev/null 2>&1 || missing_tools+=("$tool")
+done
+if [ ${#missing_tools[@]} -gt 0 ]; then
+  echo "✗ не найдены обязательные инструменты: ${missing_tools[*]}" >&2
+  echo "" >&2
+  echo "  Установка на Linux amd64:" >&2
+  echo "    kind     curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64" >&2
+  echo "             chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind" >&2
+  echo "    kubectl  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/" >&2
+  echo "    helm     https://helm.sh/docs/intro/install/" >&2
+  echo "    docker   https://docs.docker.com/engine/install/" >&2
+  exit 1
+fi
+
 if [ -f .env ]; then
   echo "▶ loading local secrets from .env"
   set -a
@@ -158,7 +179,16 @@ nodes:
         listenAddress: "${KIND_LISTEN_ADDRESS}"
         protocol: TCP
 EOF
-kind create cluster --name "$CLUSTER" --config "$KIND_CONFIG" || true
+# Существование кластера проверяется явно, а не глушится через `|| true`. Раньше стояло
+# `kind create cluster ... || true`, и это гасило ВСЕ ошибки, а не только «уже
+# существует»: отсутствующий бинарник, нехватку памяти, недоступный docker. Скрипт после
+# такого продолжал работу с кластером, которого нет, и падал где-нибудь на `kind load` —
+# в месте, ничего не говорящем о причине.
+if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+  echo "  кластер ${CLUSTER} уже существует — создание пропущено"
+else
+  kind create cluster --name "$CLUSTER" --config "$KIND_CONFIG"
+fi
 
 # extraPortMappings применяются ТОЛЬКО при создании кластера. Если кластер уже есть,
 # `kind create` выше падает, ошибка глотается через `|| true`, и раскатка спокойно
