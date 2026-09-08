@@ -54,6 +54,16 @@ KIND_CONFIG="${TMPDIR%/}/kind-hybrid-config.yaml"
 # false — только проверять и падать со ссылками, ничего не устанавливая.
 : "${AUTO_INSTALL_TOOLS:=true}"
 
+# Режим публикации нужно знать уже здесь: от него зависит состав обязательных
+# инструментов (Caddy). Сборка аргументов helm из этих же переменных — ниже по файлу.
+: "${PUBLIC:=false}"
+: "${PUBLIC_HOST:=}"
+if [ "$PUBLIC" = "true" ] || [ -n "$PUBLIC_HOST" ]; then
+  PUBLIC_MODE=true
+else
+  PUBLIC_MODE=false
+fi
+
 case "$(uname -m)" in
   x86_64|amd64)  TOOLS_ARCH=amd64 ;;
   aarch64|arm64) TOOLS_ARCH=arm64 ;;
@@ -92,6 +102,28 @@ fetch_kubectl() {
   install_tool_binary "${TMPDIR}/kubectl" kubectl
 }
 
+fetch_caddy() {
+  echo "  ↓ caddy (официальный apt-репозиторий проекта)"
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "✗ автоустановка caddy сделана под apt; для другого пакетного менеджера — " >&2
+    echo "  https://caddyserver.com/docs/install" >&2
+    return 1
+  fi
+  # Через apt, а не готовым бинарником как остальные три, и это осознанно: пакет приносит
+  # systemd-юнит и системного пользователя caddy. Прокси на сервере обязан переживать
+  # перезагрузку, а бинарник в /usr/local/bin сам по себе ничего не запускает.
+  export DEBIAN_FRONTEND=noninteractive
+  sudo -E apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl >/dev/null
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+    | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+  sudo chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  sudo chmod o+r /etc/apt/sources.list.d/caddy-stable.list
+  sudo -E apt-get update -qq >/dev/null
+  sudo -E apt-get install -y -qq caddy >/dev/null
+}
+
 fetch_helm() {
   echo "  ↓ helm ${HELM_VERSION}"
   local tarball="helm-${HELM_VERSION}-${TOOLS_OS}-${TOOLS_ARCH}.tar.gz"
@@ -105,8 +137,18 @@ fetch_helm() {
 # docker и openssl докачкой не лечатся и не должны: docker — это демон, репозиторий пакетов
 # и членство в группе с перелогином, а openssl приезжает с системой. Тихо ставить их
 # из скрипта значило бы менять состояние машины сильнее, чем от него ждут.
+required_tools=(docker kind kubectl helm openssl)
+
+# Caddy нужен ТОЛЬКО в публичном режиме и потому спрашивается только в нём: на локальном
+# стенде трафик идёт напрямую в ingress, никакого прокси перед кластером нет, и требовать
+# его на машине разработчика значило бы ставить туда сервис ради сценария, которого там
+# не бывает.
+if [ "$PUBLIC_MODE" = "true" ]; then
+  required_tools+=(caddy)
+fi
+
 missing_tools=()
-for tool in docker kind kubectl helm openssl; do
+for tool in "${required_tools[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || missing_tools+=("$tool")
 done
 
@@ -115,8 +157,8 @@ if [ ${#missing_tools[@]} -gt 0 ]; then
   manual=()
   for tool in "${missing_tools[@]}"; do
     case "$tool" in
-      kind|kubectl|helm) installable+=("$tool") ;;
-      *)                 manual+=("$tool") ;;
+      kind|kubectl|helm|caddy) installable+=("$tool") ;;
+      *)                       manual+=("$tool") ;;
     esac
   done
 
@@ -160,6 +202,17 @@ if [ ${#missing_tools[@]} -gt 0 ]; then
     echo "  добавь ${TOOLS_BIN_DIR} в PATH" >&2
     exit 1
   fi
+
+  # Caddy СТАВИТСЯ, но НЕ настраивается. /etc/caddy/Caddyfile — конфигурация машины, а не
+  # этого проекта: на сервере тот же прокси может обслуживать и другие сайты, и переписать
+  # его файл из скрипта раскатки значило бы уронить чужой сервис. Образец для чистой
+  # машины лежит в репозитории — deploy/Caddyfile.
+  for tool in "${installable[@]}"; do
+    if [ "$tool" = "caddy" ]; then
+      echo "  caddy установлен, но НЕ настроен: /etc/caddy/Caddyfile скрипт не трогает."
+      echo "  Образец конфигурации — deploy/Caddyfile, процедура — docs/public-deploy.md."
+    fi
+  done
 fi
 
 # Наличия бинарника docker мало: `command -v docker` проходит и когда демон лежит, и когда
@@ -281,10 +334,10 @@ fi
 # $KEYDIR, который удаляется по trap EXIT. Отдельный `helm upgrade` без --set-file на них
 # откатил бы приватный ключ к плейсхолдеру из values.yaml — то есть починил бы домен и
 # сломал выдачу токенов. Пустое значение = прежний локальный стенд.
-: "${PUBLIC:=false}"
-: "${PUBLIC_HOST:=}"
+# PUBLIC/PUBLIC_HOST разобраны в секции инструментов выше (от них зависит, нужен ли
+# Caddy), здесь только сборка аргументов helm.
 HELM_PUBLIC_ARGS=()
-if [ "$PUBLIC" = "true" ] || [ -n "$PUBLIC_HOST" ]; then
+if [ "$PUBLIC_MODE" = "true" ]; then
   HELM_PUBLIC_ARGS=(-f Helm/values-public.yaml)
   if [ -n "$PUBLIC_HOST" ]; then
     # Домен перекрывается ТОЛЬКО когда его задали явно: иначе выигрывает тот, что зашит
