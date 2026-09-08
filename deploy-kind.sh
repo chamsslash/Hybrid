@@ -4,25 +4,162 @@ set -e
 CLUSTER=hybrid
 NS=hybrid-platform
 
-# Предполётная проверка инструментов. Заведена после того, как на чистом сервере не
-# оказалось kind: `kind create cluster ... || true` проглотил «command not found» ровно
-# так же, как проглатывает «кластер уже существует», скрипт поехал дальше, потратил три
-# минуты на сборку образов и упал только на `kind load` — то есть в месте, никак не
-# связанном с настоящей причиной. Дешевле сказать это первой строкой.
+# ── Временный каталог ─────────────────────────────────────────────────────────
+# Все временные файлы уходят в $TMPDIR, а не жёстко в /tmp. Ради конфига kind городить
+# переменную не стоило бы — он крошечный. Дело в другом: TMPDIR читает и `kind load
+# docker-image`, который перекладывает образы в ноду через промежуточный tar. Три образа
+# с JRE — сотни мегабайт разом, и на сервере, где под систему отведён небольшой
+# загрузочный диск, а данные лежат на отдельном, это упирается в место ровно посередине
+# раскатки. Сюда же качаются недостающие инструменты (см. ниже).
+#
+# Дефолт выбирается по наличию диска с данными, а не жёстко: на сервере $DATA_DIR
+# смонтирован и временные файлы едут туда сами, на машине разработчика его нет и всё
+# работает как раньше, через /tmp. Явно заданный TMPDIR всегда побеждает.
+#
+# Проверка именно на КАТАЛОГ, а не на точку монтирования, сознательно: если монтирование
+# не приехало, /mnt/data существует как пустой каталог на корневом разделе, и мы честно
+# положим туда временные файлы — то есть на загрузочный диск. Отдельно ловить этот случай
+# здесь незачем, его закрывает зависимость демонов от юнита монтирования
+# (см. docs/vm-data-disk.md); дублировать ту же проверку тут значило бы чинить симптом.
+: "${DATA_DIR:=/mnt/data}"
+if [ -z "${TMPDIR:-}" ]; then
+  if [ -d "$DATA_DIR" ] && [ -w "$DATA_DIR" ]; then
+    TMPDIR="${DATA_DIR%/}/tmp"
+  else
+    TMPDIR=/tmp
+  fi
+fi
+mkdir -p "$TMPDIR"
+# export, а не просто присваивание: значение нужно ДОЧЕРНИМ процессам — тому же
+# `kind load docker-image`. Без export переменная осталась бы видна только этому скрипту,
+# и весь смысл потерялся бы молча.
+export TMPDIR
+echo "▶ временные файлы раскатки: ${TMPDIR}"
+KIND_CONFIG="${TMPDIR%/}/kind-hybrid-config.yaml"
+
+# ── Инструменты ───────────────────────────────────────────────────────────────
+# Заведено после того, как на чистом сервере не оказалось kind: `kind create cluster ...
+# || true` проглотил «command not found» ровно так же, как проглатывает «кластер уже
+# существует». Скрипт поехал дальше, потратил три минуты на сборку образов и упал только
+# на `kind load` — в месте, никак не связанном с настоящей причиной.
+#
+# Версии ПРИБИТЫ, а не «последняя доступная». Раскатка, которая тянет свежий релиз в
+# момент запуска, воспроизводима ровно до следующего мажора у любого из трёх проектов, и
+# ломается она в самый неудобный момент — на сервере, а не на машине, где разрабатывали.
+# Значения ниже совпадают с тем, на чём проект гоняется локально.
+: "${KIND_VERSION:=v0.33.0}"
+: "${KUBECTL_VERSION:=v1.36.2}"
+: "${HELM_VERSION:=v4.2.4}"   # мажор 4 — на нём чарт и раскатывается локально
+: "${TOOLS_BIN_DIR:=/usr/local/bin}"
+# false — только проверять и падать со ссылками, ничего не устанавливая.
+: "${AUTO_INSTALL_TOOLS:=true}"
+
+case "$(uname -m)" in
+  x86_64|amd64)  TOOLS_ARCH=amd64 ;;
+  aarch64|arm64) TOOLS_ARCH=arm64 ;;
+  *)             TOOLS_ARCH="" ;;
+esac
+TOOLS_OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+
+# Установка в системный каталог требует прав. sudo зовём ТОЛЬКО когда каталог реально
+# недоступен на запись: на машине, где /usr/local/bin принадлежит пользователю
+# (типичный homebrew-сетап), лишний пароль спрашивать незачем.
+install_tool_binary() {   # $1 — файл, $2 — имя в PATH
+  if [ -w "$TOOLS_BIN_DIR" ]; then
+    install -m 0755 "$1" "${TOOLS_BIN_DIR}/$2"
+  else
+    sudo install -m 0755 "$1" "${TOOLS_BIN_DIR}/$2"
+  fi
+}
+
+fetch_kind() {
+  echo "  ↓ kind ${KIND_VERSION}"
+  # Официальный шорткат проекта. Контрольной суммы по нему не публикуется, поэтому
+  # целостность здесь держится на TLS и на том, что домен принадлежит проекту.
+  curl -fsSLo "${TMPDIR}/kind" \
+    "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${TOOLS_OS}-${TOOLS_ARCH}"
+  install_tool_binary "${TMPDIR}/kind" kind
+}
+
+fetch_kubectl() {
+  echo "  ↓ kubectl ${KUBECTL_VERSION}"
+  local base="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${TOOLS_OS}/${TOOLS_ARCH}"
+  curl -fsSLo "${TMPDIR}/kubectl" "${base}/kubectl"
+  curl -fsSLo "${TMPDIR}/kubectl.sha256" "${base}/kubectl.sha256"
+  # Проверка суммы не факультативна: без неё оборванная загрузка даёт «установленный»
+  # бинарник, который падает уже внутри раскатки.
+  (cd "$TMPDIR" && echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check --status)
+  install_tool_binary "${TMPDIR}/kubectl" kubectl
+}
+
+fetch_helm() {
+  echo "  ↓ helm ${HELM_VERSION}"
+  local tarball="helm-${HELM_VERSION}-${TOOLS_OS}-${TOOLS_ARCH}.tar.gz"
+  curl -fsSLo "${TMPDIR}/${tarball}" "https://get.helm.sh/${tarball}"
+  curl -fsSLo "${TMPDIR}/${tarball}.sha256sum" "https://get.helm.sh/${tarball}.sha256sum"
+  (cd "$TMPDIR" && sha256sum --check --status "${tarball}.sha256sum")
+  tar -xzf "${TMPDIR}/${tarball}" -C "$TMPDIR"
+  install_tool_binary "${TMPDIR}/${TOOLS_OS}-${TOOLS_ARCH}/helm" helm
+}
+
+# docker и openssl докачкой не лечатся и не должны: docker — это демон, репозиторий пакетов
+# и членство в группе с перелогином, а openssl приезжает с системой. Тихо ставить их
+# из скрипта значило бы менять состояние машины сильнее, чем от него ждут.
 missing_tools=()
 for tool in docker kind kubectl helm openssl; do
   command -v "$tool" >/dev/null 2>&1 || missing_tools+=("$tool")
 done
+
 if [ ${#missing_tools[@]} -gt 0 ]; then
-  echo "✗ не найдены обязательные инструменты: ${missing_tools[*]}" >&2
-  echo "" >&2
-  echo "  Установка на Linux amd64:" >&2
-  echo "    kind     curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64" >&2
-  echo "             chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind" >&2
-  echo "    kubectl  https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/" >&2
-  echo "    helm     https://helm.sh/docs/intro/install/" >&2
-  echo "    docker   https://docs.docker.com/engine/install/" >&2
-  exit 1
+  installable=()
+  manual=()
+  for tool in "${missing_tools[@]}"; do
+    case "$tool" in
+      kind|kubectl|helm) installable+=("$tool") ;;
+      *)                 manual+=("$tool") ;;
+    esac
+  done
+
+  if [ ${#manual[@]} -gt 0 ]; then
+    echo "✗ не найдены: ${manual[*]} — их нужно поставить вручную" >&2
+    echo "    docker   https://docs.docker.com/engine/install/" >&2
+    echo "    openssl  штатный пакет системы (apt install openssl)" >&2
+    exit 1
+  fi
+
+  if [ "$AUTO_INSTALL_TOOLS" != "true" ]; then
+    echo "✗ не найдены: ${installable[*]}, а AUTO_INSTALL_TOOLS=false" >&2
+    exit 1
+  fi
+
+  # Только linux, и намеренно. Автоустановка нужна на чистом сервере; на машине
+  # разработчика инструменты ставятся пакетным менеджером и уже есть. Плюс проверка сумм
+  # опирается на sha256sum из coreutils, которого в macOS нет (там shasum) — тянуть сюда
+  # ветвление ради платформы, где эта ветка не нужна, значит поддерживать мёртвый код.
+  if [ "$TOOLS_OS" != "linux" ] || [ -z "$TOOLS_ARCH" ]; then
+    echo "✗ не найдены: ${installable[*]}, а автоустановка для ${TOOLS_OS}/$(uname -m) не поддержана" >&2
+    echo "    kind     https://kind.sigs.k8s.io/docs/user/quick-start/#installation" >&2
+    echo "    kubectl  https://kubernetes.io/docs/tasks/tools/" >&2
+    echo "    helm     https://helm.sh/docs/intro/install/" >&2
+    exit 1
+  fi
+
+  echo "▶ доустановка инструментов в ${TOOLS_BIN_DIR}: ${installable[*]}"
+  for tool in "${installable[@]}"; do
+    "fetch_${tool}"
+  done
+
+  # Проверяем ПОСЛЕ установки, а не полагаемся на успешный curl: каталог назначения может
+  # не входить в PATH, и тогда бинарник лежит, а команда по-прежнему не находится.
+  still_missing=()
+  for tool in "${installable[@]}"; do
+    command -v "$tool" >/dev/null 2>&1 || still_missing+=("$tool")
+  done
+  if [ ${#still_missing[@]} -gt 0 ]; then
+    echo "✗ установлены, но не найдены в PATH: ${still_missing[*]}" >&2
+    echo "  добавь ${TOOLS_BIN_DIR} в PATH" >&2
+    exit 1
+  fi
 fi
 
 if [ -f .env ]; then
@@ -130,38 +267,6 @@ if [ "$PUBLIC" = "true" ] || [ -n "$PUBLIC_HOST" ]; then
     echo "▶ публичная раскатка на домене из Helm/values-public.yaml"
   fi
 fi
-
-# Все временные файлы уходят в $TMPDIR, а не жёстко в /tmp. Ради конфига kind городить
-# переменную не стоило бы — он крошечный. Дело в другом: TMPDIR читает и `kind load
-# docker-image`, который перекладывает образы в ноду через промежуточный tar. Три образа
-# с JRE — сотни мегабайт разом, и на сервере, где под систему отведён небольшой
-# загрузочный диск, а данные лежат на отдельном, это упирается в место ровно посередине
-# раскатки.
-#
-# Дефолт выбирается по наличию диска с данными, а не жёстко: на сервере $DATA_DIR
-# смонтирован и временные файлы едут туда сами, на машине разработчика его нет и всё
-# работает как раньше, через /tmp. Явно заданный TMPDIR всегда побеждает.
-#
-# Проверка именно на КАТАЛОГ, а не на точку монтирования, сознательно: если монтирование
-# не приехало, /mnt/data существует как пустой каталог на корневом разделе, и мы честно
-# положим туда временные файлы — то есть на загрузочный диск. Отдельно ловить этот случай
-# здесь незачем, его закрывает зависимость демонов от юнита монтирования
-# (см. docs/vm-data-disk.md); дублировать ту же проверку тут значило бы чинить симптом.
-: "${DATA_DIR:=/mnt/data}"
-if [ -z "${TMPDIR:-}" ]; then
-  if [ -d "$DATA_DIR" ] && [ -w "$DATA_DIR" ]; then
-    TMPDIR="${DATA_DIR%/}/tmp"
-  else
-    TMPDIR=/tmp
-  fi
-fi
-mkdir -p "$TMPDIR"
-# export, а не просто присваивание: значение нужно ДОЧЕРНИМ процессам — тому же
-# `kind load docker-image`. Без export переменная осталась бы видна только этому скрипту,
-# и весь смысл потерялся бы молча.
-export TMPDIR
-echo "▶ временные файлы раскатки: ${TMPDIR}"
-KIND_CONFIG="${TMPDIR%/}/kind-hybrid-config.yaml"
 
 echo "▶ create kind cluster (ingress -> ${KIND_LISTEN_ADDRESS}:${KIND_HTTP_HOST_PORT}/${KIND_HTTPS_HOST_PORT})"
 cat <<EOF >"$KIND_CONFIG"
