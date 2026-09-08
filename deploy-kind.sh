@@ -110,8 +110,17 @@ if [ "$PUBLIC" = "true" ] || [ -n "$PUBLIC_HOST" ]; then
   fi
 fi
 
+# Все временные файлы уходят в $TMPDIR, а не жёстко в /tmp. Ради одного этого файла
+# городить переменную не стоило бы — он крошечный. Дело в другом: TMPDIR читает и `kind
+# load docker-image`, который перекладывает образы в ноду через промежуточный tar. Три
+# образа с JRE — сотни мегабайт разом, и на сервере, где под систему отведён небольшой
+# загрузочный диск, а данные лежат на отдельном, это упирается в место ровно посередине
+# сборки. Экспорт TMPDIR=/mnt/data/tmp уводит туда и kind, и всё остальное.
+: "${TMPDIR:=/tmp}"
+KIND_CONFIG="${TMPDIR%/}/kind-hybrid-config.yaml"
+
 echo "▶ create kind cluster (ingress -> ${KIND_LISTEN_ADDRESS}:${KIND_HTTP_HOST_PORT}/${KIND_HTTPS_HOST_PORT})"
-cat <<EOF >/tmp/kind-hybrid-config.yaml
+cat <<EOF >"$KIND_CONFIG"
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -126,7 +135,7 @@ nodes:
         listenAddress: "${KIND_LISTEN_ADDRESS}"
         protocol: TCP
 EOF
-kind create cluster --name "$CLUSTER" --config /tmp/kind-hybrid-config.yaml || true
+kind create cluster --name "$CLUSTER" --config "$KIND_CONFIG" || true
 
 # extraPortMappings применяются ТОЛЬКО при создании кластера. Если кластер уже есть,
 # `kind create` выше падает, ошибка глотается через `|| true`, и раскатка спокойно
