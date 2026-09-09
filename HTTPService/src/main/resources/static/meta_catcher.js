@@ -97,30 +97,30 @@ export async function getFingerprintData() {
         console.warn("FingerprintJS недоступен, используем запасные данные:", error);
     }
 
-    let clientMeta = {
+    // clientMeta заполняется значениями по умолчанию намеренно.
+    //
+    // Здесь стоял ожидающий fetch('https://ip-api.com/json/') прямо в критическом пути входа:
+    // его результата ждал /exchangeTokens, то есть и первый вход, и каждое обновление токена с
+    // протухшим кэшем. Ответа он не приносил никогда — бесплатный ip-api HTTPS не отдаёт
+    // (проверено с чистой сети сервера: https -> 403, http -> 200), поэтому resp.ok всегда
+    // ложь и clientMeta всегда оставалась ровно тем, чем инициализирована ниже.
+    //
+    // Починить «правильно», сходив по http, нельзя: страница отдаётся по https, и браузер
+    // заблокирует такой запрос как mixed content. Взять данные с бэкенда тоже нечем — сервер
+    // видит адрес прокси, а не клиента. То есть выбор был между «ждать впустую» и «не ждать»;
+    // ожидание убрано, значения остались те же самые.
+    //
+    // Для сервера это ничего не меняет: FpSimilarityScore.computeLikelihood сравнивает новую
+    // meta со СТАРОЙ, сохранённой при выдаче сессии, а обе состоят из этих же дефолтов —
+    // сравнение как было тождественным, так и осталось. PTR по ip=0.0.0.0 на бэкенде
+    // (ReverseDnsResolver в MVC_Service) тоже отрабатывает ровно как раньше.
+    const clientMeta = {
         ip: "0.0.0.0",
         country: "unknown",
         city: "unknown",
         asn: "unknown",
         org: "unknown"
     };
-    try {
-        const resp = await fetch('https://ip-api.com/json/');
-        if (resp.ok) {
-            const metadata = await resp.json();
-            clientMeta = {
-                ip: metadata?.query ?? clientMeta.ip,
-                country: metadata?.country ?? clientMeta.country,
-                city: metadata?.city ?? clientMeta.city,
-                asn: metadata?.as ?? clientMeta.asn,
-                org: metadata?.org ?? clientMeta.org
-            };
-        } else {
-            console.warn("ip-api ответил статусом", resp.status, "— оставляем значения по умолчанию");
-        }
-    } catch (error) {
-        console.warn("Не удалось получить clientMeta, продолжаем без неё:", error);
-    }
 
     const payload = {
         secureUUID,

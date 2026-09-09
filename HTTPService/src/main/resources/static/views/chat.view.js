@@ -561,19 +561,42 @@ export async function mount(params) {
     }, 500), { signal: ac.signal });
 
     try {
-        const me = (await api.get('/api/me')).data;
+        // Токен вперёд, запросы данных параллельно — обоснование см. в chatlist.view.js:
+        // без токена первый запрос гарантированно ловит 401 (лишний круг), а параллелить их
+        // без токена нельзя вовсе — два одновременных 401 запускают гонку обновления,
+        // которую сервер трактует как повторное использование refresh-токена.
+        //
+        // user_id проставляется ДО отрисовки сообщений: appendChatMessage сравнивает с ним
+        // отправителя, чтобы выбрать класс пузыря (свой/чужой). При параллельных запросах
+        // порядок гарантирован тем, что Promise.all отдаёт оба результата разом, а рисуем мы
+        // уже после.
+        // Отказ обмена — отдельная ветка: раньше на /welcome уводил интерцептор axios после
+        // 401 на /api/me, теперь токен берётся раньше и интерцептор в этом не участвует.
+        // Без явного увода аноним по прямой ссылке на чат получил бы тост «Не удалось
+        // открыть чат» и переход на список чатов, где его ждало бы то же самое.
+        let token;
+        try {
+            token = await ensureAccessToken();
+        } catch (e) {
+            console.error("chat bootstrap failed: нет живой сессии", e);
+            await navigate('/welcome');
+            return;
+        }
+
+        const [me, data] = await Promise.all([
+            api.get('/api/me').then(r => r.data),
+            api.get('/api/chat', { params: { id: chat_id, title: chat_title } }).then(r => r.data),
+        ]);
         user_id = String(me.userId);
         user_name = me.username;
         user_image = me.imageUrl;
 
-        const data = (await api.get('/api/chat', { params: { id: chat_id, title: chat_title } })).data;
         renderHeader(data);
         renderMembers(data.members);
         for (const msg of data.messages || []) {
             appendChatMessage(msg);
         }
 
-        const token = await ensureAccessToken();
         connectStomp(token);
     } catch (e) {
         console.error("chat bootstrap failed:", e);

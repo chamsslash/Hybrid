@@ -297,13 +297,40 @@ export async function mount(params) {
     if (createChatBtn) createChatBtn.onclick = () => navigate('/reactive/createchat');
 
     try {
-        const me = (await api.get('/api/me')).data;
-        user_id = String(me.userId);
+        // Токен берём ПЕРВЫМ, до запросов за данными, и запросы пускаем параллельно.
+        //
+        // Раньше порядок был обратный: /api/me -> /api/chatlist -> ensureAccessToken(). На
+        // свежей вкладке токена в памяти нет (inmemory.js), поэтому /api/me уходил заведомо
+        // без Authorization, заведомо получал 401 и будил refresh через интерцептор — лишний
+        // круг только чтобы добыть токен, который дальше по коду всё равно запрашивался явно.
+        // При замеренных на стенде ~500 мс на round-trip это полсекунды на ровном месте, и
+        // ещё столько же — на последовательности /api/me -> /api/chatlist, которые друг от
+        // друга не зависят.
+        //
+        // Параллелить их безопасно ТОЛЬКО с токеном впереди: без него оба ушли бы без
+        // Authorization и получили 401 одновременно, а это ровно та гонка обновления, от
+        // которой сервер сносит сессию как при краже токена (см. auth.js).
+        // Отказ обмена обрабатываем отдельно: раньше сюда приводил 401 на /api/me, и на
+        // /welcome уводил интерцептор axios. Теперь токен запрашивается ДО запросов за
+        // данными, интерцептор в этой ветке не участвует — увести должны мы, иначе аноним
+        // остался бы на пустом экране. Клиентским переходом, как в createchat.view.js:
+        // /welcome — роут того же shell'а, полная перезагрузка не нужна.
+        let token;
+        try {
+            token = await ensureAccessToken();
+        } catch (e) {
+            console.error("chatlist bootstrap failed: нет живой сессии", e);
+            await navigate('/welcome');
+            return;
+        }
 
-        const chats = (await api.get('/api/chatlist')).data;
+        const [me, chats] = await Promise.all([
+            api.get('/api/me').then(r => r.data),
+            api.get('/api/chatlist').then(r => r.data),
+        ]);
+        user_id = String(me.userId);
         renderInitialChats(chats);
 
-        const token = await ensureAccessToken();
         connectStomp(token);
 
         // Подписка встала только сейчас — картинки, событие о которых ушло раньше,
