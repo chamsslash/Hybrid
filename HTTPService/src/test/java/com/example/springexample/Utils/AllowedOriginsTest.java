@@ -70,6 +70,18 @@ class AllowedOriginsTest {
     }
 
     @Test
+    @DisplayName("Origin с портом проходит только через extras — из хоста порт не выводится")
+    void originWithPortComesOnlyFromExtras() {
+        List<String> origins = AllowedOrigins.forHost("http", "myapp.localtest.me",
+                "http://myapp.localtest.me:8081");
+
+        assertThat(origins).containsExactly(
+                "http://myapp.localtest.me",
+                "https://myapp.localtest.me",
+                "http://myapp.localtest.me:8081");
+    }
+
+    @Test
     @DisplayName("null в extras означает \"дополнительных нет\", а не падение")
     void nullExtrasAreTreatedAsEmpty() {
         List<String> origins = AllowedOrigins.forHost("https", "gyattalert.duckdns.org", null);
