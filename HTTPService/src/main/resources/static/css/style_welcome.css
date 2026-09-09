@@ -1,116 +1,181 @@
-/* Общие стили для страницы */
+/* ============================================================
+   TEBEGRAM — auth entry (welcome / login)
+   Shares the "Iris & Ember" system used across the app.
+   ============================================================ */
+
+:root {
+    --ink:        #1b1a2e;
+    --muted:      #6b6a83;
+    --faint:      #9997ad;
+    --paper:      #eceef6;
+    --surface:    #ffffff;
+    --surface-2:  #f3f4fb;
+    --line:       #e3e5f0;
+    --line-2:     #d5d7e6;
+    --iris:       #5a4be3;
+    --iris-600:   #4a3ccb;
+    --iris-050:   #eeecfd;
+    --ember-grad: linear-gradient(135deg, #ff6a5b 0%, #ff9166 100%);
+    --iris-grad:  linear-gradient(135deg, #5a4be3 0%, #7b6bf0 100%);
+    --err:        #e5484d;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
 body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--sans);
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    background-color: #f0f2f5;
-    color: #333; /* Базовый цвет текста */
+    min-height: 100vh;
+    padding: 24px;
+    color: var(--ink);
+    background:
+        radial-gradient(120% 90% at 100% 0%, #f4f0ff 0%, rgba(244,240,255,0) 45%),
+        radial-gradient(120% 90% at 0% 100%, #fff1ec 0%, rgba(255,241,236,0) 45%),
+        var(--paper);
+    -webkit-font-smoothing: antialiased;
 }
 
-/* Контейнер для формы входа */
 .login-container {
     text-align: center;
-    background: white;
-    padding: 40px 50px;
-    border-radius: 12px; /* Слегка увеличен радиус для более мягкого вида */
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1); /* Более выраженная тень */
+    background: var(--surface);
+    padding: 40px clamp(24px, 6vw, 44px) 34px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 12px 40px rgba(27,26,46,.14);
     width: 100%;
-    max-width: 380px; /* Немного увеличена ширина */
-    box-sizing: border-box;
+    max-width: 400px;
 }
 
-/* Заголовок */
+/* Brand wordmark — the signature carried from the chat UI */
+.wordmark {
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: .22em;
+    background: var(--iris-grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 22px;
+}
+
 h1 {
-    margin-top: 0;
-    margin-bottom: 35px; /* Увеличено расстояние снизу */
-    color: #1c1e21;
-    font-size: 28px; /* Немного увеличен размер шрифта */
+    margin: 0 0 6px;
+    color: var(--ink);
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+.subtitle {
+    margin: 0 0 28px;
+    color: var(--muted);
+    font-size: 14px;
 }
 
-/* Общие стили для кнопок и ссылок-кнопок */
+/* Buttons & button-links */
 .btn {
     display: block;
     width: 100%;
     padding: 14px;
-    margin-bottom: 15px;
-    border: none;
-    border-radius: 8px; /* Сглаженные углы */
-    font-size: 16px;
+    margin-bottom: 12px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font-size: 15px;
     font-weight: 600;
     cursor: pointer;
     text-decoration: none;
-    color: white;
-    box-sizing: border-box;
-    transition: background-color 0.3s, transform 0.2s, box-shadow 0.3s;
-    -webkit-font-smoothing: antialiased; /* Улучшение рендеринга шрифта */
+    color: #fff;
+    transition: transform .16s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease, filter .2s ease;
+    -webkit-font-smoothing: antialiased;
 }
+.btn:active { transform: scale(.985); }
 
-.btn:hover {
-    opacity: 0.95; /* Менее агрессивное затемнение */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.btn:active {
-    transform: scale(0.98);
-    box-shadow: none; /* Убираем тень при нажатии */
-}
-
-/* Стили для кнопки Google */
+/* Primary CTA — Google sign-in rides the ember accent */
 .btn-google {
-    background-color: #4285F4;
+    background: var(--ember-grad);
+    box-shadow: 0 8px 20px rgba(255,106,91,.3);
 }
+.btn-google:hover { filter: brightness(1.03); transform: translateY(-1px); }
+.btn-google:disabled { filter: grayscale(.4) brightness(.98); cursor: default; transform: none; }
 
-/* Стили для кнопки регистрации и стандартной кнопки входа */
+/* Password sign-in submit — iris */
 .btn-regular {
-    background-color: #007bff; /* Яркий и современный синий цвет */
+    background: var(--iris);
+    box-shadow: 0 8px 20px rgba(90,75,227,.26);
 }
+.btn-regular:hover { background: var(--iris-600); transform: translateY(-1px); }
 
-/* Стили для ссылки "Еще нет аккаунта?" */
+/* "No account yet?" — quiet ghost link */
 #register-link.btn-regular {
-    background-color: #6c757d; /* Нейтральный серый цвет */
+    background: transparent;
+    color: var(--iris-600);
+    border-color: var(--line);
+    box-shadow: none;
 }
+#register-link.btn-regular:hover { background: var(--iris-050); border-color: var(--iris); transform: none; }
 
-/* Стили для формы стандартного входа, которая появляется */
+/* Divider before the password form */
 #regular-login-form {
-    margin-top: 20px; /* Отступ сверху при появлении */
+    margin-top: 20px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    position: relative;
+}
+#regular-login-form::before {
+    content: "или войдите по паролю";
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    padding: 0 12px;
+    font-size: 12px;
+    color: var(--faint);
+    white-space: nowrap;
 }
 
-/* Стили для полей ввода */
 .input-field {
     width: 100%;
     padding: 14px;
-    margin-bottom: 15px;
-    border: 1px solid #dddfe2;
-    border-radius: 8px;
-    font-size: 16px;
-    box-sizing: border-box;
-    transition: border-color 0.3s, box-shadow 0.3s;
+    margin-bottom: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-2);
+    font-size: 15px;
+    color: var(--ink);
+    transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
 }
-
+.input-field::placeholder { color: var(--faint); }
 .input-field:focus {
     outline: none;
-    border-color: #007bff; /* Синяя рамка при фокусе, в тон кнопке */
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25); /* Мягкое свечение */
+    background: var(--surface);
+    border-color: var(--iris);
+    box-shadow: 0 0 0 3px var(--iris-050);
 }
 
-/* Стили для блока с сообщениями */
+/* Error / status banner — calm and legible */
 .response-message {
-    padding: 12px;
-    margin-top: 15px;
-    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 14px;
+    border-radius: 12px;
     font-size: 14px;
-    color: white;
-    background-color: #dc3545; /* Красный цвет для ошибок по умолчанию */
-    opacity: 0; /* Изначально блок невидим */
-    transition: opacity 0.5s ease-in-out;
-    max-height: 0; /* Изначально высота 0 */
-    overflow: hidden;
+    font-weight: 600;
+    color: var(--err);
+    background: #fdecec;
+    border: 1px solid #f6cccd;
+    opacity: 0;
+    transition: opacity .35s ease;
+}
+.response-message.success {
+    color: #14794f;
+    background: #e7f7ef;
+    border-color: #bfe8d5;
 }
 
-/* Дополнительный класс для успешных сообщений (можно добавлять через JS) */
-.response-message.success {
-    background-color: #28a745; /* Зеленый цвет для успеха */
+@media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; }
 }

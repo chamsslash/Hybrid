@@ -1,0 +1,154 @@
+{{- if .Values.infra.kubeStateMetrics }}
+# kube-state-metrics: состояние объектов Kubernetes как метрики (beads 3nt).
+#
+# Закрывает дыру, честно записанную в описании панели «Uptime» дашборда
+# service-health: рестарты подов и OOMKilled не видны НИ ОДНОЙ метрикой из c2k.
+# process_uptime_seconds падает в ноль после рестарта — но только если под успел
+# подняться и его успели скрейпнуть. Под в CrashLoopBackOff не отдаёт метрик
+# вообще, и на дашборде это выглядит как «ряд пропал», неотличимо от «Prometheus
+# перестал скрейпить».
+#
+# kube-state-metrics берёт данные из API-сервера, а не из пода, поэтому видит и
+# упавший под, и причину: kube_pod_container_status_restarts_total,
+# kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}.
+#
+# ВАЖНО ПРО RBAC: здесь ClusterRole, а не Role, в отличие от Prometheus. Причина
+# не в лени — kube-state-metrics читает nodes и другие cluster-scoped ресурсы,
+# для которых namespace-scoped Role не существует в принципе. Права ограничены
+# списком ресурсов ниже и только глаголами чтения.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kube-state-metrics
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - pods
+      - services
+      - persistentvolumeclaims
+      - namespaces
+      - configmaps
+      - secrets
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - endpoints
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["get", "list", "watch"]
+---
+# Имя биндинга с префиксом релиза: ClusterRoleBinding — объект кластерного
+# уровня, он НЕ попадает в namespace релиза. Два релиза чарта в разных
+# namespace'ах при неуникальном имени затирали бы биндинг друг друга.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  labels:
+    app: kube-state-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app: kube-state-metrics
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: kube-state-metrics
+      containers:
+        - name: kube-state-metrics
+          image: {{ .Values.kubeStateMetrics.image }}
+          args:
+            # Ограничение namespace'ом: стенд живёт целиком в одном, а объекты
+            # kube-system в метриках только шумели бы.
+            - '--namespaces={{ .Release.Namespace }}'
+            # Список ресурсов сужен до тех, по которым есть панели. Дефолт отдаёт
+            # ~40 групп метрик; это тот же «собираем на все случаи жизни», против
+            # которого воевала спека c2k (§1.3).
+            - '--resources=pods,deployments,statefulsets,jobs,cronjobs,persistentvolumeclaims,nodes'
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: telemetry
+              containerPort: 8081
+          securityContext:
+            runAsUser: 65534
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 192Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  labels:
+    app: kube-state-metrics
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: kube-state-metrics
+{{- end }}

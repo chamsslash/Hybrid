@@ -53,6 +53,7 @@ public class WebFluxConfig {
             RouterFunction<ServerResponse> staticResourceRouter,
             ReactiveHybridAuthFilter frankensteinSecurityFilter,
             RouterFunction<ServerResponse> chatPageRouter,
+            RouterFunction<ServerResponse> createChatPageRouter,
             RouterFunction<ServerResponse> registerHandle, // <-- 1. ДОБАВЛЕНО ЗДЕСЬ
             RouterFunction<ServerResponse> loginHandle,   // <-- И этот тоже, на будущее
             SecurityWebFilterChain securityWebFilterChain,
@@ -66,6 +67,7 @@ public class WebFluxConfig {
         WebSessionManager sessionManager = exchange -> Mono.empty();
         RouterFunction<?> combinedRoutes = chatListRouter
                 .and(chatPageRouter)
+                .and(createChatPageRouter)
                 .and(createchatHandle)
                 .and(registerHandle)
                 .and(loginHandle)
@@ -124,14 +126,27 @@ public class WebFluxConfig {
     }
 
 
+    // Все GET-маршруты ниже отдают один и тот же SPA-шелл через WEBFLUX_Service.renderAppShell
+    // (beads j35). Новый экран SPA = ещё один такой роут, без отдельного метода в сервисе.
     @Bean
     public  RouterFunction<ServerResponse> chatPageRouter(WEBFLUX_Service wf_handler,ISpringWebFluxTemplateEngine templateEngine){
-        return route(GET("/chat"),req->wf_handler.renderChatPage(req,templateEngine));
+        return route(GET("/chat"), req -> wf_handler.renderAppShell(req, templateEngine));
     }
+    @Bean
+    public RouterFunction<ServerResponse> createChatPageRouter(WEBFLUX_Service wf_handler, ISpringWebFluxTemplateEngine templateEngine){
+        return route(GET("/createchat"), req -> wf_handler.renderAppShell(req, templateEngine));
+    }
+    // Мутация создания чата живёт под /api/*, т.е. снаружи это
+    // POST /reactive/api/createchat (сервлет смонтирован на /reactive/*).
+    // Путь НЕ должен совпадать с GET-шеллом /createchat: шелл публичен на
+    // ingress, а этот путь закрыт auth_request -> /jwtcheck. Ingress не умеет
+    // разводить auth_request по методу, поэтому разведены пути (beads 52u).
+    // Возврат на /createchat откроет создание чата анониму — см.
+    // WebFluxRouteSecurityBoundaryTest.
     @Bean
     public RouterFunction<ServerResponse> createchatHandle(
             WEBFLUX_Service chatListHandler) {
-        return route(POST("/createchat"),req->chatListHandler.handleCreateChat(req));
+        return route(POST("/api/createchat"),req->chatListHandler.handleCreateChat(req));
     }
     @Bean
     public RouterFunction<ServerResponse> loginHandle(
@@ -151,9 +166,8 @@ public class WebFluxConfig {
 
         return route(
                 GET("/chatlist"),
-                // Вместо ссылки на метод, используем лямбду,
-                // чтобы передать движок в ваш обновленный метод.
-                request -> chatListHandler.getChatList(request,templateEngine)
+                // Лямбда, а не ссылка на метод: движок нужно передать вторым аргументом.
+                request -> chatListHandler.renderAppShell(request, templateEngine)
         );
     }
 

@@ -1,0 +1,70 @@
+databaseChangeLog:
+  # text: TEXT, а не VARCHAR(255) — схемная половина Hybrid-kubernetes-non-local-bhw.
+  # Сообщение длиннее 255 символов рассылалось живьём, но INSERT падал и оно
+  # терялось навсегда. Переобъявлять заведомо сломанный тип в свежем baseline нельзя.
+  #
+  # time_stamp: TIMESTAMP WITH TIME ZONE сразу — именно эту колонку Hibernate
+  # ddl-auto откатывал в VARCHAR при каждом рестарте пода (исходный отказ fwt).
+  # После удаления легаси-сущности Message.java на таблицу message не отображается
+  # ни одна @Entity, поэтому откатывать её больше некому.
+  #
+  # user_id, а не user_id_id: старое имя — артефакт Hibernate-нейминга для
+  # @ManyToOne User user_id в удаляемой сущности.
+  - changeSet:
+      id: v1-003-create-message
+      author: claude
+      changes:
+        - createTable:
+            tableName: message
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_message
+                    nullable: false
+              - column:
+                  name: text
+                  type: TEXT
+              - column:
+                  name: time_stamp
+                  type: TIMESTAMP WITH TIME ZONE
+              - column:
+                  name: user_id
+                  type: BIGINT
+              - column:
+                  name: chat_id
+                  type: BIGINT
+      rollback:
+        - dropTable:
+            tableName: message
+  - changeSet:
+      id: v1-003-message-fk-user
+      author: claude
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_message_user
+            baseTableName: message
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+      rollback:
+        - dropForeignKeyConstraint:
+            baseTableName: message
+            constraintName: fk_message_user
+  - changeSet:
+      id: v1-003-message-fk-chat
+      author: claude
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_message_chat
+            baseTableName: message
+            baseColumnNames: chat_id
+            referencedTableName: chat
+            referencedColumnNames: id
+      rollback:
+        - dropForeignKeyConstraint:
+            baseTableName: message
+            constraintName: fk_message_chat

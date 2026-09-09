@@ -18,6 +18,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -28,7 +29,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.security.NoSuchAlgorithmException;
 import java.security.Principal;
-import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
 import java.util.*;
@@ -45,17 +45,28 @@ public class WEBFLUX_Service {
     @Autowired
     private KafkaProducer kafkaProducer;
     @Autowired
+    private ImageStorageService imageStorageService;
+    @Autowired
    private MyPasswordEncoder passwordEncoder;
     @Autowired
     ParsingDataService dataParser;
     @Autowired
-    private gRPC_Client grpc;
+    GeminiService geminiService;
     @Autowired
-    YandexGptService yandexGptService;
+    ChatMembershipService chatMembershipService;
     @Autowired
     AuthGrpc authGrpc;
     @Autowired
     TokensResolver tokensResolver;
+
+    /**
+     * Ставить ли на куку сессии атрибут {@code Secure} (beads ybg). Тот же тумблер
+     * {@code COOKIE_SECURE}, что и в {@code MVC_Service}: реактивный и сервлетный входы
+     * ставят ОДНУ И ТУ ЖЕ куку, и разъехаться по этому атрибуту они не должны.
+     */
+    @Value("${COOKIE_SECURE:false}")
+    boolean cookieSecure;
+
     private final Gson gson= new Gson();
     @Autowired
     private MvcJwtAuthFilter mvcJwtAuthFilter;
@@ -91,31 +102,37 @@ public class WEBFLUX_Service {
                     jsonObject.addProperty("components",resultJson);
                     newMeta.set(gson.fromJson(jsonObject, FpSimilarityScore.ClientMeta.class));
 
-                    if (usernamePart == null || passwordPart == null ||  imagePart == null) {
-                        return Mono.error(new IllegalArgumentException("Имя пользователя, пароль, фингерпринт и изображение обязательны."));
+                    // Аватар необязателен (beads krr). Форма регистрации всегда помечала
+                    // userimage как необязательный (нет required), но эта проверка требовала
+                    // его на сервере, и регистрация без картинки отбивалась 400. Пустой file
+                    // input до сервера вообще не доезжает: ридер WebFlux выбрасывает часть с
+                    // filename="" целиком, так что imagePart == null — это ровно «пользователь
+                    // не выбрал файл», а не сбой (зафиксировано RegisterMultipartAvatarContractTest).
+                    if (usernamePart == null || passwordPart == null) {
+                        return Mono.error(new IllegalArgumentException("Имя пользователя и пароль обязательны."));
                     }
                     return Mono.just(new RegistrationData(usernamePart.value(), passwordPart.value(),imagePart));
                 })
                 .flatMap(regData -> {
                     return Mono.fromCallable(() -> {
 
+                                // Без файла НЕ помечаем "pending" — тот же приём, что и на
+                                // создании чата ниже: "pending" читается фронтом как «байты
+                                // едут» и рисуется спиннером (image_loader.js), поэтому у
+                                // пользователя без аватара он крутился бы вечно. Пустая
+                                // строка даёт дефолтную аватарку. beads krr.
                                 DataTransferService.UserDataRequest grpcRequest = DataTransferService.UserDataRequest.newBuilder()
                                         .setUsername(regData.username())
                                         .setPassword(regData.password())
+                                        .setImageUrl(regData.imagePart() != null ? "pending" : "")
                                         .build();
                                 return authGrpc.authRegister(grpcRequest);
                             })
                             .subscribeOn(Schedulers.boundedElastic())
-                            .flatMap(authResponse -> {
-                                if (!"200".equals(authResponse.getStatus())) {
-                                    return Mono.error(new RuntimeException("Ошибка регистрации от сервиса: " + authResponse.getMessage()));
-                                }
-                                if (authResponse.getStatus().equals("666")){
-                                    return Mono.error(new InternalError(authResponse.getMessage()));
-                                }
-                                return Upload_image(regData.imagePart(), authResponse.getSub())
-                                        .then(Mono.just(authResponse));
-                            })
+                            .flatMap(authResponse -> regData.imagePart() == null
+                                    ? Mono.just(authResponse)
+                                    : Upload_image(regData.imagePart(), authResponse.getSub(), "userimage")
+                                            .then(Mono.just(authResponse)))
                             .flatMap(authResponse -> Mono.fromCallable(() -> {
                                 try {
                                     return tokensResolver.genPairOfToken(
@@ -135,10 +152,12 @@ public class WEBFLUX_Service {
                 .onErrorResume(IllegalArgumentException.class, e ->
                         ServerResponse.badRequest().bodyValue(e.getMessage()))
 
-                .onErrorResume(InternalError.class, e -> {
-                    log.error("Юзер с таким именемм существует", e);
-                    return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .bodyValue(e.getMessage());
+                .onErrorResume(AuthResponseException.class, e -> {
+                    HttpStatus code = "666".equals(e.getStatus())
+                            ? HttpStatus.CONFLICT
+                            : HttpStatus.BAD_REQUEST;
+                    log.warn("Регистрация отклонена сервисом: status={}, message={}", e.getStatus(), e.getMessage());
+                    return ServerResponse.status(code).bodyValue(e.getMessage());
                 }).onErrorResume(Exception.class, e -> {
                     log.error("Непредвиденная ошибка при регистрации", e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -212,6 +231,10 @@ public class WEBFLUX_Service {
                         ServerResponse.badRequest().bodyValue(e.getMessage()))
                 .onErrorResume(SecurityException.class, e ->
                         ServerResponse.status(HttpStatus.UNAUTHORIZED).bodyValue("Неверное имя пользователя или пароль."))
+                .onErrorResume(AuthResponseException.class, e -> {
+                    log.warn("Вход отклонён сервисом: status={}, message={}", e.getStatus(), e.getMessage());
+                    return ServerResponse.status(HttpStatus.UNAUTHORIZED).bodyValue(e.getMessage());
+                })
                 .onErrorResume(Exception.class, e -> {
                     log.error("Непредвиденная ошибка при входе", e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR).bodyValue("Внутренняя ошибка сервера.");
@@ -220,26 +243,14 @@ public class WEBFLUX_Service {
 
 
     public Mono<ServerResponse> ResultSet( MvcJwtAuthFilter.jwt_refresh_auths tokens) {
-        ResponseCookie rc= ResponseCookie.from("access",tokens.jwt())
-                .httpOnly(true)
-//                .secure(true)
-                .sameSite("Strict")
-                .path("/")
-                .maxAge(Duration.ofMinutes(10))
-                .build();
-        ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
-                .httpOnly(true)
-//                .secure(true)
-                .sameSite("Strict")
-                .path("/")
-                .maxAge(Duration.ofDays(7))
-                .build();
-        Map<String, String> responseBody = Map.of(
-                "redirectUri","/reactive/chatlist"
+        ResponseCookie refreshCookie = AuthCookies.refresh(tokens.refresh(), cookieSecure);
+        Map<String, Object> responseBody = Map.of(
+                "redirectUri", "/reactive/chatlist",
+                "accessToken", tokens.jwt(),
+                "tokenType", "Bearer"
         );
 
         return ServerResponse.ok()
-                .header(HttpHeaders.SET_COOKIE, rc.toString())
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .bodyValue(responseBody);
     }
@@ -264,27 +275,45 @@ public class WEBFLUX_Service {
                                 .newBuilder().addAllNames(usernames).build();
 
                         return authGrpc.GetUsersByUnames(repeated_unames)
-                                .flatMap(ids -> {
-                                    List<DataTransferService.User> userList = ids.stream()
-                                            .map(id -> DataTransferService.User.newBuilder().setId(String.valueOf(id)).build())
+                                .flatMap(resolved -> {
+                                    // Не нашли кого-то из названных — отказываем, перечислив кого именно.
+                                    // Резолв имён лоссовый (AuthService отдаёт только найденных), и без
+                                    // этой сверки опечатка в имени проходила молча: чат создавался без
+                                    // выпавшего участника, а пользователь видел успех. Если же не
+                                    // находился никто, пустой userList уводил transferchat в ветку
+                                    // поиска существующего чата, и наружу ехало «Cannot find chat ERROR» —
+                                    // сообщение про чат там, где проблема была в имени пользователя.
+                                    List<String> missing = findMissingUsernames(usernames, resolved);
+                                    if (!missing.isEmpty()) {
+                                        return Mono.error(new IllegalArgumentException(
+                                                "Пользователи не найдены: " + String.join(", ", missing)));
+                                    }
+
+                                    List<DataTransferService.User> userList = resolved.stream()
+                                            .map(u -> DataTransferService.User.newBuilder()
+                                                    .setId(String.valueOf(u.getId())).build())
                                             .collect(Collectors.toList());
 
                                     return ReactiveSecurityContextHolder.getContext()
                                             .map(ctx -> (String) ctx.getAuthentication().getPrincipal())
 
                                             .flatMap(authorId -> {
+                                                // Картинка чата опциональна (во фронте у поля file нет required).
+                                                // Без файла НЕ помечаем "pending" (иначе список чатов вечно крутит
+                                                // спиннер и Upload_image падает с NPE на file.content()) — пустой
+                                                // imageUrl даёт дефолтную аватарку. beads 2q5.
                                                 var chatdata = DataTransferService.ChatData.newBuilder()
                                                         .setAuthorId(DataTransferService.User.newBuilder().setId(authorId).build())
                                                         .setTitle(chatTitle)
                                                         .addAllUser(userList)
-                                                        .setImageUrl("pending")
+                                                        .setImageUrl(file != null ? "pending" : "")
                                                         .build();
 
                                                 return reactiveGrpcClient.reactiveChatServe(chatdata)
                                                         .flatMap(resp -> {
                                                             JsonObject jsonObj = JsonParser.parseString(resp).getAsJsonObject();
-                                                            if ("pending".equals(jsonObj.get("image_id").getAsString())) {
-                                                                return Upload_image(file, jsonObj.get("id").getAsString())
+                                                            if (file != null && "pending".equals(jsonObj.get("image_id").getAsString())) {
+                                                                return Upload_image(file, jsonObj.get("id").getAsString(), "chatimage")
                                                                         .thenReturn(jsonObj);
                                                             } else {
                                                                 return Mono.just(jsonObj);
@@ -308,9 +337,7 @@ public class WEBFLUX_Service {
                                     .contentType(MediaType.TEXT_PLAIN)
                                     .bodyValue(jsonObj.get("message").getAsString());
                         } else {
-                            return ServerResponse.status(HttpStatus.SEE_OTHER)
-                                    .location(URI.create("/reactive/chatlist"))
-                                    .build();
+                            return createChatSuccess(jsonObj);
                         }
                     })
                     // УЛУЧШЕНИЕ: Теперь мы точно знаем, что empty() возникает из-за ошибки gRPC
@@ -326,212 +353,206 @@ public class WEBFLUX_Service {
                     });
         }
 
+    /**
+     * Имена, которые AuthService не сумел разрезолвить: запрошенные минус вернувшиеся.
+     * Сравниваем по именам, а не по количеству — при дубликатах в форме («dmitriy» дважды)
+     * счётчики разошлись бы и на полностью корректном вводе. Порядок сохраняем как во
+     * вводе, повторы схлопываем: список идёт прямо в текст ошибки пользователю.
+     */
+    static List<String> findMissingUsernames(List<String> requested,
+                                             List<DataTransferService.UserDataRequest> resolved) {
+        Set<String> found = resolved.stream()
+                .map(DataTransferService.UserDataRequest::getUsername)
+                .collect(Collectors.toSet());
+        return requested.stream()
+                .filter(name -> !found.contains(name))
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * Success-ветка создания чата (beads SPA): вместо 303-редиректа на /reactive/chatlist
+     * возвращаем 200 JSON {chatId, title}, чтобы клиентская вью навигировала без перезагрузки.
+     */
+    Mono<ServerResponse> createChatSuccess(JsonObject jsonObj) {
+        long chatId = jsonObj.get("id").getAsLong();
+        Map<String, Object> body = new HashMap<>();
+        body.put("chatId", chatId);
+        if (jsonObj.has("title")) {
+            body.put("title", jsonObj.get("title").getAsString());
+        }
+        return ServerResponse.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body);
+    }
 
 
-    public Mono<ServerResponse> getChatList(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        log.info("===> [1] Метод getChatList вызван.");
 
-        // ШАГ 1: Получаем контекст и НЕМЕДЛЕННО КЭШИРУЕМ его, чтобы избежать повторных подписок.
-        Mono<Authentication> authMono = ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .cache(); // <--- САМОЕ ВАЖНОЕ ИЗМЕНЕНИЕ
-
-        return authMono
-                .flatMap(authentication -> {
-                    // ШАГ 2: Извлекаем ID пользователя как СТРОКУ, чтобы избежать NumberFormatException.
-                    String principalName = authentication.getName();
-                    log.info("===> [2] Principal '{}' найден. Начинаю сборку модели.", principalName);
-
-                    // ШАГ 3: Вся gRPC и логика сборки модели находится внутри этого flatMap.
-                    // Ошибки здесь будут перехвачены ниже в onErrorResume.
-                    Mono<Map<String, Object>> modelMono = Mono.fromCallable(() -> {
-                                // Эта часть теперь просто для логической группировки, так как парсинг не нужен
-                                log.info("===> [4] Пользователь {} найден. Начинаю gRPC...", principalName);
-                                return principalName;
-                            })
-                            .flatMap(userId -> {
-                                DataTransferService.ChatData chatDataRequest = DataTransferService.ChatData.newBuilder()
-                                        // Используем userId (String) напрямую, без парсинга в Long
-                                        .addUser(DataTransferService.User.newBuilder().setId(userId).build())
-                                        .build();
-
-                                return reactiveGrpcClient.reactiveGetAllChatsById(chatDataRequest)
-                                        .doOnError(e -> log.error("===> [X] Ошибка при получении списка чатов", e))
-                                        .flatMapMany(list -> Flux.fromIterable(list.getChatdataListList()))
-                                        .flatMap(chat -> reactiveGrpcClient.reactiveGetNewestMessage(chat)
-                                                .onErrorResume(err -> {
-                                                    log.warn("===> [X] Ошибка при получении сообщения для чата {}: {}", chat.getChatId(), err.getMessage());
-                                                    return Mono.just(new ShortChatObject()); // Возвращаем пустой объект или маркер
-                                                }))
-                                        .collectList()
-                                        .map(previews -> {
-                                            Map<String, Object> model = new HashMap<>();
-                                            model.put("pathPrefix", "/reactive");
-                                            model.put("chats", previews);
-                                            model.put("user_id", userId);
-                                            log.info("===> [5] Данные для модели собраны.");
-                                            return model;
-                                        });
-                            });
-
-                    return modelMono.flatMap(model -> {
-                        log.info("===> [6] Начинаю рендеринг шаблона 'chats_list'.");
-                        return ParseWithThymeLeaf(model, "chats_list", templateEngine)
-                                .flatMap(htmlContent -> {
-                                    log.info("===> [7] Рендеринг завершен. Отдаю успешный ответ.");
-                                    return ServerResponse.ok()
-                                            .contentType(MediaType.TEXT_HTML)
-                                            .bodyValue(htmlContent);
-                                });
-                    });
+    /**
+     * Единственный путь выдачи SPA-шелла (beads j35). Все страницы SPA — /chatlist,
+     * /chat, /createchat — это один и тот же app.html: разметку рисует клиентский
+     * роутер, данные он же тянет из /api/*. Раньше на каждый маршрут был свой метод,
+     * отличавшийся от соседей только текстом в логе и формой ответа при ошибке, так что
+     * любая правка контракта шелла требовала трёх одинаковых правок, а новый маршрут —
+     * копирования метода. Теперь маршрут добавляется одной строкой в WebFluxConfig.
+     *
+     * Отдельных обёрток на маршрут нет намеренно: адрес в лог берётся из request.path(),
+     * то есть диагностика не теряется, а становится точнее — прежние три сообщения
+     * называли страницу, но не путь, по которому пришёл сбойный запрос.
+     *
+     * Карта модели создаётся заново на каждый вызов и не выносится в поле: в неё кладётся
+     * свой CSP-nonce на каждый ответ, а хендлер вызывается из общего пула на все запросы —
+     * общая HashMap писалась бы из нескольких потоков разом.
+     *
+     * Шелл публичен намеренно (beads 52u/57): сессию проверяет клиентская вью, а данные
+     * идут отдельными запросами к /api/*, закрытыми auth_request на ingress. Менять
+     * доступность этих GET-маршрутов нельзя — см. WebFluxRouteSecurityBoundaryTest.
+     *
+     * Атрибут pathPrefix, который до слияния клал в модель только маршрут /chatlist,
+     * убран: app.html его не читает, как и любой другой шаблон.
+     */
+    public Mono<ServerResponse> renderAppShell(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
+        // Nonce генерируем здесь, а не внутри ParseWithThymeLeaf, потому что он нужен в
+        // двух местах сразу: атрибутом в HTML и значением в заголовке. Заголовок ставится
+        // только тут — у ParseWithThymeLeaf нет доступа к ответу, и раньше из-за этого
+        // реактивные маршруты отдавали шелл вообще без CSP (см. CspNonce).
+        String nonce = CspNonce.generate();
+        Map<String, Object> model = new HashMap<>();
+        if (nonce != null) {
+            model.put("nonce", nonce);
+        }
+        return ParseWithThymeLeaf(model, "app", templateEngine)
+                .flatMap(htmlContent -> {
+                    ServerResponse.BodyBuilder builder = ServerResponse.ok()
+                            .contentType(MediaType.TEXT_HTML);
+                    if (nonce != null) {
+                        builder.header(CspNonce.HEADER, CspNonce.headerValue(nonce));
+                    }
+                    return builder.bodyValue(htmlContent);
                 })
-                // Срабатывает, только если authMono изначально пуст.
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("===> [X] Аутентификация отсутствует. Редирект на страницу входа.");
-                    return ServerResponse.temporaryRedirect(URI.create("/welcome")).build();
-                }))
-                // ШАГ 5: ЕДИНЫЙ глобальный обработчик ошибок для всей цепочки.
-                // Перехватит любые ошибки (от gRPC, рендеринга и т.д.), которые не были обработаны ранее.
                 .onErrorResume(e -> {
-                    log.error("===> [X] Непредвиденная глобальная ошибка в цепочке getChatList", e);
+                    // Подробности сбоя — только в лог. В теле ответа их быть не должно:
+                    // сюда попадает message исключения Thymeleaf, а он несёт внутренности
+                    // сервера (путь к шаблону, тип исключения) прямо в браузер анониму —
+                    // маршруты шелла публичны. Пользователю эта строка всё равно ничего не
+                    // говорит, а диагностируем мы по логу, где есть и путь запроса, и стек.
+                    log.error("app shell render failed for {}", request.path(), e);
                     return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .contentType(MediaType.TEXT_PLAIN)
-                            .bodyValue("Произошла внутренняя ошибка: " + e.getMessage());
-                });
-    }
-
-    public Mono<ServerResponse> renderChatPage(ServerRequest request, ISpringWebFluxTemplateEngine templateEngine) {
-        log.info("===> [1] Метод renderChatPage вызван.");
-
-        // 1. Получаем параметры запроса
-        long chatId = Long.parseLong(request.queryParam("id").orElseThrow(() -> new IllegalArgumentException("Query param 'id' is required")));
-        String title = request.queryParam("title").orElse("Unknown Chat");
-
-        // 2. Начинаем цепочку с получения контекста безопасности (как в примере)
-        return ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .cast(Principal.class)
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("===> [X] SecurityContext пуст. Сигнал для перенаправления на авторизацию.");
-                    return Mono.empty();
-                }))
-                .flatMap(principal -> {
-                    // 3. Получаем ID пользователя и начинаем собирать данные
-                    return Mono.fromCallable(principal::getName)
-                            .doOnNext(userId -> log.info("===> [4] Пользователь {} найден. Начинаю параллельные gRPC запросы...", userId))
-                            .flatMap(userId -> {
-                                // 4. Подготавливаем все независимые gRPC вызовы
-                                DataTransferService.ChatData chatData = DataTransferService.ChatData.newBuilder()
-                                        .setChatId(chatId).setTitle(title).build();
-
-                                Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId);
-                                Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
-                                Mono<List<String>> chatMembersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData);
-                                Mono<String> chatImageUrlMono = reactiveGrpcClient.reactiveGetImageUrl(chatId);
-                                Mono<String> userImageUrlMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId));
-
-                                // 5. Выполняем их параллельно с помощью Mono.zip
-                                return Mono.zip(
-                                                usernameMono,
-                                                chatResponseMono,
-                                                chatMembersMono,
-                                                chatImageUrlMono,
-                                                userImageUrlMono
-                                        )
-                                        .flatMap(tuple -> {
-                                            // 6. Распаковываем результаты первого этапа
-                                            String username = tuple.getT1();
-                                            String rawChatResponse = tuple.getT2();
-                                            List<String> chatMembers = tuple.getT3();
-                                            String chatImageUrl = tuple.getT4();
-                                            String userImageUrl = tuple.getT5();
-
-                                            JsonObject chatResponseJson = JsonParser.parseString(rawChatResponse).getAsJsonObject();
-                                            Mono<List<MessageEvent>> messagesMono;
-
-                                            if ("500".equals(chatResponseJson.get("status").getAsString())) {
-                                                String errorMessage = chatResponseJson.get("message").getAsString();
-                                                MessageEvent me = new MessageEvent();
-                                                me.setText(errorMessage);
-                                                messagesMono = Mono.just(Collections.singletonList(me));
-                                            } else {
-                                                messagesMono = reactiveGrpcClient.reactiveGetAllMessages(chatData);
-                                            }
-
-                                            // 8. Объединяем результаты первого этапа с результатом второго
-                                            return messagesMono.map(messages -> {
-                                                // 9. Собираем финальную модель для Thymeleaf
-                                                Map<String, Object> model = new HashMap<>();
-                                                model.put("username", username);
-                                                model.put("title", title);
-                                                model.put("user_id", userId);
-                                                model.put("chat_id", chatId);
-                                                model.put("usernames", chatMembers);
-                                                model.put("messages", messages);
-                                                model.put("chat_image_url", chatImageUrl);
-                                                model.put("image_url", userImageUrl);
-                                                log.info("===> [5] Данные для модели страницы чата собраны.");
-                                                return model;
-                                            });
-                                        })
-                                        .flatMap(model -> {
-                                            log.info("===> [6] Начинаю рендеринг шаблона 'index' в строку.");
-                                            // 10. Вызываем ВАШ кастомный метод рендеринга
-                                            return ParseWithThymeLeaf(model, "index", templateEngine)
-                                                    .flatMap(htmlContent -> {
-                                                        log.info("===> [7] Рендеринг в строку завершен. Отдаю ServerResponse с bodyValue.");
-                                                        return ServerResponse.ok()
-                                                                .contentType(MediaType.TEXT_HTML)
-                                                                .bodyValue(htmlContent);
-                                                    });
-                                        });
-                            })
-                            // Обработка ошибки парсинга ID пользователя
-                            .onErrorResume(NumberFormatException.class, e -> {
-                                log.warn("===> [X] Имя principal невалидно: '{}'. Редирект.", principal.getName());
-                                return ServerResponse.temporaryRedirect(URI.create("/startauth")).build();
-                            });
-                })
-                // Обработка пустого SecurityContext
-                .switchIfEmpty(ServerResponse.temporaryRedirect(URI.create("/startauth")).build())
-                // Глобальный обработчик всех остальных ошибок
-                .onErrorResume(e -> {
-                    log.error("===> [X] Непредвиденная глобальная ошибка в цепочке renderChatPage", e);
-                    return ServerResponse.status(500).contentType(MediaType.TEXT_PLAIN).bodyValue("Internal Server Error: " + e.getMessage());
+                            .bodyValue("Произошла внутренняя ошибка");
                 });
     }
 
 
 
+    /**
+     * Рендер шаблона с уже готовой моделью. Nonce здесь НЕ генерируется намеренно: он
+     * нужен ещё и в заголовке ответа, до которого отсюда не дотянуться, поэтому его
+     * заводит вызывающий (renderAppShell) и кладёт в model сам.
+     */
     public Mono<String> ParseWithThymeLeaf(Map<String,Object> model, String tmpl_name,  ISpringWebFluxTemplateEngine templateEngine){
         final Context thymeleafContext = new Context();
-        String nonceId;
-        try {
-            nonceId  = Base64.getEncoder().encodeToString(
-                    SecureRandom.getInstanceStrong().generateSeed(16));
-
-        }catch (NoSuchAlgorithmException noSuchAlgorithmException){
-            log.warn("no such alg for nonce");
-            nonceId= null;
-        }
-        if (nonceId!=null){
-            model.put("nonce",nonceId);
-
-        }
         thymeleafContext.setVariables(model);
         return  Mono.defer(()->Mono.just( templateEngine.process(tmpl_name, thymeleafContext)));
 
     }
+    // Возвращаем Mono (не Callable): вызов Gemini долгий (~секунды), реактивная
+    // модель не держит поток и не упирается в таймаут async-сервлета.
+    // @ResponseBody ОБЯЗАТЕЛЕН: класс — @Controller (не @RestController), без него
+    // Spring MVC трактует Mono<String>/String как ИМЯ ВЬЮХИ для рендера шаблоном —
+    // отсюда "class path resource [templates/<текст ответа>.html] cannot be opened"
+    // при любом реальном тексте ответа (был баг ДО фикса 6i5, не связан с ним).
+    //
+    // Тип ответа — Mono<ResponseEntity<String>>, а не Mono<String> (beads dz5): отказ в
+    // доступе обязан быть настоящим статусом 403. Прежний хендлер на любой проблеме
+    // отдавал 200 с текстом в теле, и авторизационный отказ, оформленный так же, клиент
+    // не отличил бы от ответа ассистента. Фронт (chat.view.js#requestAIResponse) от этого
+    // не ломается: axios-интерцептор перехватывает только 401 (обновление токена),
+    // а 403 уходит в .catch и показывается тостом об ошибке.
     @PostMapping(path = "/AiAssist")
-    public Mono<String> aiAssistHandler(@RequestPart("TargetUsername") String targetUsername,
-                                        @RequestPart("chat_id") String chatId) {
+    @ResponseBody
+    public Mono<ResponseEntity<String>> aiAssistHandler(Principal principal,
+                                            @RequestPart("TargetUsername") String targetUsername,
+                                            @RequestPart("chat_id") String chatId) {
+        // Principal раньше в сигнатуре ОТСУТСТВОВАЛ — хендлер физически не знал, кто его
+        // вызвал, и читал Redis-контекст любого чата по chat_id из тела (beads dz5).
+        if (principal == null) {
+            log.warn("AiAssist: запрос без принципала — отказ");
+            return Mono.just(aiAssistForbidden());
+        }
+        // Строгая валидация формата и канонизация — как в ChatBoxStompController (beads g9x):
+        // голый Long.parseLong принимает "+7"/"-5", а "003" дал бы отдельный Redis-ключ
+        // newmessages-003 вместо newmessages-3. "\\d+" пропускает и число длиннее long,
+        // поэтому parseLong обёрнут в try: исключение здесь превратилось бы в 500.
+        // Отказ — ДО чтения Redis и до gRPC-вызова.
+        if (chatId == null || !chatId.matches("\\d+")) {
+            log.warn("AiAssist: chatId {} не в каноническом числовом формате — отказ", chatId);
+            return Mono.just(aiAssistForbidden());
+        }
+        final long chat;
+        try {
+            chat = Long.parseLong(chatId);
+        } catch (NumberFormatException ex) {
+            log.warn("AiAssist: chatId {} не помещается в long — отказ", chatId);
+            return Mono.just(aiAssistForbidden());
+        }
+        final String canonicalChatId = String.valueOf(chat);
+        final String userId = principal.getName();
 
+        // Проверка членства встроена в реактивную цепочку, а не через block(): хендлер
+        // выполняется в общем пуле, и блокирующее ожидание gRPC там уже приводило к
+        // деградации (beads 8wh).
+        //
+        // Вердикт спрашивается у ChatMembershipService целиком (beads cgu), тем же
+        // isMemberReactive, что и на пути /api/chat. Раньше здесь поверх members() жила
+        // собственная копия политики — anyMatch по списку, onErrorResume в false и
+        // defaultIfEmpty(false), то есть буквально тело isMemberReactive, включая
+        // трактовку пустого списка и fail-closed на ошибке. Второе место, где записано,
+        // что значит «участник чата», уже обошлось системе дорого: на этом же шве
+        // внешний .timeout() поверх members() убивал внутренний повтор и молча сжимал
+        // бюджет ожидания с 5 с до 2 с, и поймало это только ревью.
+        //
+        // Никаких reactor-операторов между вызовом и flatMap быть не должно: таймаут на
+        // попытку (2 с), один повтор с задержкой 100 мс, gRPC-дедлайн 2250 мс и общий
+        // потолок ~4.1 с — всё внутри ChatMembershipService. Любой внешний .timeout()/
+        // .retryWhen()/.onErrorResume() здесь перекрыл бы эту политику, а не дополнил её.
+        // Fail-closed при этом сохраняется: UNKNOWN (ошибка gRPC, таймаут) и отсутствие
+        // ответа отображаются в false внутри самого сервиса.
+        return chatMembershipService.isMemberReactive(chat, userId)
+                .flatMap(isMember -> {
+                    if (!isMember) {
+                        log.warn("AiAssist по чату {} отклонён: пользователь {} не найден среди участников",
+                                canonicalChatId, userId);
+                        return Mono.just(aiAssistForbidden());
+                    }
+                    return generateAssistantAnswer(targetUsername, canonicalChatId);
+                });
+    }
+
+    private ResponseEntity<String> aiAssistForbidden() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.TEXT_PLAIN)
+                .body("Нет доступа к этому чату.");
+    }
+
+    /**
+     * Сам ассистент: вызывается только после подтверждённого членства (beads dz5).
+     * Все ошибки генерации по-прежнему отдаются как 200 с текстом — это ответ
+     * ассистента «не получилось», а не отказ в доступе, и фронт показывает его
+     * пользователю как подсказку.
+     */
+    private Mono<ResponseEntity<String>> generateAssistantAnswer(String targetUsername, String canonicalChatId) {
         return Mono.defer(() -> {
-                    ChatContextService contextService = new ChatContextService(rredisTemplate, chatId);
+                    ChatContextService contextService = new ChatContextService(rredisTemplate, canonicalChatId);
 
                     return contextService.getFullContext()
                             .switchIfEmpty(Mono.error(new IllegalStateException("Контекст чата пуст...")))
-                            .collect(Collectors.joining())
+                            // Каждый элемент — валидный JSON-объект ({"user":...,"message":...}),
+                            // но joining() без разделителей/скобок склеивал их в невалидный JSON
+                            // (несколько top-level объектов подряд) -> JsonSyntaxException при
+                            // ЛЮБОМ непустом контексте (baг вскрылся только после фикса
+                            // ChatContextService.addMessage — раньше контекст был всегда пуст).
+                            .collect(Collectors.joining(",", "[", "]"))
                             .publishOn(Schedulers.boundedElastic())
                             .map(jsonString -> {
                                 JsonArray jsonArray = JsonParser.parseString(jsonString).getAsJsonArray();
@@ -549,53 +570,60 @@ public class WEBFLUX_Service {
                             .map(nameMessagesMap -> {
                                 String promptTemplate = "Ты — AI-ассистент в чате. Помоги составить дружелюбный ответ пользователю с ником %s на его сообщение в контексте последних сообщений других участников. Обязательно упоминай %s, не отвечай самому себе, поддерживай беседу, тон вежливый и корректный, не придумывай новых участников, соблюдай неформальный стиль.";
                                 String promptWithNick = String.format(promptTemplate, targetUsername, "@" + targetUsername);
-                                return yandexGptService.BuildJsonPrompt(promptWithNick, nameMessagesMap);
+                                return geminiService.BuildJsonPrompt(promptWithNick, nameMessagesMap);
                             })
-                            .flatMap(prompt ->
-                                    yandexGptService.GetAssistantAnswer(prompt) // Исправлено
-                            );
+                            .flatMap(geminiService::GetAssistantAnswer);
                 })
+                .map(ResponseEntity::ok)
                 .onErrorResume(IllegalStateException.class, ex -> {
                     log.warn("Не удалось сгенерировать ответ: {}", ex.getMessage());
-                    return Mono.just(ex.getMessage());
+                    return Mono.just(ResponseEntity.ok(ex.getMessage()));
                 })
                 .onErrorResume(Exception.class, ex -> {
                     log.error("Произошла непредвиденная ошибка при обработке /AiAssist", ex);
-                    return Mono.just("Извините, сервис временно недоступен. Не удалось сгенерировать ответ.");
+                    return Mono.just(ResponseEntity.ok(
+                            "Извините, сервис временно недоступен. Не удалось сгенерировать ответ."));
                 });
     }
 
 
 
-    public Mono<Void> Upload_image(FilePart file, String chatId) {
+    /**
+     * Грузит файл в MinIO по ключу &lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;
+     * и публикует событие { targetType, targetId, objectKey } в топик "Images".
+     * targetType — параметр: регистрация → "userimage", создание чата → "chatimage".
+     */
+    public Mono<Void> Upload_image(FilePart file, String targetId, String targetType) {
+        // Картинка опциональна и для чата, и для аватара при регистрации — без файла
+        // просто ничего не грузим (иначе file.content() кидает NPE). beads 2q5.
+        if (file == null) {
+            return Mono.empty();
+        }
 
         // Используем DataBufferUtils.join для безопасного объединения всех частей файла
         Mono<DataBuffer> joinedBuffers = DataBufferUtils.join(file.content());
 
         return joinedBuffers
                 .flatMap(dataBuffer -> {
-                    return Mono.fromRunnable(() -> {
-                                byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                                dataBuffer.read(bytes);
-                                DataBufferUtils.release(dataBuffer);
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
 
-                                String B64string = Base64.getEncoder().encodeToString(bytes);
-                                String filename = file.filename();
-                                String extension = filename.contains(".") ?
-                                        filename.substring(filename.lastIndexOf(".") + 1) : "jpg";
+                    String filename = file.filename();
+                    String extension = (filename != null && filename.contains(".")) ?
+                            filename.substring(filename.lastIndexOf(".") + 1) : "jpg";
+                    String contentType = Objects.toString(file.headers().getContentType(), "application/octet-stream");
+                    String objectKey = targetType + "/" + targetId + "/" + UUID.randomUUID() + "." + extension;
+
+                    return imageStorageService.putObject(objectKey, bytes, contentType)
+                            .then(Mono.fromRunnable(() -> {
                                 JsonObject buildObj = new JsonObject();
-                                buildObj.addProperty("Base64Image", B64string);
-                                buildObj.addProperty("type", "image");
-                                buildObj.addProperty("ImageName", UUID.randomUUID().toString());
-                                buildObj.addProperty("MimeType", Objects.toString(file.headers().getContentType(), "application/octet-stream"));
-                                buildObj.addProperty("Extension", extension);
-                                buildObj.addProperty("Target", chatId);
-                                buildObj.addProperty("TargetType", "chatimage");
-
-                                // Отправляем в Kafka
-                                kafkaProducer.send(buildObj.toString());
-                            })
-                            .subscribeOn(Schedulers.boundedElastic()) // Выполняем на потоке для блокирующих операций
-                            .then(); // Преобразуем в Mono<Void> после завершения
-                });}
+                                buildObj.addProperty("targetType", targetType);
+                                buildObj.addProperty("targetId", targetId);
+                                buildObj.addProperty("objectKey", objectKey);
+                                kafkaProducer.sendImage(buildObj.toString());
+                            }));
+                })
+                .then();
+    }
 }

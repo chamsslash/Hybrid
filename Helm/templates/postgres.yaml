@@ -41,7 +41,10 @@ spec:
             - name: POSTGRES_USER
               value: "{{ .Values.postgres.username }}"
             - name: POSTGRES_PASSWORD
-              value: "{{ .Values.postgres.password }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data

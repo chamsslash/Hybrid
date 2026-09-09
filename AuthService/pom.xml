@@ -9,6 +9,21 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <protobuf.version>3.25.1</protobuf.version>
         <grpc.version>1.53.0</grpc.version>
+        <testcontainers.version>1.19.7</testcontainers.version>
+        <!-- Переопределяет 1.11.3 из spring-boot-starter-parent 3.1.3 (beads c2k).
+             net.devh grpc-*-spring-boot-starter 3.1.0.RELEASE инструментирует gRPC
+             через Counter.Builder.withRegistry(MeterRegistry) — метод появился только
+             в Micrometer 1.12. Классы MetricsClientInstruments и MetricsServerInstruments
+             грузятся ТОЛЬКО при наличии бина MeterRegistry, поэтому пока в сервисе не
+             было micrometer-registry-prometheus, несовместимость спала незаметно.
+             С ним приложение падает на старте: NoSuchMethodError, APPLICATION FAILED
+             TO START. Ловилось живьём на MessegerParody.
+             HTTPService этой болезнью не страдает, потому что там net.devh 2.14/2.15,
+             где классов *Instruments ещё не существует.
+             1.12.x — верхняя граница безопасного подъёма: в 1.13 реестр Prometheus
+             переехал с simpleclient на prometheus-metrics 1.x, что уже несовместимо
+             с actuator из Boot 3.1. -->
+        <micrometer.version>1.12.13</micrometer.version>
     </properties>
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -22,6 +37,13 @@
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
                 <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -82,6 +104,19 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <!--
+                  Testcontainers-тесты (напр. ImageStorageServiceIT) требуют Docker
+                  и помечены @Tag("integration"), поэтому исключены из обычного
+                  `mvn test`. Запуск явно: `mvn test -Dgroups=integration` (нужен Docker).
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0</version>
+                <configuration>
+                    <excludedGroups>integration</excludedGroups>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <dependencies>
@@ -121,6 +156,27 @@
             <version>3.0.10</version>
         </dependency>
 
+        <!-- Метрики (beads c2k). Сервис не отдавал их вовсе. Три вещи, которые легко
+             перепутать: actuator вешает HTTP-эндпоинт /actuator/prometheus,
+             micrometer-registry-prometheus печатает накопленное в его формате,
+             сам Micrometer приходит транзитивно. Нужны обе зависимости.
+             Версии не указываем — ими управляет spring-boot-starter-parent 3.1.3. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- MinIO S3-совместимый объектный сторедж для аватарок Google-юзеров (beads lyo) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
+        </dependency>
+
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
@@ -149,11 +205,6 @@
             <artifactId>lombok</artifactId>
             <version>1.18.38</version>
             <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.auth0</groupId>
-            <artifactId>java-jwt</artifactId>
-            <version>3.18.2</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -205,6 +256,34 @@
         </dependency>
 
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers: MinIO integration тест ImageStorageService (beads ok9) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>minio</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.google.apis</groupId>
             <artifactId>google-api-services-drive</artifactId>
             <version>v3-rev20250427-2.0.0</version>
@@ -223,5 +302,29 @@
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
+    
+        <!-- Распределённый трейсинг (beads izv).
+
+             Мостом выбран Brave, а не OpenTelemetry, из-за матрицы версий:
+             Spring Boot 3.1.3 управляет opentelemetry-bom 1.28, а свежие
+             micrometer-tracing-bridge-otel требуют 1.32+. Brave, brave-bom и
+             zipkin-reporter Boot держит согласованным набором, поэтому здесь ни
+             одна версия не указана явно. Подробности: docs/observability.md §13.2.
+
+             brave-instrumentation-grpc даёт готовые Client/ServerInterceptor для
+             переноса trace-контекста через gRPC-метаданные. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.reporter2</groupId>
+            <artifactId>zipkin-reporter-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.brave</groupId>
+            <artifactId>brave-instrumentation-grpc</artifactId>
+        </dependency>
+
     </dependencies>
 </project>

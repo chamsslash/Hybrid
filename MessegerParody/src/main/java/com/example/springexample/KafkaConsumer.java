@@ -1,21 +1,31 @@
 package com.example.springexample;
 
-import com.example.grpc.DataTransferService.DriveUrl;
-import com.example.springexample.Services.MTS_impl;
+import com.example.springexample.Metrics.MessagePersistenceMetric;
+import com.example.springexample.R2DBC_Repositories.ReactiveRepository;
+import com.example.springexample.Services.ImageUrlPersistenceService;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.annotation.RetryableTopic;
+import org.springframework.retry.annotation.Backoff;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
 
 @Slf4j
 @Service
 public class KafkaConsumer {
 
     @Autowired
-    private MTS_impl mts_impl;
+    private ImageUrlPersistenceService imageUrlPersistenceService;
+
+    @Autowired
+    private ReactiveRepository reactiveRepository;
+
+    @Autowired
+    private MessagePersistenceMetric messagePersistenceMetric;
 
     private final Gson gson = new Gson();
 
@@ -24,15 +34,51 @@ public class KafkaConsumer {
     public void listenOauthImage(String event) {
         JsonObject json = gson.fromJson(event, JsonObject.class);
 
-        if (!"image".equals(json.get("type").getAsString())) return;
-        if (!"userimage".equals(json.get("TargetType").getAsString())) return;
+        // Contract (topic "Images"):
+        // { "targetType": "userimage"|"chatimage", "targetId": "<id>", "objectKey": "<key>" }
+        String targetType = json.get("targetType").getAsString();
+        String targetId = json.get("targetId").getAsString();
+        String objectKey = json.get("objectKey").getAsString();
 
-        DriveUrl dUrl = DriveUrl.newBuilder()
-            .setUrl(json.get("Base64Image").getAsString())
-            .setChatId(json.get("Target").getAsString())
-            .setType("userimage")
-            .build();
+        // Persist the short MinIO object key for BOTH image types.
+        imageUrlPersistenceService.persistImageUrl(targetType, targetId, objectKey);
+    }
 
-        mts_impl.transferimageUrltoDB(dUrl);
+    // attempts="7" = 1 исходная попытка + 6 ретраев (initial 1s, x2, max 10s) — после исчерпания
+    // запись уходит в топик "Messages-dlt" (дефолтный суффикс), не теряется молча (beads 5l4).
+    // exclude: ошибки парсинга мусорного payload (Long.parseLong/Instant.parse/JSON) детерминированы
+    // и никогда не станут успешными на повторной попытке — гонять их через все 7 ретраев (~35 c)
+    // бессмысленно, такие сообщения должны уходить в DLT сразу.
+    @RetryableTopic(attempts = "7", backoff = @Backoff(delay = 1000, multiplier = 2, maxDelay = 10000),
+            exclude = {NumberFormatException.class, java.time.format.DateTimeParseException.class,
+                    NullPointerException.class, com.google.gson.JsonSyntaxException.class})
+    @KafkaListener(topics = "Messages")
+    public void listenChatMessages(String message) {
+        // В try завёрнут ВЕСЬ метод, включая разбор JSON и parseLong: с точки зрения
+        // вопроса «дошло ли сообщение до таблицы» мусорный payload — такой же
+        // недошедший, как и отказ БД (beads c2k).
+        try {
+            ChatMessageDTO dto = gson.fromJson(message, ChatMessageDTO.class);
+            // Таймаут обязателен: дефолтный r2dbc-пул на acquire — без таймаута. Если пул
+            // исчерпан или Postgres завис, .block() без таймаута никогда не вернётся,
+            // единственный поток контейнера перестанет вызывать poll(), и через
+            // max.poll.interval.ms консьюмер выпадет из группы (бесконечный ребаланс,
+            // топик "Messages" перестанет потребляться, при этом под останется Ready).
+            reactiveRepository.insertMessage(
+                    Long.parseLong(dto.getChat_id()),
+                    Long.parseLong(dto.getUser_id()),
+                    dto.getText(),
+                    Instant.parse(dto.getTimestamp()),
+                    dto.getMessage_id()
+            ).block(java.time.Duration.ofSeconds(15));
+            messagePersistenceMetric.recordSuccess();
+        } catch (RuntimeException e) {
+            // Счётчик ДО проброса, и пробрасывать обязательно: на исключении держится
+            // весь механизм @RetryableTopic — он поймает его, отправит сообщение на
+            // ретрай, а после исчерпания попыток в DLT. Проглотить исключение здесь
+            // значило бы тихо потерять сообщение и одновременно отрапортовать успех.
+            messagePersistenceMetric.recordFailure();
+            throw e;
+        }
     }
 }

@@ -6,13 +6,6 @@
     <artifactId>HttpModule</artifactId>
     <version>1.0-SNAPSHOT</version>
 
-    <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <protobuf.version>3.21.12</protobuf.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <grpc.version>1.58.0</grpc.version>
-    </properties>
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -20,12 +13,28 @@
         <relativePath/>
     </parent>
 
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <protobuf.version>3.21.12</protobuf.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <grpc.version>1.58.0</grpc.version>
+        <testcontainers.version>1.19.7</testcontainers.version>
+    </properties>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
                 <version>1.58.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -125,6 +134,19 @@
                     </execution>
                 </executions>
             </plugin>
+                    <plugin>
+                        <!--
+                          beads se2: Testcontainers-тесты (напр. ImageStorageServiceIT) требуют
+                          Docker и помечены @Tag("integration"), поэтому исключены из обычного
+                          `mvn test`. Запуск явно: `mvn test -Dgroups=integration` (нужен Docker).
+                        -->
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <version>3.0.0</version>
+                        <configuration>
+                            <excludedGroups>integration</excludedGroups>
+                        </configuration>
+                    </plugin>
                 </plugins>
 
 
@@ -134,6 +156,13 @@
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
             <version>2.10.1</version>
+        </dependency>
+
+        <!-- MinIO S3-совместимый объектный сторедж для картинок (beads 6s0) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
         </dependency>
 
         <dependency>
@@ -226,6 +255,12 @@
             <artifactId>micrometer-core</artifactId>
             <version>1.11.3</version>
         </dependency>
+        <!-- Кеш членства в чате (beads 9wi). Версию задаёт BOM spring-boot-starter-parent,
+             поэтому пина здесь нет намеренно: Caffeine входит в managed-зависимости Boot. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <!-- Spring Boot тестов -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -235,6 +270,32 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers: MinIO integration тест ImageStorageService (beads se2) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>minio</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -281,6 +342,32 @@
             <version>2.15.0.RELEASE</version>
         </dependency>
 
+        <!-- Распределённый трейсинг (beads izv).
+
+             Мостом выбран Brave, а не OpenTelemetry, из-за матрицы версий:
+             Spring Boot 3.1.3 управляет opentelemetry-bom 1.28, а свежие
+             micrometer-tracing-bridge-otel требуют 1.32+. Brave, brave-bom и
+             zipkin-reporter Boot держит согласованным набором, поэтому здесь ни
+             одна версия не указана явно — все приходят из parent'а. Подробности:
+             docs/observability.md, §13.2.
+
+             brave-instrumentation-grpc даёт готовые Client/ServerInterceptor для
+             переноса trace-контекста через gRPC-метаданные. Свои интерсепторы
+             писать не пришлось: собственная реализация обязана правильно
+             открывать и закрывать scope на асинхронных вызовах, а ошибка там
+             ведёт к утечке контекста между запросами. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.reporter2</groupId>
+            <artifactId>zipkin-reporter-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.brave</groupId>
+            <artifactId>brave-instrumentation-grpc</artifactId>
+        </dependency>
 
     </dependencies>
 

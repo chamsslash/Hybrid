@@ -13,7 +13,7 @@ public class MessageMapper {
 ();
         message.setId(row.get("id", Long.class));
         message.setText(row.get("text", String.class));
-        message.setTimeStamp(row.get("time_stamp", String.class));
+        message.setTimeStamp(row.get("time_stamp", java.time.Instant.class));
         message.setUserId(row.get("user_id", Long.class));
         message.setChatId(row.get("chat_id", Long.class));
         return message;

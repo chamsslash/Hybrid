@@ -47,8 +47,8 @@ public class JwtCheckController {
             Claims claims = Jwts.parser()
                     .verifyWith(publicKey)
                     .build()
-                    .parseClaimsJws(token)
-                    .getBody();
+                    .parseSignedClaims(token)
+                    .getPayload();
             String userId = claims.getSubject();
             String jti = claims.getId();
             String sid = claims.get("sid", String.class);

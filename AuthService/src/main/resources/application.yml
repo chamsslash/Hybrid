@@ -1,11 +1,23 @@
 server:
   port: 8081
+  # Доверять X-Forwarded-* от прокси (beads ybg). none — дефолт Spring Boot и текущее
+  # поведение стенда: заголовки игнорируются. При терминации TLS снаружи (Caddy перед
+  # кластером) значение переключается в framework, иначе приложение считает соединение
+  # незащищённым — request.isSecure() = false, и любой построенный им абсолютный URL
+  # уходит с http://. Включать ТОЛЬКО когда перед сервисом реально стоит прокси:
+  # доверие к X-Forwarded-Proto от произвольного клиента — это подделка схемы.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   reactive:
     session:
       cookie:
         http-only: true
         secure: true
 spring:
+  # Имя сервиса в трейсах (beads izv). Без него Brave подставляет заглушку,
+  # и все три сервиса в Tempo выглядят одинаково — трейс есть, а кто в нём
+  # какой хоп, не понять.
+  application:
+    name: authservice
   data:
     redis:
       url: redis://redis:6379/0
@@ -29,15 +41,14 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET}
             scope:
               - profile
-            redirect-uri: "http://localhost/login/oauth2/code/google"
-#        registration:
-#          google:
-#            provider: google
-#            client-id: "830256789402-s5791c611vpevg3pusm8cjjhh9kkcn9r.apps.googleusercontent.com"
-#            client-secret: "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"
-#            scope:
-#              - profile
-#            redirect-uri: "http://localhost:2010/login/oauth2/code/google"
+            # Схема вынесена в PUBLIC_SCHEME (beads ybg). Раньше здесь было жёсткое
+            # http://, и публикация по HTTPS ломала вход через Google молча: Google
+            # редиректил на http://, ingress отдавал редирект на https://, а параметр
+            # redirect_uri в запросе переставал совпадать с зарегистрированным.
+            # Дефолт http сохраняет поведение стенда; при публикации ставится https
+            # И ТОТ ЖЕ адрес обязан быть добавлен в консоль Google — сверка точная,
+            # включая схему, регистр и завершающий слэш.
+            redirect-uri: "${PUBLIC_SCHEME:http}://${INGRESS_HOST:myapp.localtest.me}/login/oauth2/code/google"
 
 
   autoconfigure:
@@ -51,7 +62,11 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Второй писатель схемы на ту же hybrid_db. Liquibase живёт в MessegerParody
+      # и остаётся единственным владельцем: сюда его добавлять нельзя, два
+      # мигратора на одной БД воспроизвели бы ту же болезнь.
+      # См. Hybrid-kubernetes-non-local-fwt.
+      ddl-auto: validate
       show-sql: true
     properties:
       hibernate:
@@ -61,3 +76,60 @@ spring:
 grpc:
   server:
     port: 9092
+
+management:
+
+  # ── Распределённый трейсинг (beads izv) ────────────────────────────────────
+  # Экспорт span'ов в Tempo по zipkin-протоколу. Адрес приходит из чарта
+  # (global.tracing.zipkinEndpoint), дефолт — для запуска вне кластера.
+  tracing:
+    enabled: ${TRACING_ENABLED:true}
+    sampling:
+      # 1.0 = записывать КАЖДЫЙ запрос. Дефолт Spring Boot — 0.1, и на стенде это
+      # худший вариант: воспроизводишь баг, идёшь за трейсом, а его нет — не потому
+      # что сломано, а потому что не попал в выборку. В проде значение снижают.
+      probability: ${TRACING_SAMPLING:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${TRACING_ZIPKIN_ENDPOINT:http://tempo:9411/api/v2/spans}
+  server:
+    # Отдельный порт от бизнес-порта 8081. 8081 смотрит в ingress (правила
+    # /startauth и /login/oauth2/code/google в Helm/templates/http-ingress.yaml),
+    # 8090 — нет. Значит эндпоинты актуатора физически недостижимы снаружи, и их
+    # НЕ нужно выводить из-под Spring Security. Именно попытка обойтись без этого
+    # разделения и открыла дыру в HTTPService, где /actuator/prometheus отдавался
+    # публично через ingress (beads c2k).
+    port: 8090
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    health:
+      # Включает /actuator/health/readiness и /liveness — на них вешается
+      # readinessProbe. В отличие от пробы на /actuator/prometheus, проба на
+      # readiness действительно означает «Spring поднял контекст и готов»,
+      # а не «процесс отвечает по HTTP».
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      # http.server.requests по умолчанию публикуется как summary, а
+      # histogram_quantile() работает ТОЛЬКО по бакетам. Без этой настройки p95
+      # по HTTP не посчитать вовсе — доступны лишь средняя и _max.
+      percentiles-histogram:
+        "[http.server.requests]": true
+        # Таймер gRPC от net.devh публикуется как summary по тем же причинам,
+        # то есть латентность хопа между сервисами тоже была бы доступна только
+        # средней. Кардинальность здесь мала: тегов service/method/statusCode
+        # на десяток методов, а не на открытый набор URI.
+        "[grpc.server.processing.duration]": true
+      # Границы заданы явно, и это не косметика: по умолчанию бакеты покрывают
+      # диапазон от микросекунд до минут, и каждый бакет — отдельный временной
+      # ряд на КАЖДОЕ значение uri.
+      minimum-expected-value:
+        "[http.server.requests]": 10ms
+        "[grpc.server.processing.duration]": 1ms
+      maximum-expected-value:
+        "[http.server.requests]": 10s
+        "[grpc.server.processing.duration]": 5s

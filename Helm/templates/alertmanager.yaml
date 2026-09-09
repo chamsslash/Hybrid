@@ -1,0 +1,87 @@
+{{- if .Values.infra.alertmanager }}
+# Alertmanager (beads zei). Зачем он здесь и почему без приёмников — в шапке
+# alertmanager-config.yaml.
+#
+# ConfigMap вынесен в ОТДЕЛЬНЫЙ файл по той же причине, что у Prometheus: этот
+# Deployment считает от него checksum, и в одном файле шаблон включал бы сам себя.
+# Helm падает на этом с "nested reference" — ошибка выглядит как стена повторяющегося
+# текста и на настоящую причину не намекает.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  labels:
+    app: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+      annotations:
+        # Та же логика, что у Prometheus (см. prometheus.yaml): без checksum
+        # правка ConfigMap обновит смонтированный файл, но процесс его не
+        # перечитает — конфиг молча останется старым.
+        checksum/config: {{ include (print $.Template.BasePath "/alertmanager-config.yaml") . | sha256sum }}
+    spec:
+      # Образ бежит от nobody; том здесь emptyDir, но UID выставлен явно, чтобы
+      # каталог данных не оказался root-owned (тот же грабли, что с PVC Prometheus).
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      containers:
+        - name: alertmanager
+          image: {{ .Values.alertmanager.image }}
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+          ports:
+            - containerPort: 9093
+          volumeMounts:
+            - name: alertmanager-config
+              mountPath: /etc/alertmanager
+            - name: alertmanager-data
+              mountPath: /alertmanager
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: alertmanager-config
+          configMap:
+            name: alertmanager-config
+        # emptyDir, а не PVC, в отличие от Prometheus: здесь хранится только
+        # состояние гашения и молчанок (silences). Терять его при рестарте не
+        # больно — историю срабатываний восстанавливает сам Prometheus из TSDB.
+        - name: alertmanager-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  labels:
+    app: alertmanager
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9093
+      targetPort: 9093
+      protocol: TCP
+  selector:
+    app: alertmanager
+{{- end }}

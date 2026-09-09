@@ -6,6 +6,7 @@ import com.example.grpc.DataTransferService;
 
 
 import com.example.springexample.Metrics.GrpcRequestsMetric;
+import com.example.springexample.Utils.AuthResponseException;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,16 +29,14 @@ public class AuthGrpc {
         grpcRequestsMetric.increment();
         try{
             DataTransferService.AuthResponse authResponse1 = authTransferServiceBlockingStub.login(userData);
-            if (authResponse1.getStatus().equals("404")){
-                log.error("User does not exists");
-                return null;
-
-            }
             if (authResponse1 != null && authResponse1.getStatus().equals("200")) {
                 log.warn(authResponse1.toString());
                 return  authResponse1;
-            }log.info("wrong answer from auth");
-            return null;
+            }
+            log.info("wrong answer from auth");
+            throw new AuthResponseException(authResponse1.getStatus(), authResponse1.getMessage());
+        } catch (AuthResponseException e) {
+            throw e;
         } catch (RuntimeException e) {
             log.info("passwordmissmatch error");
             return null;
@@ -52,31 +51,29 @@ public class AuthGrpc {
         }
         if (authResponse.getStatus().equals("404")){
             log.error("Cannot register user error");
-            return null;
-
-        }log.info("wrong answer from auth");
-        return null;
+        }
+        log.info("wrong answer from auth");
+        throw new AuthResponseException(authResponse.getStatus(), authResponse.getMessage());
+    } catch (AuthResponseException e) {
+        throw e;
     } catch (RuntimeException e) {
         log.info("passwordmissmatch error",e);
         return null;
     }
     }
 
-    public Mono<List<Long>> GetUsersByUnames(DataTransferService.RepeatedUsernames repeatedUsernames){
+    /**
+     * Резолвит имена в пользователей. Возвращает найденных ЦЕЛИКОМ (id + username), а не
+     * только id: AuthService отвечает лишь теми, кого нашёл, и без имён вызывающая сторона
+     * не может сказать, кто из запрошенных выпал — «не нашли никого» и «нашли не всех»
+     * отличаются только размером списка. Сверку с исходным запросом делает вызывающий:
+     * это его политика, а не транспорта (см. WEBFLUX_Service.findMissingUsernames).
+     */
+    public Mono<List<DataTransferService.UserDataRequest>> GetUsersByUnames(DataTransferService.RepeatedUsernames repeatedUsernames){
         grpcRequestsMetric.increment();
-        return Mono.fromCallable(()->{
-            DataTransferService.UserListResponse userListResponse = authTransferServiceBlockingStub.getUserByUsername(repeatedUsernames);
-            List<DataTransferService.UserDataRequest> list = userListResponse.getUsersList();
-            List<Long> resp = new ArrayList<>();
-            for(DataTransferService.UserDataRequest userDataRequest : list){
-                resp.add(userDataRequest.getId());
-
-            }
-            return resp;
-        }).subscribeOn(Schedulers.boundedElastic());
-
-
-
+        return Mono.fromCallable(()->
+                authTransferServiceBlockingStub.getUserByUsername(repeatedUsernames).getUsersList()
+        ).subscribeOn(Schedulers.boundedElastic());
     }
 //    public List<String> GetAllNamesByChat(DataTransferService.ChatData chatData){
 //        grpcRequestsMetric.increment();

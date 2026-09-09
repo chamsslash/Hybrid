@@ -1,6 +1,7 @@
 package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.*;
+import com.example.springexample.Metrics.FpCheckMetric;
 import com.example.springexample.Utils.*;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -17,6 +18,7 @@ import org.springframework.http.*;
 
 import com.google.gson.Gson;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
@@ -30,7 +32,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
 import java.util.*;
@@ -50,36 +51,58 @@ public class MVC_Service {
     @Autowired
     ParsingDataService dataParser;
     @Autowired
-    YandexGptService gptService;
+    GeminiService gptService;
+    @Autowired
+    FpCheckMetric fpCheckMetric;
 
+    /**
+     * Ставить ли на куку сессии атрибут {@code Secure} (beads ybg).
+     *
+     * <p>Дефолт {@code false} — это текущий стенд на plain HTTP: кука с {@code Secure}
+     * по HTTP браузером отбрасывается, и вход перестал бы работать вовсе. При публикации
+     * по HTTPS значение переключается переменной окружения {@code COOKIE_SECURE}, чтобы
+     * refresh-токен не ходил в открытом виде. Атрибуты самой куки — в {@link AuthCookies}.
+     */
+    @Value("${COOKIE_SECURE:false}")
+    boolean cookieSecure;
+
+    /**
+     * Потолок ожидания вердикта Gemini. Четыре секунды: {@code /exchangeTokens}
+     * выполняется браузером в фоне, и задержка сверх нескольких секунд неотличима для
+     * пользователя от зависшей вкладки; типичный ответ {@code gemini-2.5-flash-lite}
+     * укладывается в 1–2 с.
+     */
+    private static final Duration AI_VERDICT_TIMEOUT = Duration.ofSeconds(4);
+
+
+    // Корень отдаёт редирект на точку входа (beads 9kn). Маппинга на "/" не было вовсе, и
+    // пользователь, набравший голый хост, упирался в сырую страницу Tomcat «HTTP Status 404».
+    // Именно редирект, а не рендер той же вьюхи: /welcome сам кладёт в модель nonce и CSRF —
+    // дублировать эту подготовку во второй точке означало бы два места, которые обязаны
+    // расходиться синхронно. "/" уже числится публичным в MvcJwtAuthFilter.PUBLIC_PATHS,
+    // так что редирект отрабатывает и для анонима.
+    @GetMapping(path = "/")
+    public String GetRoot() {
+        return "redirect:/welcome";
+    }
 
     @GetMapping(path = "/createchatpage")
-    public String GetCreateChat(Model model, HttpServletResponse response) {
-        generateandputNonce(model, response);
-        return "chatcreatepage";
+    public String GetCreateChat() {
+        return "redirect:/reactive/createchat";
     }
 
     @GetMapping(path = "/registerpage")
     public String GetRegisterPage(Model model, HttpServletResponse response) {
         generateandputNonce(model, response);
-        return "register";
+        return "app";
     }
 
     @GetMapping(path = "/welcome")
-    public String GetWelcome(@RequestParam(value = "error",required = false)String error,HttpServletRequest request,Model model, HttpServletResponse response) {
+    public String GetWelcome(HttpServletRequest request,Model model, HttpServletResponse response) {
        generateandputNonce(model, response);
         CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
         log.info(csrfToken.getToken().toString());
-        if (error != null) {
-            model.addAttribute("error", error);
-        }
-        return "welcome";
-    }
-    @GetMapping(path = "/collect-fingerprint")
-    public  String fpCollector(@RequestParam("return_url") String redirecturi,HttpServletResponse response,Model model){
-        generateandputNonce(model,response);
-        model.addAttribute("returnUrl",redirecturi);
-        return "fingerpring_collector";
+        return "app";
     }
     @PostMapping("/exchangeTokens")
     public ResponseEntity<?> provideNewTokens(
@@ -101,8 +124,9 @@ public class MVC_Service {
                     .badRequest() // Статус 400 Bad Request
                     .body(Map.of("error", "Отсутствует обязательный заголовок X-Fingerprint."));
         }
-        ResponseCookie deleteAccess = ResponseCookie.from("access", "").maxAge(0).path("/").build();
-        ResponseCookie deleteRefresh = ResponseCookie.from("refresh", "").maxAge(0).path("/").build();
+        // Backward-compat: clear legacy access cookie (we no longer use access-in-cookie).
+        ResponseCookie deleteAccess = AuthCookies.deleteLegacyAccess();
+        ResponseCookie deleteRefresh = AuthCookies.deleteRefresh();
         MvcJwtAuthFilter.jwt_refresh_auths newTokens;
         try {
             FpSimilarityScore FpUtils = new FpSimilarityScore();
@@ -126,33 +150,15 @@ public class MVC_Service {
             }
 
             // 3. Формируем новую HttpOnly cookie
-//            ResponseCookie newRefreshTokenCookie = ResponseCookie.from("Refresh", newTokens.refresh())
-//                    .httpOnly(true)
-//                    .secure(true) // В продакшене должно быть true
-//                    .path("/") // Используйте тот же путь, что и при установке
-//                    .maxAge(Duration.ofDays(7))
-//                    .sameSite("Strict")
-//                    .build();
-            ResponseCookie rc= ResponseCookie.from("access",newTokens.jwt())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofMinutes(10))
-                    .build();
-            ResponseCookie refreshCookie = ResponseCookie.from("refresh", newTokens.refresh())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofDays(7))
-                    .build();
+            ResponseCookie refreshCookie = AuthCookies.refresh(newTokens.refresh(), cookieSecure);
 
 
             return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE,rc.toString())
                     .header(HttpHeaders.SET_COOKIE,refreshCookie.toString())
-                    .body(Map.of("text", "Successfully established access cookie"));
+                    .body(Map.of(
+                            "accessToken", newTokens.jwt(),
+                            "tokenType", "Bearer"
+                    ));
 
         } catch (TokenException e) { // Ловим КОНКРЕТНОЕ кастомное исключение
             log.warn("Попытка обновить токен с невалидными данными: {}", e.getMessage());
@@ -188,10 +194,15 @@ public class MVC_Service {
 //                .header(HttpHeaders.SET_COOKIE, rc.toString())
 //                .body(Map.of("text", "Successfully established access cookie"));
 //    }
+    // OAuth-callback обслуживается тем же app-shell'ом, что и остальные экраны (beads j35).
+    // Раньше здесь отдавался отдельный Thymeleaf-документ callback.html, и accessToken,
+    // положенный после /verifylogin в память, терялся при уходе на redirectUri — смена
+    // документа. Внутри шелла этот переход делает клиентский роутер, документ остаётся тем
+    // же, и лишний /exchangeTokens на восстановление токена больше не нужен.
     @GetMapping(path = "/authcallback")
     public String authcallbackpage(Model model,HttpServletResponse response){
         generateandputNonce(model,response);
-        return "callback" ;}
+        return "app" ;}
     @PostMapping(path = "/verifylogin")
     public ResponseEntity<?> verifylogin(@RequestParam("code") String token, @RequestParam("state")String state,@RequestParam("FpComponents")String fpparts,
                                          @RequestHeader(value ="X-Fingerprint")String fingerprint,
@@ -235,26 +246,14 @@ public class MVC_Service {
 
             MvcJwtAuthFilter.jwt_refresh_auths tokens = tokensResolver.genPairOfToken(subRole,newMeta);
 //            String bindingToken = tokensResolver.getBindingToken(subRole.getSub());
-            ResponseCookie rc= ResponseCookie.from("access",tokens.jwt())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofMinutes(10))
-                    .build();
-            ResponseCookie refreshCookie = ResponseCookie.from("refresh", tokens.refresh())
-                    .httpOnly(true)
-//                .secure(true)
-                    .sameSite("Strict")
-                    .path("/")
-                    .maxAge(Duration.ofDays(7))
-                    .build();
+            ResponseCookie refreshCookie = AuthCookies.refresh(tokens.refresh(), cookieSecure);
             Map<String, String> responseBody = Map.of(
-                        "redirectUri","/reactive/chatlist"
+                    "redirectUri", "/reactive/chatlist",
+                    "accessToken", tokens.jwt(),
+                    "tokenType", "Bearer"
             );
             // 4. Собираем финальный ответ
             return ResponseEntity.status(HttpStatus.OK)
-                    .header(HttpHeaders.SET_COOKIE, rc.toString())
                     .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                     .body(responseBody);
 
@@ -287,61 +286,81 @@ public class MVC_Service {
 
 
 
-    //затрайкатчить и залогировать и можно где асинхрон прикрутить
-//    @PostMapping(path = "/Aiassist")
-//    public ResponseEntity<?> AIassistantHelp(@RequestParam("TargetUserName") String targetusername,
-//    @RequestParam("chat_id") String chat_id) throws Exception {
-//        ChatContextService contextService = new ChatContextService(redisTemplate, chat_id);
-//        Map<String, List<String>> nameMessages = new HashMap<>();
-//        List<String> prompt =contextService.getFullContext();
-//        if (prompt.isEmpty()){
-//            return  ResponseEntity.ofNullable("THERE IS NO MESSAGES IN CHAT");
-//        }
-//        for (String s : prompt) {
-//            JsonObject prompt_part =JsonParser.parseString(s).getAsJsonObject();
-//            String username = prompt_part.get("user").toString();
-//            String usermessage = prompt_part.get("message").toString();
-//            nameMessages.computeIfAbsent(username, k -> new ArrayList<>()).add(usermessage);
-//        }
-//        String promptTemplate = "Ты — AI-ассистент в чате. Помоги составить короткий дружелюбный ответ пользователю с ником %s на его сообщение в контексте последних сообщений других участников. Обязательно упоминай %s, не отвечай самому себе, поддерживай беседу, тон вежливый и корректный, ответ краткий и по существу, не придумывай новых участников, соблюдай уважительный стиль.";
-//        String promptWithNick = String.format(promptTemplate,targetusername,"@"+targetusername);
-//        JsonArray jsonprompt =yandexGptService.BuildJsonPrompt(promptWithNick,nameMessages);
-//        String answer = yandexGptService.GetAssistantAnswer(jsonprompt);
-//        return ResponseEntity.ok(answer);
-//    }
+    // Генерация nonce и текст заголовка — в CspNonce, общем с реактивной половиной:
+    // шаблон у них один (app.html), политика обязана быть одна и та же.
     private void generateandputNonce(Model model,HttpServletResponse response){
-        String nonceId;
-
-        try {
-            nonceId  = Base64.getEncoder().encodeToString(
-                    SecureRandom.getInstanceStrong().generateSeed(16));
-
-        }catch (NoSuchAlgorithmException noSuchAlgorithmException){
-            log.warn("no such alg for nonce");
-            nonceId= null;
-        }
+        String nonceId = CspNonce.generate();
         if (nonceId!=null){
-            response.setHeader("Content-Security-Policy",
-                    "script-src 'nonce-" + nonceId + "' 'strict-dynamic'; trusted-types default; object-src 'none'; base-uri 'none';");
+            response.setHeader(CspNonce.HEADER, CspNonce.headerValue(nonceId));
             model.addAttribute("nonce",nonceId);
 
         }
     }
+    /**
+     * Сравнивает два отпечатка браузера и решает, тот ли это пользователь.
+     *
+     * <p><b>Метод не выбрасывает исключений — это его контракт (beads kz6).</b> Он стоит
+     * на пути аутентификации в двух местах: на Google-логине ({@code MVC_Service:228}) и
+     * на обновлении токена ({@code TokensResolver:220}). Второй вызывающий исключения не
+     * гасит — {@code CheckRefreshAndGetSub} логирует и делает {@code throw e}, — поэтому
+     * любое исключение отсюда становилось <b>500 на {@code /exchangeTokens}</b>: живой
+     * пользователь внутри приложения терял сессию и уезжал на {@code /welcome}.
+     *
+     * <p>Раньше в {@code try} стоял только {@code .block()}, а три строки выше — расчёт
+     * эвристики, построение промпта и сам вызов Gemini — стояли вне его. Мимо фолбэка
+     * улетали: обрыв JSON в {@code similarCheck} (beads uok), NPE на незаполненных сетевых
+     * полях и синхронный бросок {@code requireApiKey()} при пустом {@code GEMINI_API_KEY}.
+     *
+     * <p><b>Почему два раздельных try, а не один расширенный.</b> Фолбэк AI-ветки — это
+     * {@code checkresult >= 60}, а {@code checkresult} даёт {@code similarCheck}. Занеси
+     * её в тот же {@code try} — и в ветке отказа фолбэка не существует, потому что упало
+     * ровно то, что им является. Поэтому исходов три, а не два:
+     * <ul>
+     *   <li>вердикт получен — {@code (AI + эвристика) / 2 >= 60}, как и было;</li>
+     *   <li>AI не ответил — решаем одной эвристикой (задуманная деградация);</li>
+     *   <li>эвристика упала — вердикта нет, <b>fail-closed</b>.</li>
+     * </ul>
+     *
+     * <p>Fail-closed здесь недорог: отказ не уничтожает сессию — {@code rotateTokens:124}
+     * кидает {@code FORBIDDEN "NotSimilar"}, запись в Redis остаётся жива, другие
+     * устройства не разлогиниваются. Цена — один повторный вход. Fail-open отвергнут:
+     * проверка отпечатка — единственный барьер против украденной refresh-куки с чужой
+     * машины, и открывать его при внутренней ошибке значит превращать любой баг парсинга
+     * в обход защиты.
+     *
+     * <p>Оба нештатных исхода идут в {@link FpCheckMetric}: тихий fail-closed выглядит для
+     * пользователя как «меня иногда разлогинивает» и не расследуется.
+     */
     public boolean computeLikelihood (FpSimilarityScore.ClientMeta newMeta,
                                       FpSimilarityScore.ClientMeta oldMeta,FpSimilarityScore FpUtils){
-
-        double checkresult = FpUtils.similarCheck(oldMeta, newMeta);
-        JsonArray prompt = gptService.BuildSecurityCheckPrompt(oldMeta,newMeta);
-        Mono<String> securitypredict= gptService.aiSecurePredict(prompt);
-        boolean conclusion;
+        double checkresult;
         try {
-            double res = securitypredict.map(doub->Double.valueOf((doub)+checkresult)/2).block();
-            return res>=60;
+            checkresult = FpUtils.similarCheck(oldMeta, newMeta);
         } catch (Exception e) {
-            log.error("Ai security predict failed",e);
-            conclusion = checkresult>=60;
-            log.warn(Objects.toString(conclusion));
-            return conclusion;
+            log.error("Fingerprint heuristic failed — verdict unavailable", e);
+            fpCheckMetric.verdictUnavailable();
+            return false;
+        }
+
+        try {
+            GeminiPrompt prompt = gptService.BuildSecurityCheckPrompt(oldMeta, newMeta);
+            // probability приходит строкой "0".."100"; среднее между эвристикой и AI-оценкой.
+            // block(Duration) вместо block(): /exchangeTokens браузер выполняет в фоне, и
+            // неограниченное ожидание внешнего HTTP держало бы запрос сколько угодно.
+            // Таймаут даёт IllegalStateException — его ловит этот же catch, отдельная
+            // ветка не нужна.
+            Double res = gptService.aiSecurePredict(prompt)
+                    .map(doub -> (Double.parseDouble(doub.trim()) + checkresult) / 2)
+                    .block(AI_VERDICT_TIMEOUT);
+            if (res == null) {
+                // Пустой Mono — вердикта AI нет; распаковка null дала бы NPE уже вне try.
+                throw new IllegalStateException("Ai security predict returned empty result");
+            }
+            return res >= 60;
+        } catch (Exception e) {
+            log.warn("Ai security predict failed, falling back to heuristic", e);
+            fpCheckMetric.aiDegraded();
+            return checkresult >= 60;
         }
     }
 

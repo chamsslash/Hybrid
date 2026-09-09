@@ -7,6 +7,7 @@ import com.example.springexample.JPA_Entities.RowsMappers.MessageMapper;
 import com.example.springexample.JPA_Entities.RowsMappers.UserMapper;
 import com.example.springexample.JPA_Entities.r2dbc_user;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository; // @Repository включает в себя @Component, поэтому @Component излишен
 import reactor.core.publisher.Flux;
@@ -15,6 +16,7 @@ import reactor.core.publisher.Mono;
 
 @SuppressWarnings({"checkstyle:EmptyLineSeparator", "checkstyle:MissingJavadocType"})
 // @Component // Удалено, так как @Repository уже является @Component
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class ReactiveRepository {
@@ -100,7 +102,14 @@ public class ReactiveRepository {
     // Если id - это первичный ключ, то более корректно ожидать один результат (или ни одного).
     // Метод переименован в findChatById и возвращает Mono для ясности намерений.
     public Mono<r2dbc_chat> findChatById(Long chatId) {
-        String sql = "SELECT * FROM chats WHERE id = $1 LIMIT 1";
+        // Была опечатка "chats" (множественное число) — реальная таблица называется
+        // "chat". Запрос всегда падал в switchIfEmpty/onErrorResume вызывающего кода
+        // (ReactiveImpl.transferchat), из-за чего просмотр УЖЕ СУЩЕСТВУЮЩЕГО чата
+        // (не создание нового) всегда получал status=500 -> ApiController.chat()
+        // пропускал загрузку истории сообщений по короткому замыканию на этом статусе.
+        // Обнаружено при живой верификации 5l4 (Task 6) — история сообщений не
+        // грузилась даже при корректно сохранённых в БД сообщениях.
+        String sql = "SELECT * FROM chat WHERE id = $1 LIMIT 1";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> ChatMapper.map(row))
@@ -108,10 +117,16 @@ public class ReactiveRepository {
     }
 
     public Mono<r2dbc_message> findTopByChatIdOrderByTimestampDesc(Long chatId) {
+        // NULLS LAST обязателен: в Postgres DESC по умолчанию ставит NULL первыми,
+        // поэтому строка без времени всегда выигрывала бы "самое новое" и превью
+        // чата показывало бы не то сообщение. NULL здесь означает "время неизвестно"
+        // (легаси-строки), такие сообщения не должны считаться самыми свежими.
+        // Тай-брейк по id: при равных time_stamp (в частности у всех легаси-строк
+        // с NULL) порядок иначе недетерминирован между запросами.
         String sql = """
             SELECT * FROM message
             WHERE chat_id = $1
-            ORDER BY time_stamp DESC
+            ORDER BY time_stamp DESC NULLS LAST, id DESC
             LIMIT 1
         """;
 
@@ -122,7 +137,12 @@ public class ReactiveRepository {
     }
 
     public Flux<r2dbc_message> getMessagesByChatId(Long chatId) {
-        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC";
+        // Симметрично findTopByChatIdOrderByTimestampDesc: NULL = "время неизвестно",
+        // такие строки самые старые, поэтому в начало истории (ASC по умолчанию в
+        // Postgres ставит NULL последними, т.е. выдавал бы их за самые свежие).
+        // Тай-брейк по id: при равных time_stamp (в частности у всех легаси-строк
+        // с NULL) порядок иначе недетерминирован между запросами.
+        String sql = "SELECT * FROM message WHERE chat_id = $1 ORDER BY time_stamp ASC NULLS FIRST, id ASC";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .map((row, meta) -> MessageMapper.map(row))
@@ -143,5 +163,45 @@ public class ReactiveRepository {
                 .bind(0, userId)
                 .map((row, meta) -> row.get("image_url", String.class))
                 .one();
+    }
+
+    /**
+     * Вставка сообщения из топика "Messages" (beads myl).
+     *
+     * Гарантия Kafka здесь at-least-once: под, убитый после коммита в Postgres, но до
+     * коммита офсета, ребаланс группы и @RetryableTopic после обрыва на ответе драйвера —
+     * каждый сценарий переигрывает уже записанную запись. Отличить повтор по содержимому
+     * нельзя (два одинаковых сообщения подряд от одного человека — нормальный сценарий),
+     * поэтому естественный ключ приходит снаружи: messageId генерирует HTTPService, и
+     * переигранная запись несёт ровно то же значение. Уникальный индекс
+     * ux_message_message_id + ON CONFLICT DO NOTHING превращают повтор в no-op.
+     *
+     * messageId == null — записи из бэклога топика, сделанные до появления поля. Защиты от
+     * дублей для них нет и быть не может: сгенерируй id здесь — на каждой переигровке он
+     * получится новым, и идемпотентность станет фикцией. Такие записи вставляются как
+     * раньше, с предупреждением в лог, чтобы легаси-формат был виден.
+     */
+    public Mono<Void> insertMessage(Long chatId, Long userId, String text,
+                                    java.time.Instant timestamp, String messageId) {
+        if (messageId == null || messageId.isBlank()) {
+            log.warn("Сообщение чата {} без message_id (легаси-формат из бэклога топика) — "
+                    + "вставка без защиты от дублей", chatId);
+            String legacySql = "INSERT INTO message (chat_id, user_id, text, time_stamp) VALUES ($1, $2, $3, $4)";
+            return reactiveDb.sql(legacySql)
+                    .bind(0, chatId)
+                    .bind(1, userId)
+                    .bind(2, text)
+                    .bind(3, timestamp)
+                    .then();
+        }
+        String sql = "INSERT INTO message (chat_id, user_id, text, time_stamp, message_id) "
+                + "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (message_id) DO NOTHING";
+        return reactiveDb.sql(sql)
+                .bind(0, chatId)
+                .bind(1, userId)
+                .bind(2, text)
+                .bind(3, timestamp)
+                .bind(4, messageId)
+                .then();
     }
 }

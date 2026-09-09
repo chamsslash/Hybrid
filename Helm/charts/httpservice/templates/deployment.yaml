@@ -13,6 +13,16 @@ spec:
     metadata:
       labels:
         app: httpservice
+      annotations:
+        # Три аннотации, которые читает relabel_configs в
+        # Helm/templates/prometheus-config.yaml (beads c2k). До их появления правило
+        # keep по prometheus.io/scrape отбрасывало всё — это единственная
+        # поломка связки, записанная в тикете.
+        # Порт здесь — management-порт КОНТЕЙНЕРА, а не порт Service: Prometheus
+        # ходит по pod IP через kubernetes_sd_configs role: pod.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8090"
     spec:
       containers:
         - name: httpservice
@@ -20,6 +30,34 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}
           ports:
             - containerPort: 8080
+            # Management-порт. В Service его НЕ публикуем: Prometheus скрейпит по
+            # pod IP через kubernetes_sd_configs role: pod, а не через Service.
+            - containerPort: 8090
+          # Без readiness-пробы под считается готовым сразу после старта контейнера, а
+          # Spring поднимается ~16 с (в логе: «Started Main in 16.362 seconds», Tomcat
+          # начинает слушать только под конец). Ingress всё это время слал трафик в
+          # неготовый под, и каждый `helm upgrade` / `rollout restart` давал окно, в
+          # котором пользователь получал 502 Bad Gateway — ловилось вживую дважды подряд.
+          #
+          # Проба висела на /actuator/prometheus порта 8080, потому что /actuator/health
+          # закрыт Security и отвечает 302, а prometheus был единственным эндпоинтом
+          # актуатора вне security-цепочки. Побочным эффектом этого костыля весь дамп
+          # метрик отдавался наружу через ingress без аутентификации.
+          #
+          # Актуатор переехал на management-порт 8090 (beads c2k), который в ingress не
+          # смотрит. Там он открыт отдельной цепочкой actuatorFilterChain, поэтому проба
+          # стоит на /actuator/health/readiness: она означает «контекст поднят и готов»,
+          # а не «процесс отвечает по HTTP».
+          #
+          # Пробы теперь есть у всех трёх сервисов: у authservice на 8090, у
+          # messegerparody на 8082 — там, где раньше вообще никто не слушал.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "{{ .Values.env.kafkaBootstrap }}"
@@ -28,26 +66,72 @@ spec:
             - name: SPRING_DATASOURCE_USERNAME
               value: "{{ .Values.env.datasourceUsername }}"
             - name: SPRING_DATASOURCE_PASSWORD
-              value: "{{ .Values.env.datasourcePassword }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: DB_PASSWORD
             - name: SPRING_REDIS_HOST
               value: "{{ .Values.env.redisHost }}"
             - name: SPRING_REDIS_PORT
               value: "{{ .Values.env.redisPort }}"
             - name: REFRESH_SECRET
-              value: "{{ .Values.env.refreshSecret | default .Values.security.refreshSecret }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: REFRESH_SECRET
             - name: JWT_PUBLIC_KEY_PEM
               value: |-
 {{ .Values.env.jwtPublicKey | nindent 16 }}
             - name: JWT_PRIVATE_KEY_PEM
-              value: |-
-{{ .Values.env.jwtPrivateKey | nindent 16 }}
-            - name: YANDEX_PUBLIC_KEY_PEM
-              value: |-
-{{ .Values.env.yandexPublicKey | nindent 16 }}
-            - name: YANDEX_PRIVATE_KEY_PEM
-              value: |-
-{{ .Values.env.yandexPrivateKey | nindent 16 }}
-            - name: YANDEX_SERVICE_ACCOUNT_ID
-              value: "{{ .Values.env.yandexServiceAccountId }}"
-            - name: YANDEX_KEY_ID
-              value: "{{ .Values.env.yandexKeyId }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: JWT_PRIVATE_KEY_PEM
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: GEMINI_API_KEY
+            # Атрибут Secure на куке сессии (beads ybg). Обязан идти в паре с
+            # global.publicScheme: true только при https, иначе браузер отбросит куку.
+            - name: COOKIE_SECURE
+              value: "{{ .Values.global.cookieSecure | default false }}"
+            - name: FORWARD_HEADERS_STRATEGY
+              value: "{{ .Values.global.forwardHeadersStrategy | default "none" }}"
+            # Внешний хост и схема. Здесь они нужны не для OAuth (его ведёт authservice), а
+            # для списка разрешённых Origin на handshake STOMP/SockJS — см. StompConfig.
+            - name: INGRESS_HOST
+              value: "{{ .Values.global.ingressHost | default "myapp.localtest.me" }}"
+            - name: PUBLIC_SCHEME
+              value: "{{ .Values.global.publicScheme | default "http" }}"
+            # Без `default`: пустая строка здесь — ОСМЫСЛЕННОЕ значение «дополнительных
+            # origin'ов нет», а Helm-функция default считает её отсутствующей и вернула бы
+            # http://localhost обратно, молча отменив values-public.yaml.
+            - name: EXTRA_ALLOWED_ORIGINS
+              value: "{{ .Values.global.extraAllowedOrigins }}"
+            - name: GEMINI_MODEL
+              value: "{{ .Values.env.geminiModel }}"
+            - name: MINIO_ENDPOINT
+              value: "{{ .Values.env.minioEndpoint }}"
+            - name: MINIO_BUCKET
+              value: "{{ .Values.env.minioBucket }}"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+                  key: MINIO_SECRET_KEY
+
+            # ── Трейсинг (beads izv) ──────────────────────────────────
+            # Значения приходят из global, потому что подчарт видит только то, что
+            # лежит буквально под `global` в values.yaml зонтичного чарта.
+            - name: TRACING_ENABLED
+              value: "{{ .Values.global.tracing.enabled }}"
+            - name: TRACING_SAMPLING
+              value: "{{ .Values.global.tracing.samplingProbability }}"
+            - name: TRACING_ZIPKIN_ENDPOINT
+              value: "{{ .Values.global.tracing.zipkinEndpoint }}"

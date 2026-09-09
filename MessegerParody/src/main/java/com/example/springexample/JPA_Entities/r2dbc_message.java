@@ -5,6 +5,8 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.data.relational.core.mapping.Column;
 
+import java.time.Instant;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,7 +20,7 @@ public class r2dbc_message {
     private String text;
 
     @Column("time_stamp")
-    private String timeStamp;
+    private Instant timeStamp;
 
     @Column("user_id")
     private Long userId;

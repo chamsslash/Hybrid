@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 public class AiRequestMetric {
     private final Counter AiRequestCounter;
     public AiRequestMetric(MeterRegistry registry) {
-        AiRequestCounter = Counter.builder("AiRequestCounter").tag("Ai", "true").description("Количество обращений за помощью к YandexAi").register(registry);
+        AiRequestCounter = Counter.builder("AiRequestCounter").tag("Ai", "true").description("Количество обращений за помощью к AI-ассистенту").register(registry);
 
     }
     public void increment() {

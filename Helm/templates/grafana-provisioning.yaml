@@ -1,0 +1,99 @@
+{{- if .Values.infra.grafana }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        # uid зафиксирован строкой намеренно: на него ссылается КАЖДАЯ панель в
+        # Helm/dashboards/*.json. Сгенерированный uid ломал бы все дашборды сразу,
+        # причём тихо — панели просто показывали бы "Datasource not found".
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+{{- if .Values.infra.alertmanager }}
+      # Alertmanager отдельным источником данных: раздел Alerting в Grafana тогда
+      # показывает активные срабатывания и молчанки рядом с дашбордами, и лезть в
+      # отдельный UI Alertmanager'а не нужно.
+      # implementation: prometheus — Grafana поддерживает несколько диалектов
+      # Alertmanager API (свой собственный и ванильный); без этого поля она
+      # выбирает свой и не находит алерты, отдавая пустой список без ошибки.
+      - name: Alertmanager
+        uid: alertmanager
+        type: alertmanager
+        access: proxy
+        url: http://alertmanager:9093
+        editable: false
+        jsonData:
+          implementation: prometheus
+          handleGrafanaManagedAlerts: false
+{{- end }}
+{{- if .Values.infra.tempo }}
+      # Tempo — хранилище трейсов (beads izv).
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        editable: false
+        jsonData:
+          # Связка трейс → метрики: из span'а можно перейти к RED-метрикам того же
+          # сервиса. Обратной связки (метрика → exemplar → трейс) здесь нет
+          # осознанно: exemplar'ы требуют, чтобы приложения publish'или их в
+          # прометеевском формате, а keep-список в prometheus.keepMetrics их бы
+          # всё равно не пропустил — см. docs/observability.md §13.7.
+          tracesToMetrics:
+            datasourceUid: prometheus
+            tags:
+              - key: service.name
+                value: app
+          # Node graph строит граф вызовов из span'ов трейса — ровно та картинка
+          # «кто кого зовёт», ради которой этот тикет и заводился.
+          nodeGraph:
+            enabled: true
+          # Trace-to-logs намеренно НЕ настроен: логов в системе хранения нет,
+          # Loki не разворачивался. Пустая настройка рисовала бы в UI кнопку,
+          # ведущую в никуда.
+          search:
+            hide: false
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: hybrid
+        orgId: 1
+        folder: Hybrid
+        type: file
+        # Дашборды — код, живущий в гите. Правка в UI намеренно эфемерна:
+        # allowUiUpdates: false запрещает Grafana перезаписывать файл, а
+        # updateIntervalSeconds заставляет её перечитывать каталог, поэтому после
+        # helm upgrade перезапуск пода ради дашбордов не нужен — достаточно
+        # синхронизации смонтированного ConfigMap.
+        # Без этого получается дашборд, который никто не может воспроизвести и
+        # который умирает вместе с подом.
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+data:
+{{ (.Files.Glob "dashboards/*.json").AsConfig | indent 2 }}
+{{- end }}

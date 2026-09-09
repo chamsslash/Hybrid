@@ -216,13 +216,24 @@ public class FpSimilarityScore {
 
 
 
-            String initialASN = initialMeta.asn.split(" ")[0];
-            String secASN = secondaryMeta.asn.split(" ")[0];
-            String[] orgasnpart1= initialMeta.asn.split(" ");
-            String asOrg1 = String.join(" ", Arrays.copyOfRange(orgasnpart1, 1, orgasnpart1.length));
-            String[] orgasnpart2= secondaryMeta.asn.split(" ");
-            String asOrg2 = String.join(" ", Arrays.copyOfRange(orgasnpart2, 1, orgasnpart2.length));
-            if (initialASN != null && secASN != null) {
+            // Блок ASN/Org считается только когда все три сетевых поля заполнены у ОБОИХ
+            // отпечатков. Раньше проверок здесь не было вовсе — единственный участок
+            // метода без них, — и NPE отсюда уходил на путь аутентификации (beads kz6):
+            //   asn.split(" ")                — строки ниже,
+            //   org.equals(asOrg1)            — сравнение организации,
+            //   normalize(ptr)/normalize(org) — normalize сразу делает s.toLowerCase().
+            // Прежняя проверка «if (initialASN != null && secASN != null)» была
+            // бесполезна: до неё NPE уже случился бы на split, а split на непустой
+            // строке null не отдаёт. Поведение при заполненных полях не меняется; при
+            // пустых баллы просто не начисляются — ровно как у ip и геолокации выше.
+            if (hasNetworkFields(initialMeta) && hasNetworkFields(secondaryMeta)) {
+                String initialASN = initialMeta.asn.split(" ")[0];
+                String secASN = secondaryMeta.asn.split(" ")[0];
+                String[] orgasnpart1 = initialMeta.asn.split(" ");
+                String asOrg1 = String.join(" ", Arrays.copyOfRange(orgasnpart1, 1, orgasnpart1.length));
+                String[] orgasnpart2 = secondaryMeta.asn.split(" ");
+                String asOrg2 = String.join(" ", Arrays.copyOfRange(orgasnpart2, 1, orgasnpart2.length));
+
                 String ptrNorm = normalize(initialMeta.ptr);
                 String orgNorm = normalize(initialMeta.org);
                 String ptrNorm2 = normalize(secondaryMeta.ptr);
@@ -258,6 +269,14 @@ public class FpSimilarityScore {
         result.addAll(b);
         return result;
     }
+    /**
+     * Все три сетевых поля заполнены. Проверяются вместе, а не по отдельности: блок
+     * начисления баллов за ASN/Org использует их все три и осмыслен только целиком.
+     */
+    private static boolean hasNetworkFields(ClientMeta meta) {
+        return meta.asn() != null && meta.org() != null && meta.ptr() != null;
+    }
+
     String normalize(String s) {
         return s.toLowerCase()
                 .replaceAll("[^a-z0-9]", "") // убрать .,- и т.п.

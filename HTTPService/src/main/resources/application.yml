@@ -1,4 +1,3 @@
-debug: true
 securityProps:
   refresh-secret: ${REFRESH_SECRET}
   refresh-expiration-ms: 604800000
@@ -9,17 +8,20 @@ securityProps:
   webflux:
     base-path: /reactive
 spring:
+  # Имя сервиса в трейсах (beads izv). Без него Brave подставляет заглушку,
+  # и все три сервиса в Tempo выглядят одинаково — трейс есть, а кто в нём
+  # какой хоп, не понять.
+  application:
+    name: httpservice
 
   data:
     redis:
       url: redis://redis:6379/0
-  webflux:
-    log-request-details: true
   servlet:
     multipart:
       enabled: true
-      max-file-size: 5MB
-      max-request-size: 5MB
+      max-file-size: 10MB
+      max-request-size: 10MB
 
   main:
     allow-bean-definition-overriding: true
@@ -40,15 +42,6 @@ spring:
 
 grpc:
   client:
-    MessageTransferService:
-      address: "dns:///messegerparody:9091"
-      negotiationType: plaintext
-      enable-keep-alive: true
-      keep-alive-time: 30s
-      keep-alive-timeout: 10s
-      default-load-balancing-policy: round_robin
-
-
     ChatService:
       address: "dns:///messegerparody:9091"
       negotiationType: plaintext
@@ -77,8 +70,37 @@ grpc:
 
 server:
   port: 8080
+  # Доверять X-Forwarded-* от прокси (beads ybg). Тот же тумблер и та же оговорка,
+  # что в AuthService: none — дефолт Spring Boot и текущее поведение стенда,
+  # framework — только когда перед сервисом реально стоит терминирующий TLS прокси.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 management:
+
+  # ── Распределённый трейсинг (beads izv) ────────────────────────────────────
+  # Экспорт span'ов в Tempo по zipkin-протоколу. Адрес приходит из чарта
+  # (global.tracing.zipkinEndpoint), дефолт — для запуска вне кластера.
+  tracing:
+    enabled: ${TRACING_ENABLED:true}
+    sampling:
+      # 1.0 = записывать КАЖДЫЙ запрос. Дефолт Spring Boot — 0.1, и на стенде это
+      # худший вариант: воспроизводишь баг, идёшь за трейсом, а его нет — не потому
+      # что сломано, а потому что не попал в выборку. В проде значение снижают.
+      probability: ${TRACING_SAMPLING:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${TRACING_ZIPKIN_ENDPOINT:http://tempo:9411/api/v2/spans}
+  server:
+    # Отдельный порт от 8080 (beads c2k). Ingress содержит правило
+    # `path: / (Prefix) -> httpservice:8080`, то есть ВЕСЬ 8080 публичен, и
+    # /actuator/prometheus отдавался наружу без аутентификации: curl на
+    # http://myapp.localtest.me/actuator/prometheus возвращал 200 с полным дампом —
+    # имена всех URI приложения, версия JVM, имена Kafka-топиков, бизнес-счётчики,
+    # uptime. Это был вынужденный костыль, потому что readinessProbe висела на этом
+    # эндпоинте: /actuator/health закрыт Security и отвечает 302.
+    # 8090 в ingress не смотрит и в Service не публикуется, поэтому исключения в
+    # Security больше не нужны — они удалены из MvcSecurityConfig и обоих фильтров.
+    port: 8090
   endpoints:
     web:
       exposure:
@@ -86,18 +108,37 @@ management:
   endpoint:
     prometheus:
       enabled: true
+    health:
+      # Даёт /actuator/health/readiness, на который переехала readinessProbe.
+      # В отличие от пробы на /actuator/prometheus она означает «Spring поднял
+      # контекст и готов», а не «процесс отвечает по HTTP».
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      # http.server.requests по умолчанию публикуется как summary, а
+      # histogram_quantile() работает ТОЛЬКО по бакетам: p95 по HTTP был
+      # недоступен в принципе, оставались лишь средняя и _max.
+      percentiles-histogram:
+        "[http.server.requests]": true
+      # Границы явные, и это не косметика: дефолтные бакеты покрывают диапазон от
+      # микросекунд до минут, и каждый — отдельный ряд на КАЖДОЕ значение uri.
+      minimum-expected-value:
+        "[http.server.requests]": 10ms
+      maximum-expected-value:
+        "[http.server.requests]": 10s
 
 logging:
   level:
-    org.springframework.security: TRACE
-    org.springframework.web.servlet: DEBUG
-    org.springframework.web.method: DEBUG
-    org.springframework.web.reactive: TRACE
-    org.springframework.web.reactive.function.server.DefaultRouterFunction: DEBUG
-    org.springframework.web.server.adapter: DEBUG
-    org.springframework.http.server.reactive.ServletHttpHandlerAdapter: DEBUG
-    com.example.springexample: DEBUG
-    reactor.netty: DEBUG
+    org.springframework.security: INFO
+    org.springframework.web.servlet: INFO
+    org.springframework.web.method: INFO
+    org.springframework.web.reactive: INFO
+    org.springframework.web.reactive.function.server.DefaultRouterFunction: INFO
+    org.springframework.web.server.adapter: INFO
+    org.springframework.http.server.reactive.ServletHttpHandlerAdapter: INFO
+    com.example.springexample: INFO
+    reactor.netty: INFO
     org.apache.kafka: ERROR
     org.springframework.kafka: ERROR
 

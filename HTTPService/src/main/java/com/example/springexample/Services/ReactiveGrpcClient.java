@@ -33,9 +33,34 @@ public class ReactiveGrpcClient {
     private final ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub reactiveTransferServiceStub;
     @Autowired
     GrpcRequestsMetric grpcRequestsMetric;
+    /**
+     * Получатели STOMP-уведомлений о новом чате: участники плюс автор (beads 1e2).
+     *
+     * Каждый id подставляется прямо в адрес рассылки (/mutual/chatlist/list_update/{id},
+     * /mutual/chatlist/change_chatpreview/{id}), поэтому здесь важен ровно формат строки,
+     * а не только её наличие.
+     *
+     * Автор берётся через getAuthorId().getId(), а не String.valueOf(getAuthorId()): по
+     * контракту proto поле author_id имеет тип User, то есть вложенное СООБЩЕНИЕ, и
+     * String.valueOf печатал его текстовый формат — адрес получался
+     * /mutual/chatlist/list_update/id: "6" вместо .../6. Подписчиков у такого адреса нет,
+     * поэтому автор чата не получал ни list_update, ни change_chatpreview: его собственный
+     * список не обновлялся на лету, тогда как остальным участникам всё доезжало. Дыры в
+     * доступе тут не было — было тихое исчезновение уведомления.
+     *
+     * Метод вынесен из лямбды именно ради проверяемости: формат адреса раньше не
+     * утверждался ничем, и ошибка жила незамеченной до живого прогона на стенде.
+     */
+    static ArrayList<String> stompRecipients(DataTransferService.ChatData chatData) {
+        ArrayList<String> users = chatData.getUserList().stream()
+                .map(DataTransferService.User::getId)
+                .collect(Collectors.toCollection(ArrayList::new));
+        users.add(chatData.getAuthorId().getId());
+        return users;
+    }
+
     public Mono<List<String>> reactiveGetAllUsernamesByChatId(DataTransferService.ChatData chatData) {
-        grpcRequestsMetric.increment();
-        return reactiveTransferServiceStub.getAllUsersByChatId(chatData)
+        return grpcRequestsMetric.measure("getAllUsersByChatId", reactiveTransferServiceStub.getAllUsersByChatId(chatData))
                 .map(users->users.getUsersList().stream()
                 .map(userdata->userdata.getUsername())
                         .collect(Collectors.toList()));
@@ -44,8 +69,7 @@ public class ReactiveGrpcClient {
     }
 
     public Mono<ShortChatObject> reactiveGetNewestMessage(DataTransferService.ChatData chatData) {
-        grpcRequestsMetric.increment();
-        return  reactiveTransferServiceStub.getnewest(chatData).map(message -> {
+        return  grpcRequestsMetric.measure("getnewest", reactiveTransferServiceStub.getnewest(chatData)).map(message -> {
             log.info("got newest message from chat {}",message.getChatId());
             return  new ShortChatObject(
                     message.getChatId(),
@@ -57,9 +81,7 @@ public class ReactiveGrpcClient {
 
     }
     public Mono<String> reactiveChatServe(DataTransferService.ChatData chatData) {
-        grpcRequestsMetric.increment();
-
-        return reactiveTransferServiceStub.transferchat(chatData)
+        return grpcRequestsMetric.measure("transferchat", reactiveTransferServiceStub.transferchat(chatData))
                 .flatMap(chatResponse -> {
                     return this.reactiveGetNewestMessage(
                                     DataTransferService.ChatData.newBuilder()
@@ -79,10 +101,7 @@ public class ReactiveGrpcClient {
                                             shortChatObject.getTitle(),
                                             chatResponse.getImageUrl());
 
-                                    ArrayList<String> users = chatData.getUserList().stream()
-                                            .map(user -> String.valueOf(user.getId()))
-                                            .collect(Collectors.toCollection(ArrayList::new));
-                                    users.add(String.valueOf(chatData.getAuthorId()));
+                                    ArrayList<String> users = stompRecipients(chatData);
 
                                     if (!shortChatObject.getPreview().isEmpty()
                                             && !shortChatObject.getPreview_username().isEmpty()) {
@@ -110,9 +129,7 @@ public class ReactiveGrpcClient {
                 });
     }
     public Mono<List<MessageEvent>> reactiveGetAllMessages(DataTransferService.ChatData chatData) {
-        grpcRequestsMetric.increment();
-
-        return reactiveTransferServiceStub.transferAllMessages(chatData)
+        return grpcRequestsMetric.measure("transferAllMessages", reactiveTransferServiceStub.transferAllMessages(chatData))
                 .flatMapMany(event->{
                     if(event.getMessageListList().isEmpty()){
                         log.warn("Нет сообщений в ListOfMessages");
@@ -140,20 +157,16 @@ public class ReactiveGrpcClient {
         });
     }
     public Mono<DataTransferService.ListOfChats> reactiveGetAllChatsById(DataTransferService.ChatData chatData) {
-        grpcRequestsMetric.increment();
-        return reactiveTransferServiceStub.getallchatsbyid(chatData);
+        return grpcRequestsMetric.measure("getallchatsbyid", reactiveTransferServiceStub.getallchatsbyid(chatData));
     }
     public Mono<String> reactiveGetUsernameById(String chatId) {
-        grpcRequestsMetric.increment();
-        return  reactiveTransferServiceStub.getUsernameById(DataTransferService.User.newBuilder().setId(chatId).build()).map(DataTransferService.User::getUsername);
+        return  grpcRequestsMetric.measure("getUsernameById", reactiveTransferServiceStub.getUsernameById(DataTransferService.User.newBuilder().setId(chatId).build())).map(DataTransferService.User::getUsername);
     }
     public  Mono<String> reactiveGetImageUrl(Long chatId) {
-        grpcRequestsMetric.increment();
-        return  reactiveTransferServiceStub.getimageurl(DataTransferService.ChatData.newBuilder().setChatId(chatId).build()).map(DataTransferService.DriveUrl::getUrl);
+        return  grpcRequestsMetric.measure("getimageurl", reactiveTransferServiceStub.getimageurl(DataTransferService.ChatData.newBuilder().setChatId(chatId).build())).map(DataTransferService.DriveUrl::getUrl);
     }
     public  Mono<String> reactiveGetUserImageUrl(Long userId) {
-        grpcRequestsMetric.increment();
-        return reactiveTransferServiceStub.getUserImageurl(DataTransferService.UserDataRequest.newBuilder().setId(userId).build()).map(DataTransferService.DriveUrl::getUrl);
+        return grpcRequestsMetric.measure("getUserImageurl", reactiveTransferServiceStub.getUserImageurl(DataTransferService.UserDataRequest.newBuilder().setId(userId).build())).map(DataTransferService.DriveUrl::getUrl);
     }
 }
 

@@ -1,8 +1,6 @@
 package com.example.springexample;
 
 import com.example.grpc.DataTransferService;
-import com.example.springexample.JPA_Entities.Chat;
-import com.example.springexample.JPA_Entities.User;
 import com.example.springexample.JPA_Entities.r2dbc_chat;
 import com.example.springexample.JPA_Entities.r2dbc_user;
 

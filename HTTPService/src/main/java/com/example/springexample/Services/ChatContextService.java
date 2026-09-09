@@ -32,20 +32,27 @@ public class ChatContextService {
         this.news = rredisTemplate.opsForList();
         this.old = rredisTemplate.opsForSet();
     }
+    // Была классическая ловушка Reactor: цепочка leftPush().then()...
+    // строилась, но не возвращалась (метод возвращал Mono.empty()) — без
+    // подписки Redis-запись НИКОГДА не выполнялась (AI-assist всегда видел
+    // пустой контекст). Тот же баг был во вложенном if(size>10): цепочка
+    // rightPop().flatMap(...) строилась и отбрасывалась без return.
     public Mono<Void> addMessage(String user,String message){
         JsonObject json = new JsonObject();
         json.addProperty("user",user);
         json.addProperty("message",message);
-        news.leftPush(newname,json.toString()).then(news.size(newname)).flatMap(size->{
-            if (size > 10){
-                news.rightPop(newname).flatMap(oldest->{
-                    old.add(oldname,oldest);
+        return news.leftPush(newname,json.toString())
+                .then(news.size(newname))
+                .flatMap(size -> {
+                    if (size > 10){
+                        return news.rightPop(newname)
+                                .flatMap(oldest -> old.add(oldname,oldest))
+                                .then();
+                    }
                     return Mono.empty();
-                });
-            }else return Mono.empty();
-            return Mono.empty();
-        }).then(rredisTemplate.expire(oldname, Duration.ofSeconds(1800)));
-        return Mono.empty();
+                })
+                .then(rredisTemplate.expire(oldname, Duration.ofSeconds(1800)))
+                .then();
     }
     public Flux<String> getFullContext() {
         Mono<List<String>> newMessages = news.range(newname, 0, -1).collectList();

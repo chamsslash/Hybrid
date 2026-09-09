@@ -1,0 +1,163 @@
+{{- if .Values.minio.enabled }}
+{{- $secretName := .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  labels:
+    app: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size | default "5Gi" | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+{{- if .Values.minio.console.enabled }}
+    - name: console
+      port: 9001
+      targetPort: 9001
+      protocol: TCP
+{{- end }}
+  selector:
+    app: minio
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          args:
+            - server
+            - /data
+{{- if .Values.minio.console.enabled }}
+            - --console-address
+            - ":9001"
+{{- end }}
+          ports:
+            - name: api
+              containerPort: 9000
+{{- if .Values.minio.console.enabled }}
+            - name: console
+              containerPort: 9001
+{{- end }}
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: MINIO_ROOT_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-data
+{{- if .Values.minio.provision.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-provision
+  labels:
+    app: minio
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.minio.provision.backoffLimit | default 6 }}
+  template:
+    metadata:
+      labels:
+        app: minio-provision
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mc
+          image: {{ .Values.minio.mcImage }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "waiting for minio..."; sleep 2
+              done
+              mc mb --ignore-existing "local/$MINIO_BUCKET"
+              # Provision a dedicated application user so the app does not use root creds.
+              mc admin user add local "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" || true
+              mc admin policy attach local readwrite --user "$MINIO_ACCESS_KEY" || true
+              echo "minio provisioned: bucket=$MINIO_BUCKET"
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: MINIO_SECRET_KEY
+            - name: MINIO_BUCKET
+              value: {{ .Values.minio.bucket | quote }}
+{{- end }}
+{{- end }}

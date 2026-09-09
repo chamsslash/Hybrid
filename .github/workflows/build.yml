@@ -1,11 +1,47 @@
 name: build-and-deploy
 
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   GOOGLE_CLIENT_ID       -> authservice.google.clientId       (OAuth client id)
+#   GOOGLE_CLIENT_SECRET   -> secrets.googleClientSecret         (OAuth client secret)
+#   REFRESH_SECRET         -> secrets.refreshSecret              (httpservice refresh token signing secret)
+#   DB_PASSWORD            -> secrets.dbPassword                 (Postgres password)
+#   GRAFANA_ADMIN_PASSWORD -> secrets.grafanaAdminPassword       (Grafana admin password)
+#   MINIO_ROOT_USER        -> secrets.minioRootUser              (MinIO server root identity)
+#   MINIO_ROOT_PASSWORD    -> secrets.minioRootPassword          (MinIO server root credential)
+#   MINIO_ACCESS_KEY       -> secrets.minioAccessKey             (MinIO app S3 access key)
+#   MINIO_SECRET_KEY       -> secrets.minioSecretKey             (MinIO app S3 secret key)
+# If any of these are not configured, kind-deploy will render the Helm chart
+# with empty credentials (CI smoke will still run, but with blank creds).
+
 on:
   push:
     branches: [ main ]
   pull_request:
 
 jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # JDK 21 is required: Mockito breaks under JDK 25.
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run AuthService unit tests
+        run: mvn -B -f AuthService/pom.xml test
+
+      - name: Run HTTPService unit tests
+        run: mvn -B -f HTTPService/pom.xml test
+
+      - name: Run MessegerParody unit tests
+        run: mvn -B -f MessegerParody/pom.xml test
+
   kind-deploy:
     runs-on: ubuntu-latest
     steps:
@@ -50,13 +86,25 @@ jobs:
             --create-namespace \
             --set authservice.image.repository=authservice \
             --set authservice.image.tag=latest \
-            --set authservice.google.clientId=local-google-client-id \
-            --set authservice.google.clientSecret=local-google-client-secret \
+            --set authservice.google.clientId=${{ secrets.GOOGLE_CLIENT_ID }} \
+            --set secrets.googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
             --set httpservice.image.repository=httpservice \
             --set httpservice.image.tag=latest \
-            --set httpservice.security.refreshSecret=local-refresh-secret \
+            --set secrets.refreshSecret=${{ secrets.REFRESH_SECRET }} \
             --set messegerparody.image.repository=messegerparody \
-            --set messegerparody.image.tag=latest
+            --set messegerparody.image.tag=latest \
+            --set secrets.dbPassword=${{ secrets.DB_PASSWORD }} \
+            --set secrets.grafanaAdminPassword=${{ secrets.GRAFANA_ADMIN_PASSWORD }} \
+            --set secrets.minioRootUser=${{ secrets.MINIO_ROOT_USER }} \
+            --set secrets.minioRootPassword=${{ secrets.MINIO_ROOT_PASSWORD }} \
+            --set secrets.minioAccessKey=${{ secrets.MINIO_ACCESS_KEY }} \
+            --set secrets.minioSecretKey=${{ secrets.MINIO_SECRET_KEY }}
+
+      # No separate "wait for minio-provision job" step: it's a post-install/
+      # post-upgrade Helm hook with hook-delete-policy=hook-succeeded, so
+      # `helm upgrade --install` above already blocks on it (fails the step
+      # if the hook fails) and the Job is deleted right after success —
+      # a follow-up `kubectl wait` for it here always returns NotFound.
 
       - name: Wait for workloads
         run: |

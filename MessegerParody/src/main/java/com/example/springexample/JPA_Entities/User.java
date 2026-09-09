@@ -3,8 +3,15 @@ package com.example.springexample.JPA_Entities;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.util.ArrayList;
-import java.util.List;
+/**
+ * Единственная оставшаяся JPA-сущность MessegerParody: нужна
+ * ImageUrlPersistenceService для записи object key аватарки.
+ *
+ * Поле chats (@ManyToMany на user_chat) удалено вместе с сущностью Chat:
+ * им никто не пользовался, а @EntityScan всё равно подхватывал Chat и
+ * позволял Hibernate диктовать DDL. См. Hybrid-kubernetes-non-local-fwt.
+ * Связь user_chat в этом сервисе читается реактивно через ReactiveRepository.
+ */
 @Getter
 @Setter
 @Entity
@@ -22,11 +29,4 @@ public class User {
     @Column(name = "user_role")
     private String user_role;
     private String google_sub;
-    @ManyToMany
-    @JoinTable(
-            name = "user_chat",
-            joinColumns = @JoinColumn(name = "user_id"),
-            inverseJoinColumns = @JoinColumn(name = "chat_id")
-    )
-    private List<Chat> chats= new ArrayList<>();;
 }

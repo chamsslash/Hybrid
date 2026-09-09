@@ -1,0 +1,55 @@
+# Caddy на ХОСТЕ VM — единственное, что смотрит наружу (beads ybg).
+#
+#   браузер --https--> Caddy (:443, хост VM) --http--> ingress-nginx (127.0.0.1:8081) --> сервисы
+#
+# Caddy держит 80 и 443, kind при этом слушает только loopback
+# (KIND_LISTEN_ADDRESS=127.0.0.1, KIND_HTTP_HOST_PORT=8081) — в обход прокси до кластера
+# снаружи не достучаться в принципе, а не «по договорённости с firewall».
+#
+# Домен задаётся переменной окружения при запуске:
+#   PUBLIC_HOST=gyattalert.duckdns.org caddy run --config deploy/Caddyfile
+# Порт 80 обязан быть открыт в firewall облака ДО первого запуска: Let's Encrypt берёт
+# сертификат по HTTP-01, то есть ходит на http://<домен>/.well-known/acme-challenge/.
+{$PUBLIC_HOST} {
+	# Сертификат Let's Encrypt Caddy получает и продлевает сам, без отдельной команды.
+	# Единственное требование — домен резолвится в этот сервер и порт 80 доступен снаружи.
+
+	reverse_proxy 127.0.0.1:8081 {
+		# Caddy проставляет X-Forwarded-For / -Proto / -Host сам. Дальше их обязан
+		# ПРОБРОСИТЬ ingress-nginx, а он этого не делает по умолчанию: без
+		# use-forwarded-headers он вычисляет схему из собственного $scheme, то есть из
+		# http на этом участке, и Spring получает http поверх реального https. Флаг
+		# ставит deploy-kind.sh по INGRESS_USE_FORWARDED_HEADERS=true.
+
+		# А вот -Port Caddy не проставляет вовсе, и одной схемы мало. Абсолютный адрес
+		# редиректа собирает сервлет-контейнер: приложение делает ОТНОСИТЕЛЬНЫЙ
+		# sendRedirect("/authcallback?..."), а схему, хост и порт подставляет Tomcat из
+		# заголовков. Без X-Forwarded-Port ingress-nginx подставляет свой собственный —
+		# 80, потому что участок Caddy -> ingress идёт по plain HTTP. Получается
+		# https://host:80/authcallback: браузер жмёт TLS в порт, где его нет, и вход
+		# падает на последнем шаге, уже ПОСЛЕ успешного возврата от Google.
+		#
+		# Константа, а не переменная: снаружи публичный порт всегда 443 — на другом
+		# HTTPS-порту не работает ни HTTP-01, ни TLS-ALPN-01, то есть сертификата бы не
+		# было вовсе.
+		header_up X-Forwarded-Port 443
+
+		# WebSocket через этот же прокси проходит без отдельной настройки: Caddy
+		# апгрейдит соединение сам. Отдельный блок нужен только таймауту — STOMP-сессия
+		# живёт долго и молчит между сообщениями.
+		transport http {
+			read_timeout 3600s
+			write_timeout 3600s
+		}
+	}
+
+	# Загрузка картинок идёт одним запросом целиком, дефолтного лимита Caddy на тело
+	# запроса нет, но у ingress-nginx он свой (annotation proxy-body-size в
+	# Helm/templates/http-ingress.yaml) — менять размер надо там, а не здесь.
+
+	encode gzip
+
+	log {
+		output file /var/log/caddy/hybrid.log
+	}
+}

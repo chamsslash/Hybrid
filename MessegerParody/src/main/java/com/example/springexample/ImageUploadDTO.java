@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ImageUploadDTO {
-    String TargetType;
-    String TargetId;
-    String Image_url;
+    String targetType;
+    String targetId;
+    String objectKey;
 }

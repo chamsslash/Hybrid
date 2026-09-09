@@ -1,3 +1,84 @@
+# Values shared with subcharts (authservice/httpservice/messegerparody).
+global:
+  # Name of the Secret every workload reads credentials from.
+  # Empty -> "<release-name>-app-secrets" (created by templates/secrets.yaml
+  # when secrets.create=true). Override to point at an externally managed
+  # Secret (External Secrets Operator, Sealed Secrets, etc.).
+  appSecretName: ""
+  # Public host the app is reached at (must match ingress.host below —
+  # duplicated here because subcharts only see values.yaml literally under
+  # `global`, not templated references to sibling top-level keys). Used by
+  # authservice to build the Google OAuth2 redirect-uri.
+  ingressHost: myapp.localtest.me
+  # Схема, по которой приложение доступно СНАРУЖИ (beads ybg). Влияет на три вещи
+  # разом, и все три обязаны переключаться вместе, иначе вход ломается молча:
+  #   publicScheme  -> redirect-uri для Google OAuth (AuthService/application.yml)
+  #   cookieSecure  -> атрибут Secure на куке сессии (HTTPService)
+  #   forwardHeadersStrategy -> доверие к X-Forwarded-Proto от прокси
+  #
+  # http (дефолт) — текущий стенд: kind + ingress-nginx без TLS.
+  # https — публикация наружу, когда TLS терминируется ДО кластера (Caddy на хосте
+  #   VM). При этом tls.enabled ниже остаётся false: tls-секция в Ingress включила бы
+  #   ssl-redirect у ingress-nginx, а редиректить нечего — внутрь кластера трафик и
+  #   так приходит по HTTP.
+  #
+  # Переключая на https, не забудь добавить https://<ingressHost>/login/oauth2/code/google
+  # в консоль Google — иначе вход через Google отдаст redirect_uri_mismatch.
+  #
+  # Переключать эти значения по одному руками не нужно: готовый набор лежит в
+  # Helm/values-public.yaml, полная процедура публикации — в docs/public-deploy.md.
+  publicScheme: http
+  # Ставить ли Secure на куку сессии. Обязан быть true при publicScheme=https и false
+  # при http: кука с Secure по plain HTTP браузером отбрасывается, и пользователь
+  # остаётся без сессии вовсе.
+  cookieSecure: false
+  # none | native | framework. framework — только когда перед сервисом реально стоит
+  # прокси, который проставляет X-Forwarded-*. Доверие к этим заголовкам от
+  # произвольного клиента означает, что клиент сам объявляет схему соединения.
+  forwardHeadersStrategy: none
+  # Origin'ы сверх выводимых из ingressHost, через запятую. Читают ОБА сервиса: authservice
+  # — для CORS, httpservice — для handshake STOMP/SockJS. Список у них обязан совпадать,
+  # иначе браузер проходит CORS и отваливается на WebSocket (или наоборот), а симптом
+  # выглядит как случайно неработающий realtime.
+  #
+  # http://localhost в дефолте — наследие стенда: прямое обращение к порту 80 хоста в обход
+  # ingress-хоста. На публичной раскатке его убирают (см. Helm/values-public.yaml).
+  # "*" возвращает прежнее поведение STOMP «принимать handshake откуда угодно».
+  extraAllowedOrigins: "http://localhost"
+  # Распределённый трейсинг (beads izv). Читается ВСЕМИ тремя подчартами, поэтому
+  # живёт здесь, а не рядом с `tempo` наверху: подчарт видит только то, что лежит
+  # буквально под `global`.
+  tracing:
+    # false — приложения продолжают создавать span'ы (инструментация вкомпилирована),
+    # но не пытаются их отправлять. Именно этот тумблер нужно выключать вместе с
+    # infra.tempo, иначе каждый span будет упираться в отсутствующий эндпоинт.
+    enabled: true
+    zipkinEndpoint: http://tempo:9411/api/v2/spans
+    # 1.0 = писать КАЖДЫЙ запрос. Дефолт Spring Boot — 0.1 (10%), и на стенде это
+    # худший из возможных вариантов: ты воспроизводишь баг, идёшь за трейсом, а его
+    # нет — не потому что сломано, а потому что не повезло попасть в выборку.
+    # В проде это значение снижают: там платят объёмом хранилища.
+    samplingProbability: "1.0"
+
+# Sensitive values. DO NOT COMMIT REAL SECRETS HERE.
+# Defaults are intentionally EMPTY placeholders. Supply real values at deploy
+# time via --set / --set-file, or an external secret manager. See README
+# "Providing secrets at deploy time".
+secrets:
+  # When true, templates/secrets.yaml renders a Secret from the values below.
+  # Set to false to consume a pre-existing Secret (name via global.appSecretName).
+  create: true
+  dbPassword: ""            # -> DB_PASSWORD / SPRING_DATASOURCE_PASSWORD / PGPASSWORD / POSTGRES_PASSWORD
+  grafanaAdminPassword: ""  # -> GF_SECURITY_ADMIN_PASSWORD
+  googleClientSecret: ""    # -> GOOGLE_CLIENT_SECRET (authservice)
+  refreshSecret: ""         # -> REFRESH_SECRET (httpservice)
+  jwtPrivateKeyPem: ""      # -> JWT_PRIVATE_KEY_PEM (httpservice); supply via --set-file
+  geminiApiKey: ""          # -> GEMINI_API_KEY (httpservice; Google AI Studio API key)
+  minioRootUser: ""         # -> MINIO_ROOT_USER (minio server root identity)
+  minioRootPassword: ""     # -> MINIO_ROOT_PASSWORD (minio server root credential)
+  minioAccessKey: ""        # -> MINIO_ACCESS_KEY (application S3 access key; httpservice)
+  minioSecretKey: ""        # -> MINIO_SECRET_KEY (application S3 secret key; httpservice)
+
 # Global toggles
 infra:
   kafka: true
@@ -6,36 +87,366 @@ infra:
   prometheus: true
   grafana: true
   ingress: true
+  # Инфра-exporter'ы (beads 3nt). Отдельные тумблеры, а не один общий: это три
+  # независимых источника, и выключать их приходится по разным причинам —
+  # kafkaExporter бессмыслен без брокера, postgresExporter без БД, а
+  # kubeStateMetrics требует прав на чтение объектов API кластера.
+  kafkaExporter: true
+  postgresExporter: true
+  kubeStateMetrics: true
+  # Alertmanager (beads zei). Правила алертинга живут в Prometheus и работают
+  # независимо от этого тумблера — выключение отнимает только группировку,
+  # дедупликацию и гашение, но не сами срабатывания (видны в Prometheus /alerts).
+  alertmanager: true
+  # Tempo — хранилище трейсов (beads izv). Выключение тумблера НЕ отключает
+  # инструментацию в приложениях: они продолжат создавать span'ы и пытаться их
+  # отправить. Экспорт отключается в самих сервисах через
+  # management.tracing.export.enabled (см. docs/observability.md §13.5).
+  tempo: true
 
-# Local ingress domain
+# Local ingress domain. Keep in sync with global.ingressHost above.
+# myapp.localtest.me (not myapp.local) — Google OAuth Console rejects
+# .local as a redirect-uri host ("must end with a public top-level
+# domain"); localtest.me is a real public domain that wildcard-resolves
+# to 127.0.0.1, no /etc/hosts entry needed.
 ingress:
-  host: myapp.local
+  host: myapp.localtest.me
 
-# Kafka (KRaft)
+# TLS для ingress'а через cert-manager. ВЫКЛЮЧЕН ПО УМОЛЧАНИЮ: текущее состояние
+# стенда — чистый HTTP, TLS это опциональный путь. Полная инструкция по включению,
+# импорту CA в браузер и откату — docs/tls-cert-manager.md.
+#
+# Почему выключен, а не «включим и посмотрим» — включение ломает сразу три вещи:
+#   1. Google OAuth: redirect-uri зарегистрирован на http://. Как только nginx начнёт
+#      редиректить на https, вход через Google отвалится, и чинится это в консоли
+#      Google, а не в репозитории.
+#   2. ssl-redirect у ingress-nginx включается сам, как только у Ingress появляется
+#      tls-секция. То есть это НЕ аддитивное изменение: меняется поведение ВСЕХ путей
+#      обоих ingress'ов разом, включая SockJS-хендшейк и auth_request к /jwtcheck.
+#   3. Самоподписанный CA браузер не знает: до импорта CA в доверенные хранилища
+#      каждый запрос упирается в предупреждение, а fetch/SockJS со страницы просто
+#      падают без внятной ошибки.
+#
+# Сам cert-manager ставится СКРИПТОМ (`TLS_ENABLED=true ./deploy-kind.sh`), а не
+# зависимостью чарта — его CRD обязаны существовать до того, как helm применит
+# Certificate/ClusterIssuer (см. шапку templates/tls-cert-manager.yaml).
+tls:
+  enabled: false
+  # Secret с сертификатом и ключом: его создаёт cert-manager, на него ссылаются
+  # tls-секции обоих Ingress'ов. Живёт в namespace релиза.
+  secretName: hybrid-tls
+  # Namespace, куда установлен cert-manager. Он же его "cluster resource namespace":
+  # CA ClusterIssuer ищет секрет своего CA именно там, а НЕ в namespace релиза —
+  # поэтому Certificate внутреннего CA рендерится с этим namespace явно.
+  certManagerNamespace: cert-manager
+  issuer:
+    # selfsigned — самоподписанный bootstrap-издатель -> внутренний CA -> сертификат
+    #   на ingress.host. Единственный рабочий вариант для kind: ACME/Let's Encrypt
+    #   требует, чтобы CA достучался до хоста снаружи, а myapp.localtest.me
+    #   резолвится в 127.0.0.1 и наружу не смотрит.
+    # existing — взять уже существующий издатель (например ACME/Let's Encrypt на
+    #   настоящем домене). Чарт тогда не создаёт ни Issuer'ов, ни CA-сертификата —
+    #   только Certificate на ingress.host со ссылкой на issuer.existing.
+    mode: selfsigned
+    existing:
+      name: letsencrypt-prod
+      kind: ClusterIssuer   # ClusterIssuer | Issuer
+  # Внутренний CA — только при mode=selfsigned.
+  ca:
+    commonName: hybrid-local-ca
+    # Имя Secret'а с ключом CA; лежит в certManagerNamespace (см. выше).
+    # helm uninstall удалит Certificate, но НЕ этот Secret — переустановка релиза
+    # переиспользует тот же CA, и импортированный в браузер корень остаётся валидным.
+    secretName: hybrid-ca
+    duration: 87600h        # 10 лет — корень стенда, часто ротировать нечего
+    renewBefore: 720h       # 30 суток до истечения
+  # Сертификат на ingress.host.
+  certificate:
+    # duration/renewBefore — это и есть авторотация: cert-manager перевыпускает
+    # сертификат за renewBefore до конца duration. Чтобы УВИДЕТЬ ротацию, а не ждать
+    # 75 суток, временно поставь короткие значения (минимум duration — 1h), например
+    # duration: 1h + renewBefore: 55m: обновление произойдёт через ~5 минут после
+    # выпуска. Что смотреть — docs/tls-cert-manager.md, раздел «Проверка авторотации».
+    duration: 2160h         # 90 суток
+    renewBefore: 360h       # 15 суток до истечения
+  # ssl-redirect ingress-nginx. true (дефолт контроллера при наличии tls) — весь HTTP
+  # редиректится в HTTPS, вместе с Google OAuth-редиректом. false оставляет HTTP
+  # рабочим параллельно с HTTPS — компромисс, чтобы вход через Google не отвалился.
+  sslRedirect: true
+
+# Kafka (KRaft) — multi-arch apache image (arm64 + amd64)
 kafka:
-  image: moeenz/docker-kafka-kraft
+  image: apache/kafka:3.9.0
   replicas: 1
   brokerId: 1
   hostName: kafka
-  createTopics: topic-a,topic-b,topic-c
-  partitionsPerTopic: 3
+  # Идентификатор кластера KRaft (beads yk8). Значение НЕ произвольное: ровно его
+  # подставляет entrypoint apache/kafka по умолчанию, и именно оно уже записано в
+  # meta.properties на всех отформатированных томах. Менять его нельзя — брокер
+  # увидит на томе чужой cluster.id и упадёт с InconsistentClusterIdException;
+  # новое значение имеет смысл только вместе с пересозданием PVC kafka-data.
+  # Задано явно, чтобы бесшовность рестарта перестала зависеть от дефолта образа:
+  # мажорный апгрейд с другим дефолтом ломал бы стенд молча, одной сменой тега.
+  clusterId: 5L6g3nShT-eMCtK--X86sw
+  # Единственный источник истины по геометрии топиков (beads lo2). До этого тикета оба
+  # ключа были мёртвыми — их не читал ни один шаблон чарта, а реальную геометрию задавал
+  # KafkaAdmin.NewTopics в AuthService; чарт при этом делал вид, что управляет топиками.
+  # Теперь отсюда читают все три места: джоба kafka-topics-job.yaml (явное создание до
+  # старта приложений), KAFKA_NUM_PARTITIONS брокера (страховка на случай авто-создания)
+  # и init-контейнер messegerparody (шлагбаум перед стартом консьюмера).
+  # "Events" из списка убран: ни один сервис не читает и не пишет такой топик.
+  createTopics: Messages,Images
+  # 5, а не 3: число партиций существующего топика можно только увеличивать. Messages на
+  # живых стендах уже создан с 5, Images — с 3; разнобой был без причины, а единое значение
+  # обязано быть максимумом, иначе --alter упрётся в попытку уменьшения.
+  partitionsPerTopic: 5
+  # Осознанно оставлено true (beads lo2). Spring Kafka сам заводит retry/DLT-топики
+  # (Messages-retry-1000…-10000-1, Messages-dlt, Images-retry-*, Images-dlt), а их имена
+  # выводятся из @RetryableTopic(attempts/backoff) в MessegerParody. Перечислить их в чарте
+  # значило бы намертво связать инфраструктуру с константами в Java: поменяли attempts —
+  # DLT-путь молча отвалился (регрессия хуже исходного бага). Вред авто-создания снят иначе:
+  # num.partitions брокера приравнен к partitionsPerTopic, поэтому авто-созданный топик
+  # больше не получается однопартиционным.
   autoCreateTopics: true
+  # Джоба явного создания топиков (Helm/templates/kafka-topics-job.yaml).
+  topicsJob:
+    backoffLimit: 6
+  # Постоянный том брокера (beads y1v). До него том был emptyDir, и любое
+  # пересоздание пода kafka стирало топики, их геометрию, офсеты консьюмер-групп и
+  # ещё не разобранные сообщения — джоба topicsJob висит на хуках релиза и при
+  # рестарте одного лишь пода не переигрывается.
+  persistence:
+    # false — эфемерный стенд «на выброс»: том снова emptyDir со всеми
+    # последствиями выше. Осознанный режим, не дефолт.
+    enabled: true
+    # Каталог логов брокера, весь трафик топиков лежит здесь. 8Gi с запасом на
+    # локальный стенд; расширение потребует пересоздания PVC — local-path в kind
+    # не умеет ALLOWVOLUMEEXPANSION.
+    size: 8Gi
+    # Пусто — «дефолтный StorageClass кластера» (в kind это `standard`,
+    # rancher.io/local-path). Шаблон в этом случае НЕ рендерит поле вовсе:
+    # storageClassName: "" в манифесте означает противоположное — «класса нет»,
+    # динамический провижининг отключён, PVC навсегда Pending.
+    storageClassName: ""
 
 postgres:
   image: postgres:15
   database: hybrid_db
   username: postgres
-  password: postgres123
+  # password comes from the app Secret (secrets.dbPassword -> DB_PASSWORD)
 
 redis:
   image: redis:7
 
+# MinIO — S3-compatible object storage for the image pipeline (bucket "images").
+# Single-node Deployment + PVC for the local/dev stand (no MinIO Operator).
+# Credentials come from the app Secret (secrets.minio* -> MINIO_* keys); NOT here.
+minio:
+  enabled: true
+  # Pinned to the latest stable RELEASE tags published on Docker Hub as of 2026-07-21
+  # (minio/minio: source release RELEASE.2025-10-15T17-29-55Z exists on GitHub but was
+  # never pushed as a Docker Hub image tag, so RELEASE.2025-09-07T16-13-09Z is the
+  # newest pullable server image; minio/mc: RELEASE.2025-08-13T08-35-41Z is both the
+  # latest GitHub release and the latest Docker Hub tag).
+  image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  mcImage: minio/mc:RELEASE.2025-08-13T08-35-41Z
+  console:
+    enabled: true      # exposes the web console on port 9001 (Service + container)
+  persistence:
+    size: 5Gi          # PVC size for /data
+  bucket: images       # bucket the app reads/writes (-> MINIO_BUCKET)
+  endpoint: http://minio:9000  # in-cluster S3 endpoint (-> MINIO_ENDPOINT)
+  provision:
+    # post-install/upgrade Job (minio/mc): creates the bucket + a dedicated app
+    # user (MINIO_ACCESS_KEY/MINIO_SECRET_KEY) with readwrite policy.
+    enabled: true
+    backoffLimit: 6
+
 prometheus:
-  image: prom/prometheus:latest
+  # Пин вместо latest (beads c2k): при :latest два деплоя одного и того же чарта
+  # могут поднять разные версии, и «у меня работало» перестаёт что-либо значить.
+  # Версия взята не «свежая стабильная из головы», а ровно та, что крутилась на
+  # стенде под :latest (prometheus --version в поде) — она заведомо существует и
+  # заведомо работает с текущим конфигом. Первая редакция плана закладывала
+  # v2.53.2, то есть даунгрейд на две мажорные версии: формат TSDB между 2.x и
+  # 3.x различается, и «пин» тихо стал бы откатом.
+  image: prom/prometheus:v3.14.0
+  # Сколько держим историю. Цель диагностическая, 15 дней перекрывают вопрос
+  # «а на прошлой неделе это уже случалось?».
+  retention: 15d
+  persistence:
+    # Расхождение с прецедентом чарта (postgres здесь на emptyDir) осознанное:
+    # emptyDir стирает историю метрик при рестарте пода — ровно тогда, когда её
+    # и собирались смотреть, потому что поды перезапускают при разборе инцидента.
+    size: 2Gi
+  # Кураторский список того, что реально храним (beads c2k).
+  #
+  # Замер ДО фильтра: 317 семейств метрик и 1295 сэмплов с ОДНОГО сервиса, из них
+  # 204 семейства (64%) — внутренности клиента Kafka, ещё 42 — spring_security,
+  # причём 30 из них это таймер на каждый фильтр цепочки по отдельности.
+  # http_server_requests при этом — четыре семейства, погребённые в этом шуме.
+  #
+  # Режем на стороне Prometheus, а не в приложениях, сознательно: вернуть выкинутый
+  # сигнал обычно нужно ровно в тот момент, когда что-то горит, и helm upgrade в этот
+  # момент несопоставимо дешевле пересборки и редеплоя Java-образа. Экономия
+  # скрейп-трафика на трёх подах при этом не стоит ничего.
+  #
+  # ВАЖНО ПРО СИНТАКСИС: Prometheus якорит регулярку в relabel-правиле ЦЕЛИКОМ —
+  # regex: foo разворачивается в ^(?:foo)$, в отличие от grep, где foo нашёл бы
+  # подстроку. Поэтому каждый элемент обязан описывать имя метрики ПОЛНОСТЬЮ:
+  # "http_server_requests" не сработает, нужен
+  # "http_server_requests_seconds_(count|sum|max|bucket)".
+  keepMetrics:
+    # Живость целей и ошибки в логах. up и scrape_* Prometheus порождает сам по
+    # результату скрейпа — инструментация для них не нужна.
+    - "up"
+    - "scrape_duration_seconds"
+    - "scrape_samples_scraped"
+    - "logback_events_total"
+    # Вход HTTP: RED плюс бакеты под p95
+    - "http_server_requests_seconds_(count|sum|max|bucket)"
+    # gRPC: серверная и клиентская стороны плюс собственный таймер из GrpcRequestsMetric
+    - "grpc_(client|server)_processing_duration_seconds_(count|sum|max|bucket)"
+    - "grpc_client_(requests_sent|responses_received)_messages_total"
+    - "grpc_server_(requests_received|responses_sent)_messages_total"
+    - "grpc_calls_counter_total"
+    - "grpc_call_duration_seconds_(count|sum|max|bucket)"
+    # Kafka: только сигнальные. Внутренности клиента (kafka_consumer_io_*,
+    # kafka_producer_node_*, размеры буферов и батчей) отсекаются целиком.
+    # Все *_rate тоже отсекаются: это производные, которые Prometheus считает сам
+    # через rate() от _total — хранить обе версии значит платить дважды за один сигнал.
+    - "spring_kafka_(listener|template)_seconds_(count|sum|max)"
+    - "kafka_consumer_fetch_manager_records_lag(_max)?"
+    - "kafka_consumer_fetch_manager_records_consumed_total"
+    - "kafka_producer_record_(send|error)_total"
+    - "kafka_consumer_coordinator_(commit|rebalance)_total"
+    # БД: пул R2DBC (MessegerParody) и Hikari (сервисы на JDBC)
+    - "r2dbc_pool_.*"
+    - "hikaricp_connections(_.*)?"
+    # Redis
+    - "lettuce_command_completion_seconds_(count|sum|max)"
+    # Бизнес-метрики
+    - "AiRequestCounter_total"
+    - "messages_persisted_total"
+    # Деградация проверки отпечатка (beads kz6). Тег reason различает два исхода:
+    # ai — решение принято без Gemini, unavailable — вердикта нет и доступ закрыт.
+    - "fp_check_degraded_total"
+    # Кеш членства в чате (beads 9wi). Тег result: hit — gRPC-вызов, которого НЕ было,
+    # miss — случившийся. Доля попаданий и есть те цифры, которых тикету не хватало.
+    - "membership_cache_total"
+    # JVM и под
+    - "jvm_memory_used_bytes"
+    - "jvm_gc_pause_seconds_(count|sum|max)"
+    - "jvm_threads_live_threads"
+    - "process_cpu_usage"
+    - "process_uptime_seconds"
+    - "application_ready_time_seconds"
+    #
+    # ─── Инфра-exporter'ы (beads 3nt) ───────────────────────────────────────
+    #
+    # Списки ниже — НЕ по памяти: каждое имя снято с живого скрейпа
+    # соответствующего экспортера в кластере. Проверять обязательно, потому что
+    # имена расходятся с ожидаемыми (у postgres-exporter, например,
+    # pg_stat_bgwriter_* оканчиваются на _total, а pg_database_size_bytes живёт
+    # отдельно от pg_stat_database_*), а ошибка здесь тихая: keep просто не
+    # совпадёт, метрики не сохранятся, и панель покажет "No data" — неотличимо
+    # от «экспортер не работает».
+    #
+    # kafka-exporter: взгляд со стороны брокера. Отброшены kafka_broker_info,
+    # kafka_topic_partition_leader(_is_preferred), _replicas — топология
+    # одноброкерного стенда не меняется, панелей по ней нет.
+    - "kafka_brokers"
+    - "kafka_topic_partitions"
+    - "kafka_topic_partition_(current|oldest)_offset"
+    - "kafka_topic_partition_in_sync_replica"
+    - "kafka_topic_partition_under_replicated_partition"
+    - "kafka_consumergroup_current_offset"
+    - "kafka_consumergroup_lag(_sum)?"
+    - "kafka_consumergroup_members"
+    # postgres-exporter. Экспортер отдаёт ~250 семейств pg_settings_* — это
+    # СТАТИЧЕСКАЯ конфигурация БД, а не сигнал: она не меняется до рестарта
+    # постгреса, и хранить её в TSDB бессмысленно. Оставлен ровно один
+    # pg_settings_max_connections — он нужен как ЗНАМЕНАТЕЛЬ для
+    # pg_stat_activity_count, иначе «40 соединений» нельзя истолковать.
+    - "pg_up"
+    - "pg_settings_max_connections"
+    - "pg_stat_activity_count"
+    - "pg_stat_activity_max_tx_duration"
+    - "pg_locks_count"
+    - "pg_database_size_bytes"
+    - "pg_wal_size_bytes"
+    - "pg_stat_database_(numbackends|xact_commit|xact_rollback|deadlocks|blks_hit|blks_read)"
+    - "pg_stat_database_tup_(inserted|updated|deleted|fetched|returned)"
+    - "pg_stat_user_tables_(n_live_tup|n_dead_tup|table_size_bytes|index_size_bytes)"
+    - "pg_stat_user_tables_(seq_scan|idx_scan)"
+    - "pg_stat_bgwriter_checkpoints_(timed|req)_total"
+    - "pg_stat_bgwriter_buffers_(checkpoint|clean|backend)_total"
+    # kube-state-metrics: то, чего не даёт НИ ОДНА метрика из приложения —
+    # рестарты, причина последнего падения (OOMKilled/Error), застревание в
+    # ContainerCreating/ImagePullBackOff. Под в CrashLoopBackOff метрик не
+    # отдаёт вовсе, поэтому увидеть его можно только отсюда.
+    - "kube_pod_container_status_restarts_total"
+    - "kube_pod_container_status_(last_terminated|waiting|terminated)_reason"
+    - "kube_pod_container_status_ready"
+    - "kube_pod_status_(phase|ready)"
+    - "kube_pod_container_resource_(requests|limits)"
+    - "kube_deployment_spec_replicas"
+    - "kube_deployment_status_replicas(_available|_ready|_unavailable|_updated)?"
+    - "kube_persistentvolumeclaim_status_phase"
+    - "kube_persistentvolumeclaim_resource_requests_storage_bytes"
+    - "kube_node_status_condition"
+    # Джобы чарта (liquibase, kafka-topics, minio-provision) живут на хуках и
+    # удаляются после успеха, поэтому в момент составления списка объектов Job
+    # в кластере не было и снять имена со скрейпа было НЕ С ЧЕГО. Имена взяты
+    # из схемы kube-state-metrics; проверяются первым же прогоном хуков —
+    # если панель «Джобы» пуста при работающей джобе, причина здесь.
+    - "kube_job_status_(active|succeeded|failed)"
+    - "kube_job_failed"
+    # Tempo (beads izv). Мониторим сам мониторинг: сколько span'ов доехало и
+    # сколько отброшено. Без этого «трейсов нет» неотличимо от «трейсы есть, но
+    # Tempo их не принял» — а причины у этих двух состояний разные.
+    # Имена сняты со скрейпа tempo:3200 ПОСЛЕ первого реального трейса: до него
+    # счётчики приёма не существуют вовсе (Prometheus-клиент не публикует
+    # counter, который ни разу не инкрементировали).
+    - "tempo_distributor_spans_received_total"
+    - "tempo_distributor_bytes_received_total"
+    - "tempo_discarded_spans_total"
+    - "tempo_ingester_blocks_flushed_total"
+    - "tempo_ingester_failed_flushes_total"
+    - "tempo_request_duration_seconds_(count|sum)"
 
 grafana:
-  image: grafana/grafana:latest
-  adminPassword: admin123
+  # Пин по тому же принципу: версия снята с работающего пода (/api/health).
+  image: grafana/grafana:13.2.0
+  # adminPassword comes from the app Secret (secrets.grafanaAdminPassword)
+
+# Инфра-exporter'ы (beads 3nt). Теги пинятся, как и всё остальное в чарте; каждый
+# проверен `docker pull` на arm64 — стенд крутится в colima на Apple Silicon, а
+# у части экспортеров arm64-варианта исторически не было, и обнаруживалось это
+# только подом в ImagePullBackOff/exec format error.
+kafkaExporter:
+  image: danielqsj/kafka-exporter:v1.9.0
+postgresExporter:
+  # quay.io, а не Docker Hub: prometheus-community публикует туда канонически.
+  image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+kubeStateMetrics:
+  image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.17.0
+
+# Alertmanager (beads zei). Приёмников намеренно нет — доставлять алерты на стенде
+# с одним пользователем некому; подробности в шапке templates/alertmanager.yaml.
+alertmanager:
+  image: prom/alertmanager:v0.28.1
+
+# Tempo (beads izv). Монолитный режим, локальное хранилище на PVC.
+tempo:
+  image: grafana/tempo:2.9.1
+  persistence:
+    # Трейсы объёмнее метрик на событие, но живут 48 часов против 15 дней —
+    # ретенция задана в tempo-config.yaml. 4Gi с запасом для стенда.
+    size: 4Gi
+  # Куда приложения шлют span'ы — под `global.tracing` ниже: подчарты видят только
+  # literal-значения под `global`, а не ссылки на соседние ключи верхнего уровня
+  # (та же причина, что у global.ingressHost).
 
 # Service images
 authservice:
@@ -47,20 +458,30 @@ authservice:
     pullPolicy: IfNotPresent
   google:
     clientId: local-google-client-id
-    clientSecret: local-google-client-secret
+    # clientSecret comes from the app Secret (secrets.googleClientSecret)
+  # initContainer wait-for-schema: держит под в Init, пока Liquibase-Job не создаст
+  # схему. Без него ddl-auto: validate на свежей установке (hook post-install)
+  # уводит под в CrashLoopBackOff. См. Hybrid-kubernetes-non-local-2cm.
+  schemaWait:
+    enabled: true
+    image: postgres:15    # нужен только клиент psql
+    table: users          # опорная таблица baseline v1 (001-create-users.yaml)
+    intervalSeconds: 2    # пауза между попытками
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
     datasourceUsername: postgres
-    datasourcePassword: postgres123
+    # datasourcePassword / dbPassword come from the app Secret (secrets.dbPassword)
     redisHost: redis
     redisPort: "6379"
     dbHost: postgres
     dbPort: "5432"
     dbName: hybrid_db
     dbUser: postgres
-    dbPassword: postgres123
     kafkaConsumerGroup: messegerparody-consumer
+    # MinIO endpoint/bucket are plain config; access/secret keys come from the app Secret.
+    minioEndpoint: http://minio:9000  # -> MINIO_ENDPOINT
+    minioBucket: images               # -> MINIO_BUCKET
     jwtPublicKey: |
       -----BEGIN PUBLIC KEY-----
       MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkxWruRf9t3Bdp/7gqc7t
@@ -82,16 +503,19 @@ httpservice:
     repository: httpservice
     tag: latest
     pullPolicy: IfNotPresent
-  security:
-    refreshSecret: local-refresh-secret
+  # refreshSecret comes from the app Secret (secrets.refreshSecret -> REFRESH_SECRET)
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
     datasourceUsername: postgres
-    datasourcePassword: postgres123
+    # datasourcePassword comes from the app Secret (secrets.dbPassword)
     redisHost: redis
     redisPort: "6379"
-    refreshSecret: local-refresh-secret
+    # MinIO endpoint/bucket are plain config; access/secret keys come from the app Secret.
+    minioEndpoint: http://minio:9000  # -> MINIO_ENDPOINT
+    minioBucket: images               # -> MINIO_BUCKET
+    # refreshSecret / jwtPrivateKey / geminiApiKey come from the app Secret.
+    # Public keys below are not secret and stay as plain config.
     jwtPublicKey: |
       -----BEGIN PUBLIC KEY-----
       MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkxWruRf9t3Bdp/7gqc7t
@@ -102,77 +526,8 @@ httpservice:
       jSC3lyg765maEi4WRcBYq9telxesMrf2hlu6GnJwLFrPPiCiTpycD1wloH//XC4s
       IwIDAQAB
       -----END PUBLIC KEY-----
-    jwtPrivateKey: |
-      -----BEGIN PRIVATE KEY-----
-      MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCTFau5F/23cF2n
-      /uCpzu3LCOVGeBA/Lab5o/GvOpjaLVcT+YuKqKTngB3e2ev19cEevjalCOigLwxQ
-      GelHaEBMNkPh25UMM1xFXD4SQV7GTZzT84dk9gXfCh0oY6dmXazFH+G6k60f5i9K
-      u4kd7fegQaxNLjN2NWwDndRcTMSRvNGLmGILTzNn0LkNiAnO+OvWs+kT+8bL8Ia5
-      ZfU9A8dQTEMq7GqEDhzJxIjdysTp3WcHwKcVuTxLET2gu1Ztq0qksKTi3L/La+EL
-      yvrAdq2NILeXKDvrmZoSLhZFwFir216XF6wyt/aGW7oacnAsWs8+IKJOnJwPXCWg
-      f/9cLiwjAgMBAAECggEAMKElmZjZBeFc1cJrPTlxXYOfamEf3gOWBUuzCKBzEQ+U
-      jsIe5MVFYFT3i0q5vSR3qVZycrYzU2K6y3EFs9pAB/KZFv+mk9YXV8dbrmV2lFHs
-      3BbUWQkOf+O0KDpqimnGSZZ0518UCkvsruS6PO8ExDNyaEIyOY8IG1n/cFThWN14
-      XuWRoAKB3lYjtU70pftiDFOiyruN+UWtO69xMZffzxQDnEx1Imt29j+J+ZBLu3Lm
-      mZPssmjqPeDwxYulCe3VUplaTVopYi1PyQutD006yxIpndkI7/2grxtp1v2BlD1w
-      xosZx3aKqjML9scx0pH6UCTy98EA4QPUj7JcbEohIQKBgQDMR+atWN6DX3CpO1nR
-      PVO+1HLNysxHY47hxrz8sbBWba9ZugEH20bPZJhYq5wv7fEUj3ChV60XAyamnhUi
-      1sL79k/wOrRVgkXQj4duHu0oX0QkrfTMEKRTXQiFXMGLRKgTioKbiHrOGWFUunST
-      uP8Nvgq6vGMGafrGppJsGWzZvQKBgQC4UrMR94feko8zpksGjudigk4pDrLqZDoP
-      K1CubjO2vu9MlgRGFMHmBTVCYKhaJmy/NNg9//RFtu/BzBub0swmaWVTjkExkkXw
-      126f1ICQSAgXSEEDtycsYDjKBHXXEg1JBGhy+tu7lI+Ex8gS3yhgE0H1yajfA8ty
-      sE/TE2tLXwKBgDropSHqFcjGtgNnZSBM0iCevTiROdWAZUzAdfFdAF/8I2v5kqCE
-      YGggNzqiylicAkCOmMk+MmEHfJbh0XCJhBMK1cSN+UELXzykl0ZvTq6swkbdj1Fl
-      ny2XD4T92aZityFjeQSHF/rlIMdBOar71zlMS2XMO7Y2y6WLlX/s2RH1AoGAPyhX
-      I3jlnWYqm1AHtR+SOTbdAUSAGcBuBHSbGKm6HoweAugEXt8N8XsnXK8yAHHaIUpC
-      LjxdvuWIEaeWbjY0rZS/m3nK7Olp/bRTu4Bc7RNBcnjXjiZbzeDKlK4ikqck1jgk
-      cgFy+TtWUfECpTTB6OmwWD/ZFVF/jLTNJU4qHZECgYAKCFtrLtqIJAavT+MTlKZY
-      sFG8lEbViA0Or1NKHtn8CvJvaRS8IMv/MZSvOqxyLzy8peJI7jlfl0japnsvz9r2
-      BSyhgRAMT8zptZDjaZ6kUCYJ7eLWm1MfvMB4pJyZghCbGVXq9pUZeC76XkxVRt9+
-      QjquZmqB54hb5Nu1Jcsysg==
-      -----END PRIVATE KEY-----
-    yandexPublicKey: |
-      -----BEGIN PUBLIC KEY-----
-      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7vBgO+vNIYF3ZapGOsD
-      hCFbpyw88CdnS7Sb7qfK8Tahp+OERzEaeCs1BNd/EnuV0fY1zIa4hcB48ATzyEOv
-      QfFfcUhrWivkdJ4rVx5l8Dkc0wcG5as/trfup0X60JKanSbSq0Bi1BZQ34e9LNWD
-      ud44x7fGxHrKBGqgRS2gp9TSXMlEIWHLtnFL5Sc4xTRvxVI1tuonQ2ui+J1lzoJI
-      biImnG5WAXUye7Iyz7cjv9o3vbkib4fkCriglhluYkQ8qWlnedq7cahsBrDALtFI
-      re9h5iJVvigslIsf73S/WKRhG1ArlfxBL2DphVv2QmCmphKWVGaOv8yK3oNT9WEp
-      tQIDAQAB
-      -----END PUBLIC KEY-----
-    yandexPrivateKey: |
-      PLEASE DO NOT REMOVE THIS LINE! Yandex.Cloud SA Key ID <ajep47sbfhdosn8eav2k>
-      -----BEGIN PRIVATE KEY-----
-      MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/u8GA7680hgXd
-      lqkY6wOEIVunLDzwJ2dLtJvup8rxNqGn44RHMRp4KzUE138Se5XR9jXMhriFwHjw
-      BPPIQ69B8V9xSGtaK+R0nitXHmXwORzTBwblqz+2t+6nRfrQkpqdJtKrQGLUFlDf
-      h70s1YO53jjHt8bEesoEaqBFLaCn1NJcyUQhYcu2cUvlJzjFNG/FUjW26idDa6L4
-      nWXOgkhuIiacblYBdTJ7sjLPtyO/2je9uSJvh+QKuKCWGW5iRDypaWd52rtxqGwG
-      sMAu0Uit72HmIlW+KCyUix/vdL9YpGEbUCuV/EEvYOmFW/ZCYKamEpZUZo6/zIre
-      g1P1YSm1AgMBAAECggEAB4xIrd7Bsvujt3l65rQ5yzXU+dvP+lRSyLQvf1Gzt5ND
-      Aez/BB52wExTJgGlywB6gW2D6K1VDk7pc+l9/2BKwfnSnA8Rytb3g2/GnQNhV/en
-      ntcj+l6nf3X2OzeSDCv5Uj55BKzgNyE5xdL+K4msSeDps1MUzB9ZXJsl/BMzw+eX
-      fcs0hJirk2GS9pQUNqSvMZcfhI0TMjz2HWZEUC9+PwVnXBeJkB4brSDUIyyNbVwn
-      j3nLJQeas6KZhbRBEKhlzOICQ4UkpVBOeAdEIdeAgojWN1gGnCQCslNLBMYEWsXO
-      SZP3LZ8ACz/vBlJCQxdPFiEt64n/vafAK38xkUw38QKBgQDifPbiVpsFsQ9jKk4W
-      p1WCCRBvagADK4Bvj4VZ+AwYeneN7GeT1wXXL1bexU7PBqAkCuqux5oCg16i2p48
-      akniR/kl1yLpG9yd/hGL6Gm2alaAWg//JFviKW9/sNz6/LgljSK5GoGKswUg2noT
-      Q0VC/wrE/vZGYT0Y8wgAXLMyJwKBgQDYt3eo21QNdTGm1FhCygk275+60pxfskwC
-      W4+9Z775uVtgk48gqXmyS4NKHi8eKJk9znR+F5UAj/RFJOFSBuo7sTvzS3WF4v9s
-      XP1A3ajTjOPSDNdnQQeLRzCHO7Y3YalyyReK7sLIhRewO5+L8Q9EJ5l5jDf+lJbO
-      EzwdLCYawwKBgBfs0XupYGjiglicYHFeLdc1s+nBDc1H7CJcy95sKILxdO2mGm7w
-      mOpZUtjniOKvtXz5Nj9OUIORcw7K/0oshC+GINiReFudmNmLvDjGTVx6sTaPzP7L
-      zXT/oYqgmUdeKOm2lgNtvF91d8Y3rguY4JkqLe4PbN6UaQrYqXC4WimjAoGACBM+
-      CDKz/RRi1z6OU17H3R4sq39xiDdSkbvrrTkSaqe3ee/Fo4ftGvGpYLejNdJ5c04g
-      FRq32J+EkJcBNlc/nx3JiBVFucltjxIf9azMv6U+T/Nei2Bm8Y+jhUZ6UbH36GkJ
-      0Yl4BJTA/zYZidNfqEB5fYf2BixvOhqJYOTmPpUCgYBeskoVQFaON3ZSrO0WBqe3
-      +uMN7SuYeEI+AnyUlCKX/dSVbzpqn3z+wvp1M1bH3faLFqTTSB/g+PO7qrQNS4kA
-      +98c64hcFeHPkO+/ozM9kqH9M+2n/pEQKCiWZHP3e659UWYPOIWtorL+dqJD0W4r
-      VdZqg+eVJ2K/tFUInZxCew==
-      -----END PRIVATE KEY-----
-    yandexServiceAccountId: ajehr6no83h6drm62nc2
-    yandexKeyId: ajep47sbfhdosn8eav2k
+    # geminiApiKey comes from the app Secret (secrets.geminiApiKey)
+    geminiModel: gemini-2.5-flash-lite  # -> GEMINI_MODEL
 
 messegerparody:
   enabled: true
@@ -186,16 +541,24 @@ messegerparody:
     backoffLimit: 1
     waitImage: postgres:15
 
+  # initContainer wait-for-schema: держит под в Init, пока Liquibase-Job не создаст
+  # схему. Без него ddl-auto: validate на свежей установке (hook post-install)
+  # уводит под в CrashLoopBackOff. См. Hybrid-kubernetes-non-local-2cm.
+  schemaWait:
+    enabled: true
+    image: postgres:15    # нужен только клиент psql
+    table: users          # опорная таблица baseline v1 (001-create-users.yaml)
+    intervalSeconds: 2    # пауза между попытками
+
   env:
     kafkaBootstrap: kafka:9092
     datasourceUrl: jdbc:postgresql://postgres:5432/hybrid_db
     datasourceUsername: postgres
-    datasourcePassword: postgres123
+    # datasourcePassword / dbPassword come from the app Secret (secrets.dbPassword)
     redisHost: redis
     redisPort: "6379"
     dbHost: postgres
     dbPort: "5432"
     dbName: hybrid_db
     dbUser: postgres
-    dbPassword: postgres123
     kafkaConsumerGroup: messegerparody-consumer

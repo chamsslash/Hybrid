@@ -1,37 +1,49 @@
 {{- if .Values.infra.prometheus }}
+# Без ServiceAccount с правом list pods discovery по role: pod не работает В ПРИНЦИПЕ:
+# деплоймент бежал бы под SA default, и API-сервер возвращал бы 403. Поломка тихая —
+# Prometheus стартует, UI открывается, целей просто ноль, и это легко принять за
+# «аннотации не проставлены». В тикете c2k этого не было, нашлось при разведке.
 apiVersion: v1
-kind: ConfigMap
+kind: ServiceAccount
 metadata:
-  name: prometheus-config
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-    scrape_configs:
-      - job_name: 'kubernetes-pods'
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-            action: keep
-            regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: ([^:]+)(?::\d+)?;(\d+)
-            replacement: $1:$2
-            target_label: __address__
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)
-          - source_labels: [__meta_kubernetes_namespace]
-            action: replace
-            target_label: kubernetes_namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            action: replace
-            target_label: kubernetes_pod_name
+  name: prometheus
+---
+# Role, а не ClusterRole: всё приложение живёт в одном namespace, а ClusterRole дал бы
+# право читать поды всего кластера — прав больше, чем задача требует. Работает только
+# вместе с namespaces.names в prometheus-config.yaml: без ограничения SD клиент
+# попробует листать кластер целиком, и namespace-scoped Role этого не разрешит.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.prometheus.persistence.size }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -41,6 +53,12 @@ metadata:
     app: prometheus
 spec:
   replicas: 1
+  # PVC — ReadWriteOnce, поэтому два пода одновременно том не примонтируют.
+  # RollingUpdate по умолчанию поднимает новый под до удаления старого и вешает
+  # деплой намертво на ContainerCreating. Recreate — единственная рабочая стратегия
+  # для однорепличного stateful-пода на RWO-томе.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -48,7 +66,25 @@ spec:
     metadata:
       labels:
         app: prometheus
+      annotations:
+        # Без этой аннотации helm upgrade меняет ConfigMap, kubelet обновляет
+        # смонтированный файл, но процесс Prometheus не перечитывает конфиг сам —
+        # он продолжит работать со старым до случайного рестарта. То есть правка
+        # keep-списка молча не делает НИЧЕГО, и заметить это очень трудно.
+        checksum/config: {{ include (print $.Template.BasePath "/prometheus-config.yaml") . | sha256sum }}
+        # Отдельная контрольная сумма по файлу правил. Prometheus умеет
+        # перечитывать правила по SIGHUP или /-/reload, но никто их не шлёт —
+        # без этой аннотации правка алерта так же молча не применялась бы.
+        checksum/rules: {{ include (print $.Template.BasePath "/prometheus-rules.yaml") . | sha256sum }}
     spec:
+      serviceAccountName: prometheus
+      # Образ prom/prometheus бежит от nobody (65534). Без fsGroup том PVC
+      # принадлежит root, и Prometheus падает с permission denied на /prometheus.
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
       containers:
         - name: prometheus
           image: {{ .Values.prometheus.image }}
@@ -57,13 +93,33 @@ spec:
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time={{ .Values.prometheus.retention }}'
           volumeMounts:
             - name: prometheus-config
               mountPath: /etc/prometheus
+            # Подкаталогом внутри /etc/prometheus, а не рядом: так путь в
+            # rule_files читается очевидно и не зависит от лишнего values-ключа.
+            - name: prometheus-rules
+              mountPath: /etc/prometheus/rules
+            - name: prometheus-data
+              mountPath: /prometheus
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
       volumes:
         - name: prometheus-config
           configMap:
             name: prometheus-config
+        - name: prometheus-rules
+          configMap:
+            name: prometheus-rules
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-data
 ---
 apiVersion: v1
 kind: Service

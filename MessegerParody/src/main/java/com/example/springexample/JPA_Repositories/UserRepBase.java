@@ -1,6 +1,5 @@
 package com.example.springexample.JPA_Repositories;
 
-import com.example.springexample.JPA_Entities.Message;
 import com.example.springexample.JPA_Entities.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;

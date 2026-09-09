@@ -1,4 +1,32 @@
 {{- if .Values.infra.kafka }}
+{{- /*
+  Каталог данных брокера. Одно значение на три места: PVC монтируется сюда,
+  KAFKA_LOG_DIRS указывает сюда же. Разъезд этих двух мест — ровно тот баг,
+  который чинит beads y1v (см. комментарий у KAFKA_LOG_DIRS ниже).
+*/}}
+{{- $dataDir := "/var/lib/kafka/data" }}
+{{- if .Values.kafka.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  labels:
+    app: kafka
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.kafka.persistence.storageClassName }}
+  # Рендерится только для непустого значения. Пустая строка в storageClassName —
+  # НЕ «возьми дефолтный класс», а явное «никакого класса»: такой PVC отключает
+  # динамическое провижининг и висит Pending навсегда. Отсутствие поля — вот что
+  # означает «дефолтный SC кластера» (в kind это `standard`/rancher.io/local-path).
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.kafka.persistence.size | default "8Gi" | quote }}
+---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,6 +42,30 @@ spec:
   selector:
     app: kafka
 ---
+{{- /*
+  Почему Deployment + отдельный PVC, а не StatefulSet (beads y1v).
+
+  Канонический вид брокера Kafka — StatefulSet, но всё, ради чего он берётся,
+  здесь уже обеспечено или не нужно:
+    * стабильная сетевая идентичность: KAFKA_ADVERTISED_LISTENERS намертво указывает
+      на ClusterIP-сервис `kafka`, а не на pod-DNS. Клиенты (три Spring-сервиса и
+      джоба kafka-topics) ходят на `kafka:9092`. Per-pod DNS `kafka-0.kafka` не нужен
+      никому, и ради него пришлось бы заводить headless-сервис — то есть трогать
+      Service/DNS в чарте, чего тикет просил избежать без нужды;
+    * стабильная привязка тома к реплике: реплика ровно одна
+      (kafka.replicas: 1, KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 —
+      однонодовый KRaft, масштабировать этот манифест всё равно нельзя),
+      поэтому один PVC на один под даёт ту же гарантию, что volumeClaimTemplates;
+    * порядок/идентичность при масштабировании: неприменимо при одной реплике.
+
+  Против StatefulSet здесь: volumeClaimTemplates создаёт PVC вне жизненного цикла
+  релиза (`kafka-data-kafka-0`), helm его не видит и не удаляет; смена размера или
+  класса тома потребовала бы ручного пересоздания STS. И это разошлось бы с
+  идиомой репозитория — minio (Helm/templates/minio.yaml) стоит ровно так же:
+  Deployment + отдельный PVC + strategy Recreate.
+
+  Обязательное следствие выбора — strategy: Recreate, см. ниже.
+*/}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,6 +74,25 @@ metadata:
     app: kafka
 spec:
   replicas: {{ .Values.kafka.replicas }}
+  strategy:
+    # Recreate, а не RollingUpdate (дефолт), и это не вкусовщина. При RollingUpdate
+    # с одной репликой k8s поднимает новый под ДО удаления старого. Том у нас
+    # ReadWriteOnce, оба пода на одной ноде kind — новый под том примонтирует, но
+    # упрётся в .lock старого брокера в каталоге логов и не станет Ready; а старый
+    # под не будет удалён, пока новый не станет Ready. Итог — вечно застрявший
+    # rollout. Recreate гасит старый под первым и снимает гонку за том.
+    #
+    # Разовая ловушка миграции уже существующего стенда (не свежей установки):
+    # у Deployment, созданного до этого коммита, API-сервер проставил дефолтные
+    # spec.strategy.rollingUpdate{maxSurge,maxUnavailable}. Server-side apply их не
+    # снимает, а RecreateStrategy валидатор такие поля запрещает — первый
+    # `helm upgrade` падает с
+    #   spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy
+    #   `type` is 'Recreate'
+    # Лечится один раз руками, после чего upgrade проходит:
+    #   kubectl -n hybrid-platform patch deployment kafka --type=json \
+    #     -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'
+    type: Recreate
   selector:
     matchLabels:
       app: kafka
@@ -36,20 +107,103 @@ spec:
           ports:
             - containerPort: 9092
           env:
-            - name: KRAFT_BROKER_ID
+            # Single-node KRaft (broker + controller) — multi-arch apache/kafka
+            - name: KAFKA_NODE_ID
               value: "{{ default "1" .Values.kafka.brokerId }}"
-            - name: KRAFT_CONTAINER_HOST_NAME
-              value: "{{ default "kafka" .Values.kafka.hostName }}"
-            - name: KRAFT_CREATE_TOPICS
-              value: "{{ default "" .Values.kafka.createTopics }}"
-            - name: KRAFT_PARTITIONS_PER_TOPIC
-              value: "{{ default "1" .Values.kafka.partitionsPerTopic }}"
-            - name: KRAFT_AUTO_CREATE_TOPICS
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ default "kafka" .Values.kafka.hostName }}:9092"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "{{ default "1" .Values.kafka.brokerId }}@localhost:9093"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            # Каталог данных брокера (beads y1v). Без этой переменной том ниже —
+            # мёртвый груз: entrypoint apache/kafka собирает финальный
+            # /opt/kafka/config/server.properties ТОЛЬКО из переменных KAFKA_*,
+            # ничего не наследуя из /etc/kafka/docker/server.properties, поэтому
+            # log.dirs в нём просто отсутствовал и брокер молча писал в свой
+            # встроенный дефолт /tmp/kafka-logs — то есть в слой контейнера, мимо
+            # смонтированного тома. Проверено на живом стенде: meta.properties
+            # лежал в /tmp/kafka-logs, а /var/lib/kafka/data был пуст.
+            - name: KAFKA_LOG_DIRS
+              value: {{ $dataDir | quote }}
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
               value: "{{ default "true" .Values.kafka.autoCreateTopics }}"
+            # Страховка к джобе kafka-topics (beads lo2). Авто-создание оставлено включённым
+            # ради retry/DLT-топиков Spring Kafka, но брокерский дефолт num.partitions=1
+            # означал, что любой клиент, дотянувшийся до топика раньше джобы, создавал его
+            # однопартиционным — и консьюмер кешировал ровно одну партицию до истечения
+            # metadata.max.age.ms (~5 минут). Приравняв дефолт к partitionsPerTopic, мы
+            # делаем авто-созданный топик неотличимым по геометрии от созданного джобой.
+            - name: KAFKA_NUM_PARTITIONS
+              value: "{{ .Values.kafka.partitionsPerTopic }}"
+            # Идентификатор кластера задан явно (beads yk8). Раньше его не задавали вовсе,
+            # и бесшовность рестарта держалась на том, что entrypoint образа подставляет
+            # фиксированный дефолт из /etc/kafka/docker/configureDefaults — деталь
+            # реализации образа, а не контракт. Мажорный апгрейд apache/kafka с другим
+            # дефолтом дал бы брокеру meta.properties с чужим cluster.id на живом томе и
+            # InconsistentClusterIdException на старте: стенд, молча сломавшийся после
+            # смены тега образа. Значение — см. комментарий в values.yaml.
+            #
+            # required, а не тихий дефолт: пустая переменная здесь опаснее её отсутствия.
+            # При отсутствии entrypoint подставит свой дефолт, а вот заданный пустым
+            # CLUSTER_ID уедет в kafka-storage format на свежем томе. Наступить на это
+            # легко: `helm upgrade --reuse-values` берёт значения прошлого релиза и НЕ
+            # видит новых дефолтов чарта, так что после этого тикета он отрендерил бы
+            # переменную пустой. Правильный апгрейд — `--reset-then-reuse-values`.
+            - name: CLUSTER_ID
+              value: {{ required "kafka.clusterId обязателен: задайте его в values.yaml. Если сюда привёл `helm upgrade --reuse-values`, повторите с `--reset-then-reuse-values` — --reuse-values не подхватывает новые дефолты чарта (beads yk8)." .Values.kafka.clusterId | quote }}
+          # До y1v пробы не было вовсе: под считался Ready сразу после старта процесса,
+          # хотя брокер ещё поднимал listener. С постоянным томом старт стал заметно
+          # длиннее (восстановление сегментов из каталога логов), а от «Ready» теперь
+          # зависит проверка переживания рестарта — поэтому Ready должен означать
+          # «порт 9092 принимает соединения», а не «контейнер запустился».
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: kafka-data
-              mountPath: /bitnami/kafka
+              mountPath: {{ $dataDir | quote }}
       volumes:
         - name: kafka-data
+{{- if .Values.kafka.persistence.enabled }}
+          # Постоянный том брокера (beads y1v). Пересоздание пода больше не стирает
+          # топики, их геометрию, офсеты консьюмер-групп и неразобранные сообщения.
+          # Это важно именно потому, что джоба kafka-topics висит на хуках релиза и
+          # при рестарте одного лишь пода kafka не переигрывается.
+          #
+          # Пустой том на первом старте безопасен: entrypoint образа вызывает
+          # KafkaDockerWrapper setup, тот форматирует каталог (kafka-storage format)
+          # и кладёт meta.properties с cluster.id; на последующих стартах вывод
+          # «already formatted» проглатывается и брокер стартует поверх своих данных.
+          # cluster.id стабилен между рестартами, потому что CLUSTER_ID задан явно
+          # переменной окружения выше (beads yk8), а не унаследован от дефолта образа.
+          # Права тоже сходятся: local-path-provisioner создаёт каталог через
+          # `mkdir -m 0777`, а контейнер бежит под uid 1000 (appuser).
+          persistentVolumeClaim:
+            claimName: kafka-data
+{{- else }}
+          # persistence.enabled=false — эфемерный стенд. Рестарт пода kafka теряет
+          # топики, офсеты и недоставленные сообщения; геометрию после авто-создания
+          # спасает только KAFKA_NUM_PARTITIONS выше. Осознанный режим «на выброс».
           emptyDir: {}
+{{- end }}
 {{- end }}

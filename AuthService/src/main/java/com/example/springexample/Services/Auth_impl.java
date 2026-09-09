@@ -4,7 +4,6 @@ import com.example.grpc.AuthTransferServiceGrpc;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.CustomOAuth2User;
 import com.example.springexample.JPA_Entities.User;
-import com.example.springexample.JWT_Service;
 import com.example.springexample.Repositories.Auth_rep;
 import com.example.springexample.Utils.MyPasswordEncoder;
 import com.google.gson.Gson;
@@ -27,7 +26,6 @@ import java.util.stream.Collectors;
 public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBase {
 
     // Внедрение зависимостей через final поля и конструктор (Lombok @RequiredArgsConstructor)
-    private final JWT_Service jwtService;
     private final Auth_rep auth_rep;
     private final RedisTemplate<String, String> redisTemplate;
     private final Oauth2Utils oauth2Utils;
@@ -74,11 +72,19 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
         auth_rep.findFirstByName(request.getUsername())
                 .ifPresentOrElse(
                         user -> {
-                            if (!passwordEncoder.matches(request.getPassword(),user.getMyapppassword())){responseObserver.onError(new RuntimeException("PASSWORD MISSMATCH"));return;}
+                            if (!passwordEncoder.matches(request.getPassword(),user.getMyapppassword())){
+                                responseObserver.onNext(DataTransferService.AuthResponse.newBuilder()
+                                        .setStatus("401") // UNAUTHORIZED
+                                        .setMessage("Invalid username or password")
+                                        .build());
+                                responseObserver.onCompleted();
+                                return;
+                            }
                             DataTransferService.AuthResponse authResponse = DataTransferService.AuthResponse.newBuilder()
                                     .setStatus("200")
                                     .setMessage("Successfully logged in")
                                     .setRole(user.getUser_role())
+                                    .setSub(String.valueOf(user.getId()))
                                     .build();
                             responseObserver.onNext(authResponse);
                             responseObserver.onCompleted();
@@ -130,7 +136,15 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 User creation = new User();
                 creation.setName(request.getUsername());
                 creation.setMyapppassword(passwordEncoder.encodePassword(request.getPassword()));
-                creation.setImageUrl("pending");
+                // Маркер аватара приходит от вызывающего, а не проставляется здесь безусловно
+                // (beads krr): "pending" означает «файл есть, байты едут в MinIO», и фронт
+                // рисует на нём спиннер. Раньше "pending" ставился всем подряд, поэтому у
+                // пользователя, зарегистрировавшегося без аватара, спиннер крутился вечно —
+                // разрешить его было некому, событие в топик Images не приходило никогда.
+                // Пустая строка (в т.ч. от клиента, который поле не заполняет) — дефолтная
+                // аватарка. Путь Google-логина сюда не заходит, у него свой маркер в
+                // CustomOAuth2UserService.
+                creation.setImageUrl(request.getImageUrl());
                 creation.setUser_role("USER");
                 User created = auth_rep.save(creation);
                 responseObserver.onNext(DataTransferService.AuthResponse.newBuilder().setStatus("200").setMessage("Ahueno").setRole(created.getUser_role()).setSub(String.valueOf(created.getId())).build());
@@ -199,7 +213,16 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
 
     @Override
     public void getUserBySub(DataTransferService.Sub_Role request, StreamObserver<DataTransferService.User> responseObserver) {
-        auth_rep.findByGoogleSub(request.getSub())
+        final Long id;
+        try {
+            id = Long.parseLong(request.getSub());
+        } catch (NumberFormatException e) {
+            responseObserver.onError(Status.NOT_FOUND
+                    .withDescription("Auth Error: invalid sub " + request.getSub())
+                    .asRuntimeException());
+            return;
+        }
+        auth_rep.findById(id)
                 .ifPresentOrElse(
                         usr -> {
                             responseObserver.onNext(DataTransferService.User.newBuilder()
@@ -233,15 +256,16 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
 
         auth_rep.findByGoogleSub(sub)
                 .ifPresentOrElse(
-                        user -> responseObserver.onNext(DataTransferService.Sub_Role.newBuilder()
-                                .setSub(sub)
-                                .setRole(user.getUser_role())
-                                .build()),
+                        user -> {
+                            responseObserver.onNext(DataTransferService.Sub_Role.newBuilder()
+                                    .setSub(String.valueOf(user.getId()))
+                                    .setRole(user.getUser_role())
+                                    .build());
+                            responseObserver.onCompleted();
+                        },
                         () -> responseObserver.onError(Status.NOT_FOUND
                                 .withDescription("Auth Error: user with sub " + sub + " does not exist")
                                 .asRuntimeException())
                 );
-        // `ifPresentOrElse` не вызывает onCompleted, нужно сделать это явно
-        responseObserver.onCompleted();
     }
 }

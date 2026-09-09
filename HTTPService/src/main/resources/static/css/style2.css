@@ -1,581 +1,771 @@
-/* === БАЗОВОЕ ОФОРМЛЕНИЕ === */
+/* ============================================================
+   TEBEGRAM — "Iris & Ember" design system
+   Cool paper · electric-iris brand · warm ember accent
+   Shared by: index (chat), chats_list, chatcreatepage, register
+   ============================================================ */
+
+:root {
+    /* Color */
+    --ink:        #1b1a2e;   /* plum-tinted near-black text */
+    --ink-soft:   #3a3852;
+    --muted:      #6b6a83;   /* secondary text */
+    --faint:      #9997ad;
+    --paper:      #eceef6;   /* cool soft background (not cream) */
+    --surface:    #ffffff;   /* cards */
+    --surface-2:  #f3f4fb;   /* inset / incoming bubble */
+    --line:       #e3e5f0;   /* hairlines */
+    --line-2:     #d5d7e6;
+
+    --iris:       #5a4be3;   /* primary brand */
+    --iris-600:   #4a3ccb;
+    --iris-050:   #eeecfd;
+
+    --ember:      #ff6a5b;
+    --ember-2:    #ff9166;
+    --ember-grad: linear-gradient(135deg, #ff6a5b 0%, #ff9166 100%);
+    --iris-grad:  linear-gradient(135deg, #5a4be3 0%, #7b6bf0 100%);
+
+    --ok:   #1f9d6b;
+    --warn: #e08a00;
+    --err:  #e5484d;
+
+    /* Shape & depth */
+    --r-sm: 10px;
+    --r-md: 14px;
+    --r-lg: 20px;
+    --shadow-1: 0 1px 2px rgba(27,26,46,.06), 0 4px 14px rgba(27,26,46,.06);
+    --shadow-2: 0 10px 34px rgba(27,26,46,.14);
+
+    /* Type */
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
 body {
-    font-family: Arial, sans-serif;
-    background-color: #e9f4fd;
+    font-family: var(--sans);
+    background:
+        radial-gradient(120% 90% at 100% 0%, #f4f0ff 0%, rgba(244,240,255,0) 45%),
+        radial-gradient(120% 90% at 0% 100%, #fff1ec 0%, rgba(255,241,236,0) 45%),
+        var(--paper);
+    background-attachment: fixed;
     margin: 0;
     padding: 0;
-    color: #333;
+    color: var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     overflow-x: hidden;
 }
 
-/* === КНОПКА "НАЗАД" === */
-.back-button {
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    padding: 10px 20px;
-    background-color: #0066cc;
-    color: white;
-    border: none;
-    border-radius: 25px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: background-color 0.3s ease, transform 0.3s ease;
-}
-.back-button:hover {
-    background-color: #005bb5;
-    transform: scale(1.1);
+/* #app — единственный флекс-элемент body. Флекс-контейнером body делает
+   style_welcome.css: шелл app.html подключает его вторым, и его правило body
+   (задуманное под центрирование карточки входа) выигрывает у здешнего на всех
+   роутах, а не только на /welcome.
+
+   У флекс-элемента min-width по умолчанию auto — он не даёт сжать себя уже
+   собственного min-content. Достаточно длинного превью в списке чатов хватало,
+   чтобы #app вырос шире вьюпорта и всю страницу утащило вбок: замерено — при
+   вьюпорте 614px #app занимал 720px и начинался с left: -53px, то есть заголовок
+   и время сообщения уезжали за край. У самого превью ellipsis прописан правильно
+   (.post-content p), сработать ему просто не давали — обрезать текст незачем,
+   когда контейнеру разрешено расти. body { overflow-x: hidden } этот случай не
+   лечит, а только прячет полосу прокрутки, оставляя вёрстку смещённой.
+
+   min-width: 0 возвращает возможность сжиматься, max-width — страхует от
+   вылезания за край. */
+#app {
+    min-width: 0;
+    max-width: 100%;
 }
 
-/* === ЛЕНТА ПОСТОВ === */
-.post-feed {
-    max-width: 800px;
-    margin: 20px auto;
-    padding: 20px;
-    background-color: #ffffff;
-    border-radius: 15px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+::selection { background: var(--iris-050); color: var(--iris-600); }
+
+/* Shared brand wordmark */
+.brand-mark {
+    font-weight: 800;
+    letter-spacing: -.03em;
+    background: var(--iris-grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
 }
+
+/* ============================================================
+   BACK BUTTON (generic)
+   ============================================================ */
+/* Класс объявлен давно, но до появления кнопок возврата им не пользовалась ни одна
+   вьюха — position: fixed/top/left убраны без риска, ломать было нечего.
+   Причина убрать: на шапке чата плавающая кнопка ложится поверх аватарки. Замерено
+   при вьюпорте 390px, где .chat-container разворачивается во весь экран: кнопка в
+   точке 18/18 занимает прямоугольник 18,18 51x36, аватарка — 40,38 52x52, то есть
+   они пересекаются. На карточных экранах (.post-feed) наложения нет — карточку
+   центрирует по вертикали body из style_welcome.css, и заголовок оказывается сильно
+   ниже кнопки, — но там fixed отрывает кнопку от карточки, к которой она относится:
+   она висит в углу вьюпорта, пока карточка стоит посреди экрана. Поток решает оба
+   случая одним поведением; внешний вид (пилюля, тень, :hover) прежний. */
+.back-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 18px;
+    background: var(--surface);
+    color: var(--iris-600);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: 600 14px/1 var(--sans);
+    cursor: pointer;
+    box-shadow: var(--shadow-1);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.back-button:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); border-color: var(--line-2); }
+
+/* На карточных экранах кнопка стоит отдельной строкой над заголовком. Отступ задаём
+   здесь, а не в базовом правиле: в шапке чата кнопка — элемент одной флекс-строки с
+   названием, и нижний отступ сбивал бы там вертикальное выравнивание. */
+.post-feed > .back-button { margin-bottom: 14px; }
+
+/* ============================================================
+   FEED / LIST PAGE  (chats_list, chatcreatepage, register)
+   ============================================================ */
+.post-feed {
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 26px clamp(16px, 4vw, 30px) 30px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-1);
+}
+
+/* The default centered <h2> heading these pages ship with */
+.post-feed > h2 {
+    margin: 4px 0 22px;
+    font-size: clamp(22px, 4.5vw, 30px);
+    font-weight: 800;
+    letter-spacing: -.02em;
+    color: var(--ink);
+    text-align: center;
+}
+
+/* Optional page eyebrow / toolbar the markup can add */
+.list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+}
+.list-head .title {
+    margin: 0;
+    font-size: clamp(22px, 4.5vw, 30px);
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+.list-head .title small {
+    display: block;
+    font: 500 12px/1 var(--mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 6px;
+}
+.pill-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
+    border-radius: 999px;
+    background: var(--iris);
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 6px 16px rgba(90,75,227,.28);
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.pill-action:hover { background: var(--iris-600); transform: translateY(-1px); box-shadow: 0 10px 22px rgba(90,75,227,.34); }
+.pill-action:active { transform: translateY(0); }
+
+/* --- Chat rows --- */
+#chats { display: flex; flex-direction: column; gap: 10px; }
+
 .post {
-    margin-bottom: 20px;
-    padding: 15px;
-    background-color: #f3faff;
-    border-radius: 15px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    transition: transform 0.3s ease-in-out;
+    padding: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-1);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 .post:hover {
-    transform: translateY(-5px);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+    border-color: var(--line-2);
 }
 
-
-.user-info {
-    display: flex;
-    align-items: center;
-}
-.user-avatar {
-    width: 45px;
-    height: 45px;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-.user-name {
-    font-weight: bold;
-    color: #0066cc;
-}
-.post-time {
-    font-size: 12px;
-    color: #888;
-}
-.more-options {
-    background: none;
-    border: none;
-    font-size: 18px;
-    color: #888;
-    cursor: pointer;
-    transition: color 0.3s ease;
-}
-.more-options:hover {
-    color: #0066cc;
-}
-
-.post-content {
-    font-size: 16px;
-    color: #444;
-}
-.post-image {
-    width: 100%;
-    height: auto;
-    margin-top: 10px;
-    border-radius: 10px;
-    transition: transform 0.3s ease;
-}
-.post-image:hover {
-    transform: scale(1.05);
-}
-
-/* === ФУТЕР ПОСТА === */
-.post-footer {
-    margin-top: 15px;
-}
-.like-share {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 10px;
-}
-.like-button, .comment-button {
-    background-color: transparent;
-    border: none;
-    color: #0066cc;
-    font-size: 14px;
-    cursor: pointer;
-    transition: color 0.3s ease, transform 0.3s ease;
-}
-.like-button:hover, .comment-button:hover {
-    color: #004b99;
-    transform: scale(1.1);
-}
-
-/* === КОММЕНТАРИИ === */
-.comments-section {
-    margin-top: 15px;
-    padding-top: 10px;
-    border-top: 1px solid #ddd;
-}
-.comment {
-    margin-bottom: 10px;
-}
-.comment-author {
-    font-weight: bold;
-    color: #0066cc;
-}
-.comment-text {
-    font-size: 14px;
-    color: #555;
-}
-
-/* === ФОРМА КОММЕНТАРИЯ === */
-.add-comment textarea {
-    width: 100%;
-    padding: 10px;
-    font-size: 14px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    margin-bottom: 10px;
-    resize: vertical;
-    transition: border-color 0.3s ease;
-}
-.add-comment textarea:focus {
-    border-color: #0066cc;
-}
-.add-comment button {
-    background-color: #0066cc;
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background-color 0.3s ease, transform 0.3s ease;
-}
-.add-comment button:hover {
-    background-color: #005bb5;
-    transform: scale(1.05);
-}
-
-/* === ЧАТ === */
-.chat-container {
-    width: 400px;
-    height: 630px;
-    background-color: white;
-    margin: 50px auto;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-.chat-header {
-    background-color: #4CAF50;
-    color: white;
-    text-align: center;
-    padding: 10px;
-    font-size: 18px;
-    display: flex;
-    flex-direction: column; /* вот оно */
-    align-items: center;
-}
-.chat-messages {
-    padding: 20px;
-    overflow-y: auto;
-    height: 400px;
-    display: flex;
-    flex-direction: column;
-}
-
-.message.user {
-    background-color: #cce7ff;
-    align-self: flex-end;
-}
-.message.bot {
-    background-color: #e0e0e0;
-    align-self: flex-start;
-}
-.chat-input {
-    display: flex;
-    padding: 10px;
-    border-top: 1px solid #ddd;
-}
-.chat-input input {
-    width: 80%;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    font-size: 14px;
-}
-.chat-input button {
-    width: 15%;
-    padding: 10px;
-    margin-left: 10px;
-    border: none;
-    background-color: #4CAF50;
-    color: white;
-    border-radius: 5px;
-    cursor: pointer;
-}
-.chat-input button:hover {
-    background-color: #45a049;
-}
-
-/* === УВЕДОМЛЕНИЯ === */
-.notification-area {
-    width: 400px;
-    margin: 20px auto;
-    background-color: #fff;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.notification-area h4 {
-    margin-top: 0;
-    color: #4CAF50;
-    text-align: center;
-}
-
-#notificationList {
-    list-style-type: none;
-    padding-left: 0;
-    margin: 0;
-    max-height: 200px;
-    overflow-y: auto;
-}
-
-#notificationList li {
-    background-color: #f0f9ff;
-    border: 1px solid #d6eaff;
-    padding: 10px;
-    margin-bottom: 8px;
-    border-radius: 5px;
-    font-size: 14px;
-    color: #333;
-}
-.toast-container {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    max-width: 300px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    z-index: 9999;
-}
-
-.toast {
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-    border-radius: 6px;
-    color: #fff;
-    background-color: #2196F3; /* default info */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    animation: fadeIn 0.3s ease;
-    transition: opacity 0.5s ease, transform 0.5s ease;
-}
-
-.toast-icon {
-    margin-right: 10px;
-    font-size: 18px;
-}
-
-.toast-text {
-    flex: 1;
-    font-size: 14px;
-}
-
-/* Цвета по типу */
-.toast-success {
-    background-color: #4CAF50;
-}
-.toast-error {
-    background-color: #f44336;
-}
-.toast-warning {
-    background-color: #ff9800;
-}
-.toast-info {
-    background-color: #2196F3;
-}
-
-/* Скрытие */
-.toast.hide {
-    opacity: 0;
-    transform: translateX(100%);
-}
-
-/* Анимация */
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateX(50%);
-    }
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-.my-message {
-    align-self: flex-end;
-    background-color: #dcf8c6;
-    margin-left: auto;
-    margin-right: 10px;
-    padding: 8px;
-    border-radius: 10px;
-    max-width: 60%;
-}
-
-.other-message {
-    align-self: flex-start;
-    background-color: #ffffff;
-    margin-right: auto;
-    margin-left: 10px;
-    padding: 8px;
-    border-radius: 10px;
-    max-width: 60%;
-}
-
-/* Общее для всех сообщений */
-
-#registerResponse, #register-response{
-    margin-top: 20px;
-    text-align: center;
-    color: red;
-    font-weight: bold;
-    font-size: 36px;
-    text-shadow: 0 0 10px red, 0 0 20px red;
-    animation: combinedShakeGrow 0.4s infinite, flashRed 0.5s infinite alternate;
-}
-
-/* Объединённая тряска + рост */
-@keyframes combinedShakeGrow {
-    0% { transform: translate(0, 0) scale(1); }
-    10% { transform: translate(-5px, -5px) scale(1.1); }
-    20% { transform: translate(-10px, 0px) scale(1.2); }
-    30% { transform: translate(10px, 5px) scale(1.15); }
-    40% { transform: translate(5px, -10px) scale(1.2); }
-    50% { transform: translate(-5px, 10px) scale(1.1); }
-    60% { transform: translate(-10px, -5px) scale(1.2); }
-    70% { transform: translate(10px, 0px) scale(1.15); }
-    80% { transform: translate(5px, 5px) scale(1.1); }
-    90% { transform: translate(-5px, -5px) scale(1.2); }
-    100% { transform: translate(0, 0) scale(1); }
-}
-
-/* Моргание цветом */
-@keyframes flashRed {
-    0% { color: red; text-shadow: 0 0 10px red, 0 0 20px red; }
-    100% { color: darkred; text-shadow: 0 0 20px darkred, 0 0 30px darkred; }
-}
-.user-id {
-    font-weight: bold;
-    color: gray;
-}
-.post-content p {
-    margin: 0;
-}
-
-
-
-
-.message-avatar img {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-
-.message-content {
-    flex: 1;
-}
-.message-username {
-    font-size: 14px;
-    color: #555;
-    margin-top: 4px;
-}
-
-.message {
-    display: flex;
-    flex-direction: column;
-    background-color: #e0e0e0;
-    padding: 10px;
-    border-radius: 5px;
-    margin-bottom: 10px;
-    max-width: 80%;
-}
-
-.message-avatar iframe {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-
-.message-content {
-    flex: 1;
-}
-.spinner-avatar {
-    width: 40px;
-    height: 40px;
-    border: 3px solid #ddd;
-    border-top: 3px solid #333;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: auto;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
- .spinner-avatar {
-     width: 40px;
-     height: 40px;
-     border: 4px solid #eee;
-     border-top: 4px solid #333;
-     border-radius: 50%;
-     animation: spin 1s linear infinite;
-     margin: auto;
- }
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
- .global-spinner-overlay {
-     position: fixed;
-     top: 0; left: 0; right: 0; bottom: 0;
-     background: rgba(255,255,255,0.6);
-     display: flex;
-     justify-content: center;
-     align-items: center;
-     z-index: 9999;
- }
-.big-spinner {
-    width: 80px;
-    height: 80px;
-    border: 8px solid #eee;
-    border-top: 8px solid #333;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
 .post-header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
 }
 
-
-.chat-avatar-container {
+.user-info {
     display: flex;
-    align-items: center;
-}
-
-
-.user-info .chat-title {
-    font-weight: bold;
-    font-size: 1rem;
-}
-
-.post-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 5px;
-}
-.chat-avatar {
-    width: 40px;
-    height: 40px;
-    object-fit: cover;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-.message-preview {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
     flex: 1;
+    gap: 2px;
+}
+.user-info .chat-title,
+.user-info .user-name:first-child {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -.01em;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* the "Чат №N" secondary line the JS appends */
+.user-info .user-name + .user-name,
+.user-info .user-name:nth-child(2) {
+    font: 500 11px/1 var(--mono);
+    letter-spacing: .04em;
+    color: var(--faint);
+    text-transform: uppercase;
 }
 
 .post-time {
-    font-size: 0.85em;
-    color: #999;
+    margin-left: auto;
+    align-self: flex-start;
+    font: 500 12px/1 var(--mono);
+    color: var(--faint);
     white-space: nowrap;
 }
 
-.no-message {
-    color: #888;
+.post-content {
+    margin-top: 8px;
+    padding-left: 64px;   /* align under the title, past the 52px avatar + gap */
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    min-width: 0;
 }
-/* Главный контейнер для инпута, делаем его "точкой отсчета" для панели */
-.chat-input {
-    position: relative; /* Это важно для позиционирования панели */
+.post-content p {
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+}
+.message-preview {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+.no-message { color: var(--faint); font-style: italic; }
+.user-id { font-weight: 600; color: var(--iris-600); white-space: nowrap; }
+
+#no-chats-message {
+    text-align: center;
+    color: var(--muted) !important;
+    padding: 48px 16px;
+    font-size: 15px;
 }
 
-/* Сама панель с подсказкой от AI */
-.ai-suggestion-panel {
-    position: absolute; /* Позиционируем относительно .chat-input */
-    bottom: 100%;       /* Располагаем ее прямо над родителем */
-    left: 0;
-    right: 0;
-    background-color: #f0f8ff; /* Светло-голубой фон */
-    border: 1px solid #b0c4de;   /* Светло-синяя рамка */
-    border-radius: 8px 8px 0 0; /* Скругляем верхние углы */
-    padding: 10px;
-    margin-bottom: -1px; /* Чтобы рамка панели слилась с рамкой инпута */
-    box-shadow: 0 -2px 5px rgba(0,0,0,0.05); /* Легкая тень сверху */
+/* ============================================================
+   AVATARS (shared: list + chat)
+   ============================================================ */
+.message-avatar,
+.chat-avatar-container {
     display: flex;
-    justify-content: space-between; /* Размещаем текст и кнопки по краям */
     align-items: center;
-    font-family: sans-serif;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.chat-avatar {
+    width: 52px;
+    height: 52px;
+    object-fit: cover;
+    border-radius: 16px;      /* squircle — signature over the usual circle */
+    background: var(--surface-2);
+    box-shadow: inset 0 0 0 1px rgba(27,26,46,.06);
+}
+
+/* Spinners */
+.spinner-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    border: 3px solid var(--line);
+    border-top-color: var(--iris);
+    animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.global-spinner-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(236,238,246,.72);
+    backdrop-filter: blur(2px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+.big-spinner {
+    width: 74px;
+    height: 74px;
+    border: 7px solid var(--line);
+    border-top-color: var(--iris);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* ============================================================
+   CHAT PAGE  (index.html)
+   ============================================================ */
+.chat-container {
+    width: min(520px, 100%);
+    height: min(760px, calc(100vh - 48px));
+    margin: 24px auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-2);
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--surface);
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 0 rgba(27,26,46,.02);
+    flex-wrap: wrap;
+}
+.chat-header .chat-avatar { width: 44px; height: 44px; border-radius: 13px; }
+.chat-header > span {
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+/* Правило описывает кнопки-действия справа от названия чата (своих у шапки сейчас нет,
+   но геометрия рассчитана на них). Кнопка возврата исключена: она стоит первой в строке,
+   а margin-left: auto отжал бы её в противоположный край. */
+.chat-header button:not(.back-button) {
+    margin-left: auto;
+    padding: 9px 14px;
+    background: var(--surface-2);
+    color: var(--iris-600);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: 600 13px/1 var(--sans);
+    cursor: pointer;
+    transition: background .18s ease, border-color .18s ease;
+}
+.chat-header button:not(.back-button):hover { background: var(--iris-050); border-color: var(--iris); }
+
+#typing-indicator {
+    font-size: 12px;
+    color: var(--iris-600);
+    font-weight: 600;
+    min-height: 14px;
+    order: 3;
+    flex-basis: 100%;
+    /* Индикатор — перенесённая на свою строку часть флекс-шапки, поэтому отступ слева
+       у него ручной. 56px (аватарка 44 + gap 12) подгонялись под шапку без кнопки
+       возврата и с её появлением перестали приводить индикатор под название чата.
+       Ширина самой кнопки зависит от глифа, считать её в calc() — держать хрупкое
+       число, которое сломает следующая правка шапки. Ровняем индикатор по левому краю
+       шапки: под чем он стоит, не важно, важно, что он ни от чего не зависит. */
+    padding-left: 0;
+    margin-top: -6px;
+}
+#typing-indicator:empty { display: none; }
+
+#chatMessages {
+    padding: 18px 16px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background:
+        radial-gradient(80% 40% at 50% 0%, rgba(90,75,227,.04), transparent 70%),
+        var(--surface-2);
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-2) transparent;
+}
+#chatMessages::-webkit-scrollbar { width: 8px; }
+#chatMessages::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; }
+
+/* --- Message bubbles (the signature) --- */
+.message {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 78%;
+    padding: 9px 13px;
+    border-radius: 16px;
+    font-size: 14.5px;
+    line-height: 1.4;
+    box-shadow: var(--shadow-1);
+    word-break: break-word;
+    animation: bubble-in .22s ease both;
+}
+.message strong { font-size: 12.5px; font-weight: 700; letter-spacing: -.01em; }
+.message .message-avatar { display: none; } /* avatar not needed inside the bubble */
+
+/* Шапка пузыря: имя, ID и время в одну строку с гарантированным зазором (beads 9kn).
+   Раньше время висело на float: right внутри сжатого по контенту пузыря и склеивалось
+   с ID. margin-left: auto прижимает его вправо в пределах реальной ширины пузыря. */
+.message-header { display: flex; align-items: baseline; gap: 8px; }
+.message-header .message-time {
+    margin-left: auto;
+    font-size: 12px;
+    color: #999;
+    white-space: nowrap;
+}
+.message.user .message-header .message-time { color: rgba(255,255,255,.75) !important; }
+
+.message.bot {
+    align-self: flex-start;
+    background: var(--surface);
+    color: var(--ink);
+    border-bottom-left-radius: 5px;   /* left tail */
+    border: 1px solid var(--line);
+}
+.message.bot strong { color: var(--iris-600); }
+
+.message.user {
+    align-self: flex-end;
+    background: var(--ember-grad);
+    color: #fff;
+    border-bottom-right-radius: 5px;  /* right tail */
+    box-shadow: 0 6px 16px rgba(255,106,91,.28);
+}
+.message.user strong { color: rgba(255,255,255,.92); }
+.message.user span { color: rgba(255,255,255,.92) !important; }
+
+.message.error-message {
+    align-self: center;
+    max-width: 92%;
+    background: #fdecec;
+    color: var(--err);
+    border: 1px solid #f6cccd;
+    box-shadow: none;
+    text-align: center;
+}
+
+@keyframes bubble-in {
+    from { opacity: 0; transform: translateY(6px) scale(.98); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Reply-as selector */
+#aiUserSelect {
+    margin: 0 16px 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font: 500 13px/1 var(--sans);
+    cursor: pointer;
+}
+#aiUserSelect:focus { outline: none; border-color: var(--iris); box-shadow: 0 0 0 3px var(--iris-050); }
+
+/* --- Composer --- */
+.chat-input {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+}
+.chat-input input#messageInput,
+.chat-input input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    font: 400 14.5px/1.2 var(--sans);
+    color: var(--ink);
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.chat-input input#messageInput::placeholder { color: var(--faint); }
+.chat-input input#messageInput:focus {
+    outline: none;
+    background: var(--surface);
+    border-color: var(--iris);
+    box-shadow: 0 0 0 3px var(--iris-050);
+}
+.chat-input button {
+    flex-shrink: 0;
+    padding: 11px 16px;
+    border: none;
+    border-radius: 999px;
+    background: var(--iris);
+    color: #fff;
+    font: 600 13.5px/1 var(--sans);
+    cursor: pointer;
+    transition: background .18s ease, transform .12s ease;
+}
+.chat-input button:hover { background: var(--iris-600); }
+.chat-input button:active { transform: scale(.97); }
+/* the secondary "AI help" button reads as ghost */
+.chat-input button.ghost {
+    background: var(--surface-2);
+    color: var(--iris-600);
+    border: 1px solid var(--line);
+}
+.chat-input button.ghost:hover { background: var(--iris-050); border-color: var(--iris); }
+
+/* --- AI suggestion panel --- */
+.ai-suggestion-panel {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 14px;
+    right: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 12px 14px;
+    box-shadow: var(--shadow-2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
     font-size: 14px;
 }
-
-/* Текст подсказки */
-.ai-suggestion-panel .suggestion-text {
-    flex-grow: 1; /* Занимает все доступное место */
-    margin-right: 10px;
-    color: #333;
+.ai-suggestion-panel::before {
+    content: "AI";
+    position: absolute;
+    top: -9px; left: 14px;
+    font: 700 10px/1 var(--mono);
+    letter-spacing: .1em;
+    color: #fff;
+    background: var(--iris-grad);
+    padding: 4px 8px;
+    border-radius: 999px;
 }
-
-/* Контейнер для кнопок "Вставить" и "Закрыть" */
-.ai-suggestion-panel .suggestion-actions {
-    display: flex;
-    gap: 5px; /* Пространство между кнопками */
-    flex-shrink: 0; /* Чтобы кнопки не сжимались */
-}
-
-/* Общий стиль для кнопок в панели */
+.ai-suggestion-panel .suggestion-text { flex-grow: 1; color: var(--ink); }
+.ai-suggestion-panel .suggestion-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .ai-suggestion-panel button {
-    background: none;
-    border: 1px solid #b0c4de;
-    border-radius: 4px;
-    padding: 3px 8px;
+    border-radius: 8px;
+    padding: 6px 12px;
     cursor: pointer;
-    font-size: 12px;
-    transition: background-color 0.2s;
+    font: 600 12px/1 var(--sans);
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    transition: background .16s ease, border-color .16s ease;
+}
+.ai-suggestion-panel button.insert-btn { background: var(--iris); color: #fff; border-color: var(--iris); }
+.ai-suggestion-panel button.insert-btn:hover { background: var(--iris-600); }
+.ai-suggestion-panel button.close-btn:hover { background: var(--line); }
+
+/* ============================================================
+   FORMS  (chatcreatepage, register)  — .add-comment
+   ============================================================ */
+.add-comment {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.add-comment label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+}
+.add-comment input[type="text"],
+.add-comment input[type="password"],
+.add-comment textarea {
+    width: 100%;
+    padding: 12px 14px;
+    font: 400 15px/1.4 var(--sans);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.add-comment textarea { resize: vertical; min-height: 90px; }
+.add-comment input::placeholder { color: var(--faint); }
+.add-comment input:focus,
+.add-comment textarea:focus {
+    outline: none;
+    background: var(--surface);
+    border-color: var(--iris);
+    box-shadow: 0 0 0 3px var(--iris-050);
 }
 
-/* Кнопка "Вставить" */
-.ai-suggestion-panel button.insert-btn {
-    background-color: #e0f0ff;
+/* File input */
+.add-comment input[type="file"] {
+    font: 500 13px/1.4 var(--sans);
+    color: var(--muted);
 }
-.ai-suggestion-panel button.insert-btn:hover {
-    background-color: #cce4ff;
+.add-comment input[type="file"]::file-selector-button {
+    margin-right: 12px;
+    padding: 9px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--iris-600);
+    font: 600 13px/1 var(--sans);
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease;
+}
+.add-comment input[type="file"]::file-selector-button:hover { background: var(--iris-050); border-color: var(--iris); }
+
+/* Added-user rows on the create page */
+.add-comment .comment {
+    padding: 12px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    animation: bubble-in .2s ease both;
+}
+#userFields { display: flex; flex-direction: column; gap: 10px; }
+#userFields:empty { display: none; }
+
+/* Buttons */
+.add-comment button {
+    align-self: flex-start;
+    padding: 12px 22px;
+    border: none;
+    border-radius: 999px;
+    background: var(--iris);
+    color: #fff;
+    font: 600 14px/1 var(--sans);
+    cursor: pointer;
+    box-shadow: 0 6px 16px rgba(90,75,227,.26);
+    transition: background .18s ease, transform .12s ease, box-shadow .18s ease;
+}
+.add-comment button:hover { background: var(--iris-600); transform: translateY(-1px); }
+.add-comment button:active { transform: translateY(0); }
+/* the "+ add user" button reads as a ghost / secondary action */
+.add-comment button[type="button"] {
+    background: transparent;
+    color: var(--iris-600);
+    border: 1px dashed var(--line-2);
+    box-shadow: none;
+}
+.add-comment button[type="button"]:hover { background: var(--iris-050); border-color: var(--iris); transform: none; }
+/* the primary submit button gets the ember accent */
+.add-comment button[type="submit"] { background: var(--ember-grad); box-shadow: 0 6px 16px rgba(255,106,91,.3); }
+.add-comment button[type="submit"]:hover { filter: brightness(1.03); }
+
+#result {
+    margin-top: 4px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--err);
+    text-align: center;
 }
 
-/* Кнопка "Закрыть" */
-.ai-suggestion-panel button.close-btn:hover {
-    background-color: #f1f1f1;
+/* Register response — calm, legible (replaces the shaking-red alarm) */
+#registerResponse, #register-response {
+    margin-top: 18px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--err);
+    background: #fdecec;
+    border: 1px solid #f6cccd;
+    border-radius: var(--r-sm);
+    padding: 12px 14px;
+    transition: opacity .4s ease;
+}
+#register-response:empty { display: none; }
+
+/* ============================================================
+   TOASTS  (both `.toast .info` and `.toast-info` conventions)
+   ============================================================ */
+.toast-container {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    max-width: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 10000;
+}
+.toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    border-radius: var(--r-md);
+    color: #fff;
+    background: var(--ink);
+    box-shadow: var(--shadow-2);
+    font-size: 14px;
+    font-weight: 500;
+    animation: toast-in .3s ease both;
+    transition: opacity .5s ease, transform .5s ease;
+}
+.toast-icon { font-size: 18px; line-height: 1; }
+.toast-text { flex: 1; }
+
+.toast-success, .toast.success { background: var(--ok); }
+.toast-error,   .toast.error   { background: var(--err); }
+.toast-warning, .toast.warning { background: var(--warn); }
+.toast-info,    .toast.info    { background: var(--iris); }
+
+.toast.hide { opacity: 0; transform: translateX(110%); }
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(40%); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 600px) {
+    .post-feed { margin: 16px; padding: 20px 16px 24px; border-radius: var(--r-md); }
+    .chat-container {
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        margin: 0;
+        border: none;
+        border-radius: 0;
+    }
+    .post-content { padding-left: 0; }
+    .chat-avatar { width: 46px; height: 46px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

@@ -1,38 +1,36 @@
 package com.example.springexample;
 
-import com.google.gson.Gson;
+import com.example.springexample.Utils.AccessTokenVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.lang.NonNull;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
-import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Component
 @Slf4j
 @RequiredArgsConstructor
 public class ReactiveHybridAuthFilter implements WebFilter {
 
-    private final Gson gson = new Gson();
+    private final AccessTokenVerifier accessTokenVerifier;
+
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
     // Список публичных путей (аналогично сервлетной версии)
     private static final List<String> PUBLIC_PATHS = List.of(
             "/reactive/login", "/reactive/register", "/welcome", "/authcallback",
-            "/collect-fingerprint", "/exchangeTokens", "/actuator/**",
+            // "/actuator/**" убран (beads c2k) — см. пояснение в MvcJwtAuthFilter.
+            "/exchangeTokens",
             "/public/**", "/static/**", "/**/*.js", "/verifylogin"
     );
 
@@ -43,6 +41,27 @@ public class ReactiveHybridAuthFilter implements WebFilter {
         return PUBLIC_PATHS.stream().anyMatch(pattern -> pathMatcher.match(pattern, uri));
     }
 
+    // Личность берётся из подписи access-JWT, а не из X-User-ID/X-Authorities (beads 1fs).
+    //
+    // Раньше здесь строился Authentication прямо из этих заголовков, и доверенными их
+    // делала ровно одна вещь — аннотация auth_request на ingress http-protected: nginx
+    // через auth-response-headers перезаписывал клиентские значения ответом AuthService
+    // /jwtcheck. На путях http-public те же заголовки шли от клиента насквозь, так что
+    // защита держалась на топологии ingress, а не на коде: одна строка в
+    // Helm/templates/http-ingress.yaml, переносящая путь в http-public, тихо превращала
+    // X-User-ID в клиентский ввод.
+    //
+    // Разделение ответственности теперь такое:
+    //  - ingress auth_request -> /jwtcheck остаётся и делает то, чего приложение локально
+    //    сделать не может: проверяет, что refresh-сессия по sid ещё жива в Redis (ревокация);
+    //  - личность приложение проверяет само по RSA-подписи (AccessTokenVerifier, тот же
+    //    компонент, что и на STOMP CONNECT). Для легитимного трафика принципал не меняется:
+    //    /jwtcheck отдаёт X-User-ID = claims.getSubject() и X-Authorities = клейм authorities,
+    //    то есть ровно то, что верификатор достаёт из токена локально.
+    //
+    // nginx пробрасывает исходный Authorization в бэкенд без изменений, а SPA вешает его на
+    // все защищённые запросы (static/axios.js). Без валидного Bearer аутентифицированный
+    // контекст не создаётся — как и раньше при отсутствии заголовков.
     @Override
     @NonNull
     public Mono<Void> filter(ServerWebExchange exchange, @NonNull WebFilterChain chain) {
@@ -53,47 +72,14 @@ public class ReactiveHybridAuthFilter implements WebFilter {
         }
         log.info("Запрос по фильтру прошел");
 
-        String headerUserId = request.getHeaders().getFirst("X-User-ID");
-        String headerAuths = request.getHeaders().getFirst("X-Authorities");
-        if (StringUtils.hasText(headerUserId) && StringUtils.hasText(headerAuths)) {
-            List<SimpleGrantedAuthority> authorities = parseAuthorities(headerAuths);
-            Authentication auth = createAuth(headerUserId, authorities);
+        Authentication auth = accessTokenVerifier.verify(
+                request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+        if (auth != null) {
             return chain.filter(exchange)
                     .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
         }
 
         return chain.filter(exchange);
-    }
-
-    /**
-     * Создает объект Authentication.
-     */
-    private Authentication createAuth(String sub, List<SimpleGrantedAuthority> authorities) {
-        return new UsernamePasswordAuthenticationToken(sub, null, authorities);
-    }
-
-    private List<SimpleGrantedAuthority> parseAuthorities(String headerAuths) {
-        try {
-            List<Object> raw = gson.fromJson(headerAuths, List.class);
-            if (raw == null) {
-                return List.of();
-            }
-            List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
-            for (Object entry : raw) {
-                if (entry instanceof Map) {
-                    Object authority = ((Map<?, ?>) entry).get("authority");
-                    if (authority != null) {
-                        authorities.add(new SimpleGrantedAuthority(authority.toString()));
-                        continue;
-                    }
-                }
-                authorities.add(new SimpleGrantedAuthority(entry.toString()));
-            }
-            return authorities;
-        } catch (Exception e) {
-            log.warn("Не удалось распарсить X-Authorities: {}", e.getMessage());
-            return List.of();
-        }
     }
 
 }

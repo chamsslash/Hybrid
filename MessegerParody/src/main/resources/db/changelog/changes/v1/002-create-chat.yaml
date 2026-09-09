@@ -1,0 +1,25 @@
+databaseChangeLog:
+  - changeSet:
+      id: v1-002-create-chat
+      author: claude
+      changes:
+        - createTable:
+            tableName: chat
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_chat
+                    nullable: false
+              - column:
+                  name: title
+                  type: VARCHAR(255)
+              - column:
+                  name: image_url
+                  type: VARCHAR(255)
+      rollback:
+        - dropTable:
+            tableName: chat
