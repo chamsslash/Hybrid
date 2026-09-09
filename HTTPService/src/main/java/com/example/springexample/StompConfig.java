@@ -2,6 +2,7 @@ package com.example.springexample;
 
 import com.example.springexample.Utils.AllowedOrigins;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -12,6 +13,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 
 import java.util.List;
 
+@Slf4j
 @Configuration
 @RequiredArgsConstructor
 @EnableWebSocketMessageBroker
@@ -64,6 +66,17 @@ public class StompConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         List<String> origins = AllowedOrigins.forHost(publicScheme, ingressHost, extraAllowedOrigins);
         String[] patterns = origins.toArray(new String[0]);
+
+        // Печатается намеренно. Несовпадение Origin даёт 403 на handshake — без записи в
+        // логе, без ошибки в приложении и без внятного сообщения в браузере: страница
+        // открывается, а realtime просто не работает. Одна строка при старте превращает
+        // это в проверяемый факт: видно, что именно сервер готов принять, и сравнить с
+        // тем, что шлёт браузер (devtools -> запрос handshake -> заголовок Origin).
+        //
+        // Смотреть сюда стоит в первую очередь, если стенд поднят на нестандартном порту:
+        // список собирается БЕЗ порта, а браузер добавляет его в Origin, когда он не
+        // дефолтный для схемы (не 443 для https, не 80 для http). См. AllowedOrigins.
+        log.info("STOMP handshake принимается с Origin: {}", origins);
 
         //Для WS соеденений
         for (String endpoint : List.of(

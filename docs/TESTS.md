@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 38 | 296 | 2 | 298 |
+| HTTPService | 38 | 297 | 2 | 299 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **48** | **327** | **7** | **334** |
+| **Итого** | **48** | **328** | **7** | **335** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -566,4 +566,5 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`extraOriginsAreAppendedAndBlanksDropped`** — CSV с пробелами и пустым элементом (`" http://localhost , , https://front.example "`) → три origin'а после хостовых, пустой элемент отброшен. Зачем: `EXTRA_ALLOWED_ORIGINS=""` обязан означать «дополнительных нет», а не «разрешить пустой Origin».
 - **`duplicateOriginIsNotRepeated`** — хост, продублированный в extras, не удваивает элемент. Зачем: список уходит в `setAllowedOriginPatterns` как есть, дубли там — мусор, маскирующий реальный состав.
 - **`blankHostProducesNoSchemeOnlyOrigin`** — пустой `INGRESS_HOST` не даёт огрызка `http://`. Зачем: такой огрызок — синтаксически валидный, но бессмысленный паттерн, который тихо расширил бы список.
+- **`originWithPortComesOnlyFromExtras`** — `("http", "myapp.localtest.me", "http://myapp.localtest.me:8081")` → два хостовых origin'а без порта плюс третий с портом из extras. Зачем: фиксирует ограничение, а не желаемое поведение. Порт из хоста не выводится, а браузер добавляет его в `Origin`, когда он не дефолтный для схемы — значит стенд на `KIND_HTTP_HOST_PORT=8081` получит 403 на handshake, если такой origin не вписан в `EXTRA_ALLOWED_ORIGINS` целиком. Тест сторожит, что этот путь работает и что порт не появляется сам.
 - **`nullExtrasAreTreatedAsEmpty`** — `null` вместо CSV не роняет сборку. Зачем: значение приходит из окружения, и отсутствующая переменная не должна валить старт контекста.
