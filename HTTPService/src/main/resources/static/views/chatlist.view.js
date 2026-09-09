@@ -203,9 +203,26 @@ function schedulePendingImageRefresh(attempt = 0) {
 function connectStomp(token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
-    const generalStomp = stomp.add(Stomp.over(new SockJS('/GeneralChatDataUpdateConn')));
-    generalStomp.connect(authHeaders, () => {
-        generalStomp.subscribe(`/mutual/chatlist/change_chatpreview/${user_id}`, (msg) => {
+    // Одно соединение на все четыре подписки (было четыре, по одному на подписку).
+    //
+    // Спецификация WebSocket запрещает браузеру держать больше одного соединения в состоянии
+    // CONNECTING к одному host:port, поэтому хендшейки к нашему хосту идут строго в очередь, и
+    // холодный старт стоит N × время_одного_хендшейка. Замер на стенде: один сокет — 2.0 с,
+    // четыре параллельно — 1.5 / 3.1 / 4.7 / 6.1 с, то есть ровно очередь. В консоли это
+    // выглядело как 8 секунд до появления реалтайма.
+    //
+    // Четыре эндпоинта разделения не давали: StompConfig регистрирует все шесть адресов ОДНИМ
+    // циклом с одинаковой конфигурацией, брокер один, а доступ разграничивает
+    // StompAuthChannelInterceptor по destination подписки, а не по эндпоинту. То есть цена
+    // платилась за различие, которого нет.
+    //
+    // Обратная сторона: теперь все четыре подписки живут на одном транспорте и умирают вместе.
+    // Практической разницы нет — соединения к одному хосту и раньше отваливались разом; зато
+    // гасить при уходе с экрана надо один сокет, а не четыре (а именно незакрытые сокеты и
+    // плодили дублирующие подписки).
+    const chatlistStomp = stomp.add(Stomp.over(new SockJS('/GeneralChatDataUpdateConn')));
+    chatlistStomp.connect(authHeaders, () => {
+        chatlistStomp.subscribe(`/mutual/chatlist/change_chatpreview/${user_id}`, (msg) => {
             const data = JSON.parse(msg.body);
             const previewElement = document.getElementById('preview-' + data.chat_id);
             const usernameElement = document.getElementById('username-' + data.chat_id);
@@ -222,11 +239,8 @@ function connectStomp(token) {
                 hydrateImages(imageContainer);
             }
         });
-    });
 
-    const changesStomp = stomp.add(Stomp.over(new SockJS('/ChatChangesHandleConn')));
-    changesStomp.connect(authHeaders, () => {
-        changesStomp.subscribe(`/mutual/chatlist/list_update/${user_id}`, (msg) => {
+        chatlistStomp.subscribe(`/mutual/chatlist/list_update/${user_id}`, (msg) => {
             const data = JSON.parse(msg.body);
             appendChat({
                 chat_id: data.chat_id,
@@ -237,10 +251,7 @@ function connectStomp(token) {
                 image_url: data.image_url
             });
         });
-    });
 
-    const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
-    imagesStomp.connect(authHeaders, () => {
         // Пер-юзерный адрес (beads bwh). Раньше здесь был глобальный
         // /mutual/chat_list/image_chat_channel — заметьте chat_list через подчёркивание:
         // он не подходил ни под один префикс интерцептора и потому пропускался
@@ -248,16 +259,13 @@ function connectStomp(token) {
         // Теперь сервер веером раскладывает событие по участникам чата, как typing-статусы,
         // а список чатов слушает один свой адрес — плитки появляются динамически, и
         // подписываться на каждый чат отдельно пришлось бы по мере их добавления.
-        imagesStomp.subscribe(`/mutual/chatlist/image/${user_id}`, (msg) => {
+        chatlistStomp.subscribe(`/mutual/chatlist/image/${user_id}`, (msg) => {
             const message = JSON.parse(msg.body);
             // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
             applyChatImage(message.targetId, message.objectKey);
         });
-    });
 
-    const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
-    statusStomp.connect(authHeaders, () => {
-        statusStomp.subscribe(`/mutual/chatlist/typing/${user_id}`, (message) => {
+        chatlistStomp.subscribe(`/mutual/chatlist/typing/${user_id}`, (message) => {
             const data = JSON.parse(message.body);
             if (String(data.user_id) === String(user_id)) return;
             if (data.status === "START") {
@@ -289,13 +297,40 @@ export async function mount(params) {
     if (createChatBtn) createChatBtn.onclick = () => navigate('/reactive/createchat');
 
     try {
-        const me = (await api.get('/api/me')).data;
-        user_id = String(me.userId);
+        // Токен берём ПЕРВЫМ, до запросов за данными, и запросы пускаем параллельно.
+        //
+        // Раньше порядок был обратный: /api/me -> /api/chatlist -> ensureAccessToken(). На
+        // свежей вкладке токена в памяти нет (inmemory.js), поэтому /api/me уходил заведомо
+        // без Authorization, заведомо получал 401 и будил refresh через интерцептор — лишний
+        // круг только чтобы добыть токен, который дальше по коду всё равно запрашивался явно.
+        // При замеренных на стенде ~500 мс на round-trip это полсекунды на ровном месте, и
+        // ещё столько же — на последовательности /api/me -> /api/chatlist, которые друг от
+        // друга не зависят.
+        //
+        // Параллелить их безопасно ТОЛЬКО с токеном впереди: без него оба ушли бы без
+        // Authorization и получили 401 одновременно, а это ровно та гонка обновления, от
+        // которой сервер сносит сессию как при краже токена (см. auth.js).
+        // Отказ обмена обрабатываем отдельно: раньше сюда приводил 401 на /api/me, и на
+        // /welcome уводил интерцептор axios. Теперь токен запрашивается ДО запросов за
+        // данными, интерцептор в этой ветке не участвует — увести должны мы, иначе аноним
+        // остался бы на пустом экране. Клиентским переходом, как в createchat.view.js:
+        // /welcome — роут того же shell'а, полная перезагрузка не нужна.
+        let token;
+        try {
+            token = await ensureAccessToken();
+        } catch (e) {
+            console.error("chatlist bootstrap failed: нет живой сессии", e);
+            await navigate('/welcome');
+            return;
+        }
 
-        const chats = (await api.get('/api/chatlist')).data;
+        const [me, chats] = await Promise.all([
+            api.get('/api/me').then(r => r.data),
+            api.get('/api/chatlist').then(r => r.data),
+        ]);
+        user_id = String(me.userId);
         renderInitialChats(chats);
 
-        const token = await ensureAccessToken();
         connectStomp(token);
 
         // Подписка встала только сейчас — картинки, событие о которых ушло раньше,

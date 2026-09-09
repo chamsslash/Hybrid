@@ -52,8 +52,6 @@ let user_image = null;
 
 let typingUsers = [];
 let stompClient = null;
-let statusStomp = null;
-let imagesStomp = null;
 let typingTimeout = null;
 
 // Текст последнего отправленного сообщения (beads isf). Поле ввода чистится сразу после
@@ -64,11 +62,11 @@ let typingTimeout = null;
 let pendingText = '';
 
 // Ретрай подписок при SUBSCRIPTION_UNAVAILABLE (изначально beads 8wh, обобщено на все три
-// канала в 8r7). Сообщения/typing/аватарка чата живут на трёх разных STOMP-соединениях
-// (stompClient/statusStomp/imagesStomp, см. connectStomp) с разными колбэками, и сервер
-// роняет их подписки НЕЗАВИСИМО (StompAuthChannelInterceptor.PER_CHAT_PREFIXES). Бюджет
-// попыток и таймер повтора держим РАЗДЕЛЬНО на канал в channelState — общий счётчик
-// означал бы, что один сбойный канал сжигает лимит попыток остальным.
+// канала в 8r7). Сообщения/typing/аватарка чата едут по ОДНОМУ соединению (см. connectStomp),
+// но сервер роняет их подписки НЕЗАВИСИМО друг от друга — решение принимается по destination
+// (StompAuthChannelInterceptor.PER_CHAT_PREFIXES), а не по транспорту. Поэтому бюджет попыток
+// и таймер повтора держим РАЗДЕЛЬНО на канал в channelState: общий счётчик означал бы, что
+// один сбойный канал сжигает лимит попыток остальным.
 //
 // Лимит в 3 попытки на канал действует на один заход в чат — сбрасывается только в
 // unmount(), не при удачной подписке: успех SUBSCRIBE в STOMP не наблюдаем без
@@ -397,7 +395,7 @@ const CHANNELS = {
     },
     typing: {
         prefix: '/mutual/typing/',
-        getClient: () => statusStomp,
+        getClient: () => stompClient,
         onMessage: (message) => {
             const data = JSON.parse(message.body);
             if (String(data.user_id) === String(user_id)) return;
@@ -410,7 +408,7 @@ const CHANNELS = {
     },
     chat_image: {
         prefix: '/mutual/chat_image/',
-        getClient: () => imagesStomp,
+        getClient: () => stompClient,
         onMessage: updateChatHeaderAvatar,
     },
 };
@@ -474,6 +472,19 @@ function subscribeChannel(name) {
 function connectStomp(token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
+    // Одно соединение на все три канала и на адрес отбивок (было три отдельных сокета).
+    //
+    // Спецификация WebSocket запрещает браузеру держать больше одного соединения в состоянии
+    // CONNECTING к одному host:port, поэтому хендшейки выстраиваются в очередь и холодный
+    // старт стоит N × время_одного_хендшейка. Замер на стенде: один сокет — 2.0 с, четыре
+    // параллельно — 1.5 / 3.1 / 4.7 / 6.1 с. Три эндпоинта здесь ничем не отличались друг от
+    // друга: StompConfig регистрирует все шесть адресов одним циклом с одинаковой
+    // конфигурацией, брокер один, а доступ разграничивает StompAuthChannelInterceptor по
+    // destination подписки, а не по эндпоинту.
+    //
+    // Поканальные бюджеты повторов в channelState при этом остаются осмысленными: сервер
+    // роняет SUBSCRIBE независимо для каждого адреса (PER_CHAT_PREFIXES), и это не зависит от
+    // того, по скольким транспортам разложены подписки.
     stompClient = stomp.add(Stomp.over(new SockJS("/ChatMessagesConn")));
     stompClient.connect(authHeaders, () => {
         // Персональный адрес отказов (beads isf) регистрируется ПЕРВЫМ (beads 8wh, R6):
@@ -488,15 +499,7 @@ function connectStomp(token) {
         // снимал общий disconnectAll в unmount().
         stompClient.subscribe(`/private/${user_id}`, handleChatError);
         subscribeChannel('chat');
-    });
-
-    statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
-    statusStomp.connect(authHeaders, () => {
         subscribeChannel('typing');
-    });
-
-    imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
-    imagesStomp.connect(authHeaders, () => {
         // Адрес несёт chat_id (beads bwh). Раньше здесь были два ГЛОБАЛЬНЫХ канала —
         // /mutual/chat/image_chat_channel и /mutual/chat/image_message_channel, — по которым
         // прилетали события картинок всех чатов системы: chatId и ключи объектов MinIO
@@ -518,8 +521,6 @@ export async function mount(params) {
     user_image = null;
     typingUsers = [];
     stompClient = null;
-    statusStomp = null;
-    imagesStomp = null;
     typingTimeout = null;
     pendingText = '';
     // channelState сбрасывается и здесь, а не только в unmount() (beads 8r7). mount()
@@ -560,19 +561,42 @@ export async function mount(params) {
     }, 500), { signal: ac.signal });
 
     try {
-        const me = (await api.get('/api/me')).data;
+        // Токен вперёд, запросы данных параллельно — обоснование см. в chatlist.view.js:
+        // без токена первый запрос гарантированно ловит 401 (лишний круг), а параллелить их
+        // без токена нельзя вовсе — два одновременных 401 запускают гонку обновления,
+        // которую сервер трактует как повторное использование refresh-токена.
+        //
+        // user_id проставляется ДО отрисовки сообщений: appendChatMessage сравнивает с ним
+        // отправителя, чтобы выбрать класс пузыря (свой/чужой). При параллельных запросах
+        // порядок гарантирован тем, что Promise.all отдаёт оба результата разом, а рисуем мы
+        // уже после.
+        // Отказ обмена — отдельная ветка: раньше на /welcome уводил интерцептор axios после
+        // 401 на /api/me, теперь токен берётся раньше и интерцептор в этом не участвует.
+        // Без явного увода аноним по прямой ссылке на чат получил бы тост «Не удалось
+        // открыть чат» и переход на список чатов, где его ждало бы то же самое.
+        let token;
+        try {
+            token = await ensureAccessToken();
+        } catch (e) {
+            console.error("chat bootstrap failed: нет живой сессии", e);
+            await navigate('/welcome');
+            return;
+        }
+
+        const [me, data] = await Promise.all([
+            api.get('/api/me').then(r => r.data),
+            api.get('/api/chat', { params: { id: chat_id, title: chat_title } }).then(r => r.data),
+        ]);
         user_id = String(me.userId);
         user_name = me.username;
         user_image = me.imageUrl;
 
-        const data = (await api.get('/api/chat', { params: { id: chat_id, title: chat_title } })).data;
         renderHeader(data);
         renderMembers(data.members);
         for (const msg of data.messages || []) {
             appendChatMessage(msg);
         }
 
-        const token = await ensureAccessToken();
         connectStomp(token);
     } catch (e) {
         console.error("chat bootstrap failed:", e);
@@ -598,7 +622,7 @@ export function unmount() {
     if (stomp) stomp.disconnectAll();
     clearTimeout(typingTimeout);
     // Таймеры повтора подписки (beads 8wh → обобщено на все три канала в 8r7) гасим по
-    // тому же образцу, что и typingTimeout: клиенты stompClient/statusStomp/imagesStomp не
+    // тому же образцу, что и typingTimeout: клиент stompClient не
     // обнуляются здесь (сброс — в mount(), см. комментарий там) и переживают unmount(),
     // поэтому без явного clearTimeout просроченный повтор при возврате в чат (или в другой
     // чат) проскочил бы guard в handleChatError и создал бы вторую подписку на тот же адрес.
