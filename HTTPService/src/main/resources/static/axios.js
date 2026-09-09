@@ -20,6 +20,26 @@ function shouldAttachAuth(config) {
     );
 }
 
+/**
+ * Достаёт токен, с которым запрос реально ушёл на провод. Берём из заголовков упавшего
+ * конфига, а не из getAccessToken(): к моменту обработки 401 в памяти может лежать уже
+ * другой токен, и именно эта разница говорит refreshAccessToken, что обновляться не надо.
+ *
+ * headers у axios 1.x — AxiosHeaders с методом get(), но интерцептор запроса выше ставит
+ * заголовок обычным присваиванием по ключу, поэтому поддерживаем оба доступа.
+ */
+function readBearer(headers) {
+    if (!headers) {
+        return null;
+    }
+    const raw = typeof headers.get === "function"
+        ? headers.get("Authorization")
+        : headers["Authorization"];
+    return typeof raw === "string" && raw.startsWith("Bearer ")
+        ? raw.slice("Bearer ".length)
+        : null;
+}
+
 const api = axios.create({ baseURL: "" });
 api.defaults.withCredentials = true;
 
@@ -50,8 +70,11 @@ api.interceptors.response.use(
         // Only retry once, and only for requests that should carry Authorization.
         if (status === 401 && shouldAttachAuth(original)) {
             original._authRetry = true;
+            // Токен снимаем ДО refresh: обновление перезапишет то, что лежит в памяти, и
+            // отличить «протух мой» от «его уже обновили» станет нечем.
+            const staleToken = readBearer(original.headers);
             try {
-                const newToken = await refreshAccessToken();
+                const newToken = await refreshAccessToken(staleToken);
                 original.headers = original.headers || {};
                 original.headers["Authorization"] = `Bearer ${newToken}`;
                 return api(original);
