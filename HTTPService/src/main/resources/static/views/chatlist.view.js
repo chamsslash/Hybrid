@@ -203,9 +203,26 @@ function schedulePendingImageRefresh(attempt = 0) {
 function connectStomp(token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
-    const generalStomp = stomp.add(Stomp.over(new SockJS('/GeneralChatDataUpdateConn')));
-    generalStomp.connect(authHeaders, () => {
-        generalStomp.subscribe(`/mutual/chatlist/change_chatpreview/${user_id}`, (msg) => {
+    // Одно соединение на все четыре подписки (было четыре, по одному на подписку).
+    //
+    // Спецификация WebSocket запрещает браузеру держать больше одного соединения в состоянии
+    // CONNECTING к одному host:port, поэтому хендшейки к нашему хосту идут строго в очередь, и
+    // холодный старт стоит N × время_одного_хендшейка. Замер на стенде: один сокет — 2.0 с,
+    // четыре параллельно — 1.5 / 3.1 / 4.7 / 6.1 с, то есть ровно очередь. В консоли это
+    // выглядело как 8 секунд до появления реалтайма.
+    //
+    // Четыре эндпоинта разделения не давали: StompConfig регистрирует все шесть адресов ОДНИМ
+    // циклом с одинаковой конфигурацией, брокер один, а доступ разграничивает
+    // StompAuthChannelInterceptor по destination подписки, а не по эндпоинту. То есть цена
+    // платилась за различие, которого нет.
+    //
+    // Обратная сторона: теперь все четыре подписки живут на одном транспорте и умирают вместе.
+    // Практической разницы нет — соединения к одному хосту и раньше отваливались разом; зато
+    // гасить при уходе с экрана надо один сокет, а не четыре (а именно незакрытые сокеты и
+    // плодили дублирующие подписки).
+    const chatlistStomp = stomp.add(Stomp.over(new SockJS('/GeneralChatDataUpdateConn')));
+    chatlistStomp.connect(authHeaders, () => {
+        chatlistStomp.subscribe(`/mutual/chatlist/change_chatpreview/${user_id}`, (msg) => {
             const data = JSON.parse(msg.body);
             const previewElement = document.getElementById('preview-' + data.chat_id);
             const usernameElement = document.getElementById('username-' + data.chat_id);
@@ -222,11 +239,8 @@ function connectStomp(token) {
                 hydrateImages(imageContainer);
             }
         });
-    });
 
-    const changesStomp = stomp.add(Stomp.over(new SockJS('/ChatChangesHandleConn')));
-    changesStomp.connect(authHeaders, () => {
-        changesStomp.subscribe(`/mutual/chatlist/list_update/${user_id}`, (msg) => {
+        chatlistStomp.subscribe(`/mutual/chatlist/list_update/${user_id}`, (msg) => {
             const data = JSON.parse(msg.body);
             appendChat({
                 chat_id: data.chat_id,
@@ -237,10 +251,7 @@ function connectStomp(token) {
                 image_url: data.image_url
             });
         });
-    });
 
-    const imagesStomp = stomp.add(Stomp.over(new SockJS('/MutualImagesConn')));
-    imagesStomp.connect(authHeaders, () => {
         // Пер-юзерный адрес (beads bwh). Раньше здесь был глобальный
         // /mutual/chat_list/image_chat_channel — заметьте chat_list через подчёркивание:
         // он не подходил ни под один префикс интерцептора и потому пропускался
@@ -248,16 +259,13 @@ function connectStomp(token) {
         // Теперь сервер веером раскладывает событие по участникам чата, как typing-статусы,
         // а список чатов слушает один свой адрес — плитки появляются динамически, и
         // подписываться на каждый чат отдельно пришлось бы по мере их добавления.
-        imagesStomp.subscribe(`/mutual/chatlist/image/${user_id}`, (msg) => {
+        chatlistStomp.subscribe(`/mutual/chatlist/image/${user_id}`, (msg) => {
             const message = JSON.parse(msg.body);
             // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
             applyChatImage(message.targetId, message.objectKey);
         });
-    });
 
-    const statusStomp = stomp.add(Stomp.over(new SockJS("/StatusUserConn")));
-    statusStomp.connect(authHeaders, () => {
-        statusStomp.subscribe(`/mutual/chatlist/typing/${user_id}`, (message) => {
+        chatlistStomp.subscribe(`/mutual/chatlist/typing/${user_id}`, (message) => {
             const data = JSON.parse(message.body);
             if (String(data.user_id) === String(user_id)) return;
             if (data.status === "START") {
