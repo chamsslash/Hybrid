@@ -79,6 +79,21 @@ message UserListResponse {
 message RepeatedUsernames{
   repeated  string  names= 1;
 }
+
+// Запрос подсказок по началу ника. requester_id исключается из выдачи — он и так автор
+// чата. limit ограничивает размер ответа; 0 и отрицательные трактуются как «ничего не
+// возвращать» (см. UsernameSearchService в AuthService).
+//
+// Номера полей и имя rpc обязаны БУКВАЛЬНО совпадать с копией этого файла в AuthService
+// (src/main/proto/DataTransferService.proto): копии разошлись исторически и
+// синхронизируются поштучно. Расхождение имени уже приводило к UNIMPLEMENTED в проде
+// (beads 5l4).
+message UsernamePrefixRequest {
+  string prefix = 1;
+  int64 requester_id = 2;
+  int32 limit = 3;
+}
+
 message idToken{
   string  id =1;
 }
@@ -104,6 +119,7 @@ service AuthTransferService {
   rpc getUserBySub(Sub_Role) returns (User);
   rpc GetAllUsersByChatId(com.example.grpc.ChatData) returns (com.example.grpc.UserListResponse);
   rpc get_user_by_username(RepeatedUsernames) returns (UserListResponse);
+  rpc search_users_by_prefix(UsernamePrefixRequest) returns (UserListResponse);
   rpc register(UserDataRequest) returns (AuthResponse);
   rpc login(UserDataRequest) returns (AuthResponse);
   rpc CheckAuthorization(idToken) returns (AccessResponse);

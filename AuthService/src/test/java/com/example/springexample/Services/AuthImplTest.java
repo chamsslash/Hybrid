@@ -38,7 +38,8 @@ class AuthImplTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         passwordEncoder = mock(MyPasswordEncoder.class);
         oauth2Utils = mock(Oauth2Utils.class);
-        auth = new Auth_impl(authRep, redisTemplate, oauth2Utils, passwordEncoder);
+        auth = new Auth_impl(authRep, redisTemplate, oauth2Utils, passwordEncoder,
+                new UsernameSearchService(authRep));
     }
 
     private User user(long id, String name, String role, String encodedPassword) {

@@ -31,6 +31,7 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
     private final RedisTemplate<String, String> redisTemplate;
     private final Oauth2Utils oauth2Utils;
     private final MyPasswordEncoder passwordEncoder;
+    private final UsernameSearchService usernameSearchService;
     private final Gson gson = new Gson();
 
     @Override
@@ -122,6 +123,38 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 .addAllUsers(users)
                 .build();
         responseObserver.onNext(resp);
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * Подсказки по началу ника. Тонкая обёртка: все правила поиска живут в
+     * {@link UsernameSearchService}, здесь только перекладывание в protobuf.
+     *
+     * Ответ — существующее {@code UserListResponse}: оно уже несёт ровно нужные три поля
+     * (id, username, image_url) и уже объявлено одинаково в обеих правимых копиях .proto.
+     *
+     * {@code image_url} едет вместе с ником и не стоит ничего — это ключ объекта в MinIO,
+     * обычная строка. Дорого стоит скачивание байтов, и его делает только выбранный чипс.
+     *
+     * Явные проверки на null у name и imageUrl обязательны: обе колонки nullable, а сеттеры
+     * protobuf бросают NullPointerException.
+     */
+    @Override
+    public void searchUsersByPrefix(DataTransferService.UsernamePrefixRequest request,
+                                    StreamObserver<DataTransferService.UserListResponse> responseObserver) {
+        List<DataTransferService.UserDataRequest> found = usernameSearchService
+                .searchByPrefix(request.getPrefix(), request.getRequesterId(), request.getLimit())
+                .stream()
+                .map(user -> DataTransferService.UserDataRequest.newBuilder()
+                        .setId(user.getId())
+                        .setUsername(user.getName() == null ? "" : user.getName())
+                        .setImageUrl(user.getImageUrl() == null ? "" : user.getImageUrl())
+                        .build())
+                .collect(Collectors.toList());
+
+        responseObserver.onNext(DataTransferService.UserListResponse.newBuilder()
+                .addAllUsers(found)
+                .build());
         responseObserver.onCompleted();
     }
 

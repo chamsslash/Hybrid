@@ -27,10 +27,10 @@
 
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
-| AuthService | 5 | 18 | 2 | 20 |
+| AuthService | 6 | 24 | 2 | 26 |
 | HTTPService | 38 | 297 | 2 | 299 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **48** | **329** | **7** | **336** |
+| **Итого** | **49** | **335** | **7** | **342** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -73,6 +73,16 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 - **`getUserBySubNonNumericReturnsNotFound`** (A4) — нечисловой `sub` → `onError` (`StatusRuntimeException` NOT_FOUND), без краша `NumberFormatException`. Зачем: graceful-обработка старых/битых токенов после смены контракта.
 - **`checkOneTimeCodeReturnsNumericUserIdAsSub`** (A3) — по коду в Redis лежит `google_sub`, юзер найден `findByGoogleSub` → в ответ идёт **`sub="99"` (numeric user id)**, а не google_sub. Зачем: Google-путь тоже отдаёт канонический numeric sub.
 - **`registerDuplicateInDifferentCaseReturns666`** — вход: регистрация ника `МИША`, `findFirstByName("МИША")` пуст (точное сравнение регистра не ловит живую `Миша`), `save` бросает `DataIntegrityViolationException`. Проверяет: ответ `AuthResponse status=666, message="User with such name already exists"` уходит через `onNext`+`onCompleted`, `onError` НЕ вызывается. Зачем: после появления UNIQUE-индекса `ux_users_lower_name` арбитром занятости ника стала БД; без обработки нарушение приезжало бы клиенту как gRPC `UNKNOWN` (500) вместо внятного отказа, и та же дыра закрывает гонку check-then-insert между двумя одновременными регистрациями.
+
+### `Services/UsernameSearchServiceTest` — `unit` — правила поиска по префиксу ника (beads cdn)
+`UsernameSearchService` с замоканным `Auth_rep`. Проверяются ровно те решения, которые нельзя увидеть глазами в ответе: какой шаблон уходит в БД и уходит ли он вообще.
+
+- **`prefixIsLowercasedAndTerminatedWithWildcard`** — вход: префикс `МиШ`. Проверяет: в репозиторий уходит шаблон `миш%`, результат возвращается как есть. Зачем: индекс `ux_users_lower_name` построен на `lower(name)`, и приведение регистра на стороне приложения обязано совпасть с ним, иначе совпадений не будет вовсе.
+- **`requesterIdIsPassedToRepositoryForExclusion`** — вход: `requesterId=42`. Проверяет: именно это значение уходит в запрос. Зачем: запрашивающий обязан выпадать из выдачи — он и так автор чата.
+- **`limitIsPassedAsFirstPageOfThatSize`** — вход: `limit=10`. Проверяет: `Pageable` — первая страница размером 10. Зачем: без лимита один запрос вернул бы всю таблицу.
+- **`likeWildcardsInInputAreEscaped`** — вход: `%_!`. Проверяет: шаблон `!%!_!!%` — экранированы оба служебных символа LIKE и сам escape-символ. Зачем: без экранирования ввод `%` вернул бы всех пользователей системы одним запросом, а ник, начинающийся с `!`, ломал бы шаблон.
+- **`blankPrefixReturnsEmptyWithoutTouchingRepository`** — вход: `""`, `"   "`, `null`. Проверяет: пустой список и НИ ОДНОГО обращения к репозиторию. Зачем: подсказки на пустом поле не нужны, а запрос за ними стоил бы полного сканирования на каждый Backspace.
+- **`nonPositiveLimitReturnsEmptyWithoutTouchingRepository`** — вход: `limit=0` и `limit=-1`. Проверяет: пустой список без обращения к репозиторию. Зачем: `PageRequest.of(0, 0)` бросает `IllegalArgumentException` — отсечь дешевле, чем ловить.
 
 ### `Services/ImageStorageServiceIT` — `integration` (Docker) — MinIO round-trip (beads ok9)
 `ImageStorageService` против реального `MinIOContainer`, чтение обратно сырым `MinioClient`.
