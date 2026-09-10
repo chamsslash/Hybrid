@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 6 | 36 | 2 | 38 |
-| HTTPService | 41 | 307 | 2 | 309 |
+| HTTPService | 42 | 316 | 2 | 318 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **52** | **357** | **7** | **364** |
+| **Итого** | **53** | **366** | **7** | **373** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -395,6 +395,19 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`requesterIdComesFromAuthenticationNotFromRequest`** — вход: принципал `77`, префикс `ми`. Проверяет: в gRPC уходит `requesterId=77` и лимит `10`. Зачем: id запрашивающего определяет, кого исключить из выдачи; принимать его из запроса значило бы позволить клиенту исключать произвольного человека и завести второй источник личности рядом с подписью токена.
 - **`nonNumericPrincipalYieldsEmptyListWithoutCallingGrpc`** — вход: принципал `not-a-number`. Проверяет: пустой список, gRPC не дёргается. Зачем: сломанный токен — не повод ходить в AuthService, и `NumberFormatException` не должна превращаться в 500.
 - **`grpcFailurePropagatesInsteadOfLookingLikeEmptyResult`** — вход: gRPC отвечает ошибкой. Проверяет: исключение летит наверх (500), а не подменяется пустым списком. Зачем: «никого не нашли» и «не смогли поискать» обязаны различаться в логе; мягкую деградацию делает клиент, не сервер.
+
+### `Services/ApiControllerProfileTest` — `unit` — эндпоинты профиля (beads ehe)
+`ApiController.me`, `.changeUsername`, `.changePassword` с замоканными `AuthGrpc`, `ReactiveGrpcClient` и `TokensResolver`. Проверяется отображение кодов AuthService в HTTP и источник личности.
+
+- **`meCarriesHasPasswordFlag`** — вход: gRPC вернул ник, ключ аватарки и `has_password=true`. Проверяет: в ответе `/api/me` есть поле `hasPassword=true` рядом с `userId`/`username`/`imageUrl`. Зачем: по этому флагу экран профиля решает, показывать ли форму смены пароля.
+- **`meReportsNoPasswordWhenAuthServiceIsUnreachable`** — вход: `hasPassword` отвечает ошибкой. Проверяет: `/api/me` отдаётся целиком, `hasPassword=false`. Зачем: `/api/me` — бутстрап экрана; уронить его из-за недоступности одного признака значило бы не показать пользователю вообще ничего.
+- **`changeUsernameSuccessReturns200`** — вход: gRPC `status=200`. Проверяет: HTTP 200, тело `{"status":"ok"}`. Зачем: успешный путь.
+- **`changeUsernameTakenReturns409`** — вход: gRPC `status=666`. Проверяет: HTTP 409, `{"error":"USERNAME_TAKEN"}`. Зачем: занятый ник — конфликт состояния, а не ошибка запроса.
+- **`changeUsernameTakesUserIdFromAuthenticationNotFromBody`** — вход: в теле лежит подставной `userId=999`, принципал `42`. Проверяет: в gRPC уходит `42`, вызова с `999` нет. Зачем: приём id из тела означал бы, что любой залогиненный переименовывает кого угодно.
+- **`changePasswordSuccessKillsOtherSessionsAndKeepsCurrent`** — вход: gRPC `status=200`, sid текущей сессии `sid-1`. Проверяет: HTTP 200 и вызов `deleteOtherSessionsByUser("42","sid-1")`. Зачем: смена пароля обязана выкинуть чужие сессии и оставить свою.
+- **`wrongCurrentPasswordReturns403NotUnauthorized`** — вход: gRPC `status=401`. Проверяет: HTTP **403** (не 401), `{"error":"WRONG_CURRENT_PASSWORD"}`, сессии НЕ гасятся. Зачем: главный тест этого файла — интерцептор `axios.js` на 401 делает refresh и повторяет запрос, поэтому ошибка ввода, отданная как 401, ушла бы в цикл повторов вместо экрана.
+- **`accountWithoutPasswordReturns409`** — вход: gRPC `status=409`. Проверяет: HTTP 409, `{"error":"NO_PASSWORD_ON_ACCOUNT"}`, сессии не гасятся. Зачем: Google-аккаунту форма пароля не показывается вовсе, и если запрос всё же пришёл — это конфликт состояния, а не неверный ввод.
+- **`blankNewPasswordReturns400`** — вход: gRPC `status=400`. Проверяет: HTTP 400, `{"error":"PASSWORD_BLANK"}`. Зачем: пустой пароль сделал бы вход по паролю невозможным.
 
 ### `Services/AiAssistMembershipTest` — `reactive-unit` — авторизация `/AiAssist` по членству в чате (beads dz5)
 `WEBFLUX_Service.aiAssistHandler` с настоящим `ChatMembershipService` поверх замоканного gRPC-стаба (`ReactorReactiveTransferServiceStub`, `RETURNS_SELF` — см. `ApiControllerChatAccessTest`), замоканным `GeminiService` и реактивным Redis-стеком (`ReactiveRedisTemplate`/`ReactiveListOperations`/`ReactiveSetOperations`), поля контроллера подставлены `ReflectionTestUtils`. До фикса dz5 у хендлера **вообще не было `Principal` в сигнатуре**: `chat_id` брался из тела запроса, и любой залогиненный пользователь получал Redis-контекст чужого чата, пересказанный Gemini (подтверждено живьём на стенде kind: аккаунт `sunny` id=4, состоящий только в чате 3, получил `200` на `chat_id=2`). Тесты стерегут два контракта сразу: членство проверяется **до** чтения Redis, и отказ — настоящий HTTP-403, а не прежние `200` + текст в теле.

@@ -3,6 +3,7 @@ package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.MessageEvent;
 import com.example.springexample.ShortChatObject;
+import com.example.springexample.Utils.TokensResolver;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,6 +48,7 @@ public class ApiController {
     private final ImageStorageService imageStorageService;
     private final ChatMembershipService chatMembershipService;
     private final AuthGrpc authGrpc;
+    private final TokensResolver tokensResolver;
 
     /** Префикс ключа для аватарки пользователя: userimage/&lt;userId&gt;/&lt;uuid&gt;.&lt;ext&gt;. */
     private static final String USER_IMAGE_PREFIX = "userimage";
@@ -203,11 +207,25 @@ public class ApiController {
                     .onErrorReturn("");
             Mono<String> imageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId))
                     .onErrorReturn("");
-            return Mono.zip(usernameMono, imageMono).map(tuple -> {
+            // Признак «у аккаунта есть пароль» (beads ehe) — по нему экран профиля решает,
+            // показывать ли форму смены пароля. Сам хеш наружу не едет ни при каких условиях.
+            //
+            // Спрашивается у AuthService, а не у MessegerParody, как два поля выше: колонкой
+            // myapppassword владеет он, и другого метода, который её отдаёт, в копии .proto
+            // у HTTPService нет.
+            //
+            // Сбой даёт false, как и два соседних вызова дают "": /api/me — это бутстрап
+            // экрана, и уронить его целиком из-за недоступности одного признака значило бы
+            // не показать пользователю вообще ничего. Последствие ошибки здесь одно —
+            // скрытая секция смены пароля.
+            Mono<Boolean> hasPasswordMono = authGrpc.hasPassword(Long.valueOf(userId))
+                    .onErrorReturn(false);
+            return Mono.zip(usernameMono, imageMono, hasPasswordMono).map(tuple -> {
                 Map<String, Object> me = new HashMap<>();
                 me.put("userId", userId);
                 me.put("username", tuple.getT1());
                 me.put("imageUrl", tuple.getT2());
+                me.put("hasPassword", tuple.getT3());
                 me.put("authorities", authorities);
                 return me;
             }).block();
@@ -366,6 +384,81 @@ public class ApiController {
                     item.put("imageUrl", user.getImageUrl());
                     return item;
                 }).toList())
+                .block();
+    }
+
+    /**
+     * Смена ника (beads ehe).
+     *
+     * userId берётся из {@link Authentication}, из тела запроса не принимается никогда:
+     * иначе любой залогиненный переименовывал бы кого угодно.
+     *
+     * Занятость ника определяет UNIQUE-индекс ux_users_lower_name на стороне БД, а не
+     * предпроверка — см. Auth_impl.changeUsername.
+     */
+    @PostMapping("/profile/username")
+    public Callable<ResponseEntity<Map<String, String>>> changeUsername(Authentication auth,
+                                                                        @RequestBody Map<String, String> body) {
+        String userId = auth.getName();
+        String newUsername = body.getOrDefault("username", "");
+        return () -> authGrpc.changeUsername(Long.parseLong(userId), newUsername)
+                .map(response -> switch (response.getStatus()) {
+                    case "200" -> ResponseEntity.ok(Map.of("status", "ok"));
+                    case "666" -> ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(Map.of("error", "USERNAME_TAKEN"));
+                    case "400" -> ResponseEntity.badRequest()
+                            .body(Map.of("error", "USERNAME_BLANK"));
+                    case "404" -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(Map.of("error", "USER_NOT_FOUND"));
+                    default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(Map.of("error", "UNEXPECTED"));
+                })
+                .block();
+    }
+
+    /**
+     * Смена пароля (beads ehe).
+     *
+     * Неверный текущий пароль отдаётся как 403, а НЕ 401. Это не описка: интерцептор
+     * static/axios.js трактует 401 как «протух access-токен», делает refresh и ПОВТОРЯЕТ
+     * запрос. Ошибка ввода, отданная как 401, ушла бы в цикл повторов и никогда не доехала
+     * бы до экрана.
+     *
+     * После успешной смены гасятся все refresh-сессии пользователя, КРОМЕ текущей. Смена
+     * пароля — реакция на подозрение, что доступ есть у кого-то ещё: оставить чужие сессии
+     * живыми значит не решить проблему, выкинуть заодно себя — раздражать без причины.
+     * Текущая опознаётся по sid из подписанного access-токена (Authentication.getDetails()).
+     *
+     * Сессии гасятся ПОСЛЕ подтверждения смены, а не до: иначе неверный текущий пароль
+     * разлогинивал бы человека со всех устройств — бесплатный способ навредить, имея один
+     * перехваченный токен.
+     */
+    @PostMapping("/profile/password")
+    public Callable<ResponseEntity<Map<String, String>>> changePassword(Authentication auth,
+                                                                        @RequestBody Map<String, String> body) {
+        String userId = auth.getName();
+        Object rawSid = auth.getDetails();
+        String sid = rawSid instanceof String s ? s : null;
+        String currentPassword = body.getOrDefault("currentPassword", "");
+        String newPassword = body.getOrDefault("newPassword", "");
+        return () -> authGrpc.changePassword(Long.parseLong(userId), currentPassword, newPassword)
+                .map(response -> switch (response.getStatus()) {
+                    case "200" -> {
+                        tokensResolver.deleteOtherSessionsByUser(userId, sid);
+                        yield ResponseEntity.ok(Map.of("status", "ok"));
+                    }
+                    // gRPC-код 401 -> HTTP 403. См. javadoc выше.
+                    case "401" -> ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(Map.of("error", "WRONG_CURRENT_PASSWORD"));
+                    case "409" -> ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(Map.of("error", "NO_PASSWORD_ON_ACCOUNT"));
+                    case "400" -> ResponseEntity.badRequest()
+                            .body(Map.of("error", "PASSWORD_BLANK"));
+                    case "404" -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(Map.of("error", "USER_NOT_FOUND"));
+                    default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(Map.of("error", "UNEXPECTED"));
+                })
                 .block();
     }
 }

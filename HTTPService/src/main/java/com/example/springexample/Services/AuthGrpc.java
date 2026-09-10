@@ -98,6 +98,51 @@ public class AuthGrpc {
                 authTransferServiceBlockingStub.searchUsersByPrefix(request).getUsersList()
         ).subscribeOn(Schedulers.boundedElastic());
     }
+
+    /**
+     * Смена ника (beads ehe). Возвращает ответ AuthService как есть — отображением кодов
+     * в HTTP занимается ApiController, это его политика, а не транспорта.
+     */
+    public Mono<DataTransferService.AuthResponse> changeUsername(long userId, String newUsername) {
+        grpcRequestsMetric.increment();
+        DataTransferService.ChangeUsernameRequest request = DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(userId)
+                .setNewUsername(newUsername)
+                .build();
+        return Mono.fromCallable(() -> authTransferServiceBlockingStub.changeUsername(request))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Смена пароля (beads ehe). Гашение чужих refresh-сессий сюда не входит: они живут в
+     * Redis у HTTPService (TokensResolver), а не в AuthService.
+     */
+    public Mono<DataTransferService.AuthResponse> changePassword(long userId,
+                                                                 String currentPassword,
+                                                                 String newPassword) {
+        grpcRequestsMetric.increment();
+        DataTransferService.ChangePasswordRequest request = DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(userId)
+                .setCurrentPassword(currentPassword)
+                .setNewPassword(newPassword)
+                .build();
+        return Mono.fromCallable(() -> authTransferServiceBlockingStub.changePassword(request))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Есть ли у аккаунта пароль (beads ehe). Наружу едет только флаг — хеш не отдаётся
+     * ни при каких условиях.
+     */
+    public Mono<Boolean> hasPassword(long userId) {
+        grpcRequestsMetric.increment();
+        DataTransferService.UserDataRequest request = DataTransferService.UserDataRequest.newBuilder()
+                .setId(userId)
+                .build();
+        return Mono.fromCallable(() ->
+                authTransferServiceBlockingStub.hasPassword(request).getHasPassword()
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
 //    public List<String> GetAllNamesByChat(DataTransferService.ChatData chatData){
 //        grpcRequestsMetric.increment();
 //        DataTransferService.ChatData resp =  authTransferServiceBlockingStub.getAllUsersByChatid(chatData);

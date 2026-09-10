@@ -3,6 +3,7 @@ package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
 import com.example.springexample.Metrics.MembershipCacheMetric;
+import com.example.springexample.Utils.TokensResolver;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.example.springexample.MessageEvent;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,7 @@ class ApiControllerChatAccessTest {
 
     private final ApiController controller =
             new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric, cacheMetric),
-                    mock(AuthGrpc.class));
+                    mock(AuthGrpc.class), mock(TokensResolver.class));
 
     private static final Authentication SUNNY =
             new UsernamePasswordAuthenticationToken("4", null, List.of());

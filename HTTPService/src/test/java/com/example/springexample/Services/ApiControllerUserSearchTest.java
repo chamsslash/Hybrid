@@ -3,6 +3,7 @@ package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
 import com.example.springexample.Metrics.MembershipCacheMetric;
+import com.example.springexample.Utils.TokensResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +36,8 @@ class ApiControllerUserSearchTest {
                 mock(ReactorReactiveTransferServiceGrpc.ReactorReactiveTransferServiceStub.class);
         ChatMembershipService membership = new ChatMembershipService(
                 stub, mock(GrpcRequestsMetric.class), mock(MembershipCacheMetric.class));
-        controller = new ApiController(grpc, imageStorage, membership, authGrpc);
+        controller = new ApiController(grpc, imageStorage, membership, authGrpc,
+                mock(TokensResolver.class));
     }
 
     private Authentication authOf(String userId) {
