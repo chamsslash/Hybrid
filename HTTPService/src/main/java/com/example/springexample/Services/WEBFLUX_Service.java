@@ -589,6 +589,53 @@ public class WEBFLUX_Service {
 
 
     /**
+     * Смена аватарки пользователя (beads ehe).
+     *
+     * Новых механизмов не появляется: пайплайн уже существует целиком и до этой фичи
+     * использовался ровно один раз — при регистрации.
+     *
+     *   Upload_image(file, userId, "userimage")
+     *      -> MinIO по ключу userimage/{userId}/{uuid}.{ext}
+     *      -> Kafka, топик "Images"
+     *            -> MessegerParody: ImageUrlPersistenceService пишет users.image_url
+     *            -> HTTPService: KafkaConsumer -> STOMP /mutual/user_image/{userId}
+     *
+     * Ответ 202, а не 200: к моменту ответа новой аватарки ещё нет. Байты уехали в MinIO,
+     * событие — в Kafka, а ключ появится в БД только после прохода консюмера. Экран профиля
+     * поэтому и не рисует картинку по ответу, а ждёт события на /mutual/user_image/{userId}.
+     *
+     * targetId берётся из ReactiveSecurityContextHolder, а не из формы: он попадает прямо в
+     * ключ объекта MinIO, и приём его снаружи означал бы запись в чужой префикс.
+     *
+     * Ограничения на размер и тип — те же, что уже действуют для картинок чата
+     * (proxy-body-size: 10m на ingress, spring.servlet.multipart.max-file-size: 10MB).
+     * Отдельных лимитов не вводим.
+     */
+    public Mono<ServerResponse> handleAvatarUpload(ServerRequest request) {
+        return request.multipartData()
+                .flatMap(parts -> {
+                    FilePart file = (FilePart) parts.getFirst("file");
+                    if (file == null) {
+                        return ServerResponse.badRequest()
+                                .contentType(MediaType.TEXT_PLAIN)
+                                .bodyValue("Missing required form part: file");
+                    }
+                    return ReactiveSecurityContextHolder.getContext()
+                            .map(ctx -> (String) ctx.getAuthentication().getPrincipal())
+                            .flatMap(userId -> Upload_image(file, userId, "userimage")
+                                    .then(ServerResponse.accepted()
+                                            .contentType(MediaType.APPLICATION_JSON)
+                                            .bodyValue(Map.of("status", "accepted"))));
+                })
+                .onErrorResume(e -> {
+                    log.error("Не удалось загрузить аватарку", e);
+                    return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .contentType(MediaType.TEXT_PLAIN)
+                            .bodyValue("Avatar upload failed");
+                });
+    }
+
+    /**
      * Грузит файл в MinIO по ключу &lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt;
      * и публикует событие { targetType, targetId, objectKey } в топик "Images".
      * targetType — параметр: регистрация → "userimage", создание чата → "chatimage".

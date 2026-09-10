@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 6 | 36 | 2 | 38 |
-| HTTPService | 42 | 316 | 2 | 318 |
+| HTTPService | 43 | 320 | 2 | 322 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **53** | **366** | **7** | **373** |
+| **Итого** | **54** | **370** | **7** | **377** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -224,6 +224,11 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`defaultsExtensionToJpgWhenFilenameHasNoExtension`** — имя файла без расширения → ключ оканчивается `.jpg`.
 - **`propagatesStorageFailureWithoutPublishingToKafka`** — `putObject` падает → ошибка пробрасывается, в Kafka **ничего не публикуется**. Зачем: не рассылать событие о картинке, которая не сохранилась.
 
+### `Services/WEBFLUX_ServiceAvatarUploadTest` — `reactive-unit` — загрузка аватарки без файла (beads ehe)
+`WEBFLUX_Service.handleAvatarUpload` на mock-серверном запросе через `StepVerifier`. Успешный путь сюда не входит: он идёт через `Upload_image`, у которого есть свой тест, и требует живых MinIO/Kafka.
+
+- **`missingFilePartYieldsBadRequest`** — вход: multipart-запрос без части `file`. Проверяет: HTTP 400. Зачем: без файла `Upload_image` падал бы с NPE на `file.content()` — та же ловушка, что уже ловилась для картинки чата (beads 2q5).
+
 ### `Services/AppShellRenderTest` — `unit` — рендеринг SPA-шелла (Thymeleaf)
 Рендерит шаблон `app.html` через `SpringWebFluxTemplateEngine` с classloader-резолвером, без поднятия контекста Spring. Маршрутные тесты идут через настоящие роутер-бины `WebFluxConfig` (`new WebFluxConfig()`, `new WEBFLUX_Service()` — рендер шелла не трогает ни одну зависимость сервиса) и пишут `ServerResponse` в mock-exchange, то есть проверяют всю цепочку «путь → хендлер → HTTP-ответ», а не только шаблон.
 
@@ -299,6 +304,9 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`createChatMutationIsRoutedUnderProtectedApiPrefix`** — `POST /api/createchat` (снаружи `/reactive/api/createchat`, сервлет смонтирован на `/reactive/*`) → роутер `createchatHandle` матчится. Зачем: путь мутации должен попадать под правило `/reactive/api/createchat` ingress `http-protected`; при рассинхроне путей POST начнёт отдавать 404.
 - **`createChatMutationIsNotRoutedUnderPublicShellPath`** — `POST /createchat` (снаружи `/reactive/createchat`) → роутер `createchatHandle` **не** матчится. Зачем: главный ассерт тикета — возврат POST-роута на путь публичного шелла означал бы создание чата без `auth_request`, т.е. дыру вместо UX-фикса (`MvcSecurityConfig` даёт `permitAll` на `/reactive/**`, а `ReactiveSecurityConfig` — на GET-шеллы, так что мутация на этом пути не защищена ничем). С beads 1fs подделка личности заголовками там уже невозможна — `ReactiveHybridAuthFilter` берёт принципала из подписи токена, — но обход проверки ревокации на `/jwtcheck` остаётся, поэтому разведение путей по-прежнему обязательно.
 - **`createChatShellStaysGetOnlyOnPublicPath`** — `GET /createchat` матчится роутером шелла, `POST /createchat` — нет. Зачем: публичный путь остаётся только read-only рендером app-shell.
+- **`avatarMutationIsRoutedUnderProtectedApiPrefix`** — проверяет: `POST /api/avatar` роутится (снаружи `/reactive/api/avatar`, покрыт ingress `http-protected`). Зачем: путь мутации обязан лежать под защищённым префиксом.
+- **`avatarMutationIsNotRoutedUnderPublicShellPath`** — проверяет: `POST /profile` НЕ роутится в загрузку аватарки. Зачем: `/profile` — публичный шелл; POST-мутация там означала бы загрузку аватарки без `auth_request`.
+- **`profileShellStaysGetOnlyOnPublicPath`** — проверяет: `GET /profile` роутится, `POST /profile` — нет. Зачем: публичным остаётся только чтение шелла.
 
 ### `MvcSecurityImagesChainBoundaryTest` — `unit` — граница цепочки картинок (beads cbq)
 Матчер `MvcSecurityConfig.IMAGES_MATCHER` на `MockHttpServletRequest`, без контекста Spring.

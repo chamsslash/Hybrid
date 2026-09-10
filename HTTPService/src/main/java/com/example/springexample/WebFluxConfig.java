@@ -59,6 +59,8 @@ public class WebFluxConfig {
             SecurityWebFilterChain securityWebFilterChain,
 
             RouterFunction<ServerResponse> createchatHandle,
+            RouterFunction<ServerResponse> profilePageRouter,
+            RouterFunction<ServerResponse> avatarHandle,
             @Qualifier("thymeleafReactiveViewResolver") ViewResolver reactiveViewResolver,
             WebFilter webfluxRequestDataValueProcessorFilter) {
         HandlerStrategies.Builder strategiesBuilder = HandlerStrategies.builder();
@@ -68,7 +70,9 @@ public class WebFluxConfig {
         RouterFunction<?> combinedRoutes = chatListRouter
                 .and(chatPageRouter)
                 .and(createChatPageRouter)
+                .and(profilePageRouter)
                 .and(createchatHandle)
+                .and(avatarHandle)
                 .and(registerHandle)
                 .and(loginHandle)
                 .and(staticResourceRouter);
@@ -136,6 +140,15 @@ public class WebFluxConfig {
     public RouterFunction<ServerResponse> createChatPageRouter(WEBFLUX_Service wf_handler, ISpringWebFluxTemplateEngine templateEngine){
         return route(GET("/createchat"), req -> wf_handler.renderAppShell(req, templateEngine));
     }
+    // Шелл экрана профиля (beads ehe). Снаружи это GET /reactive/profile — публичный путь,
+    // как и остальные шеллы: обычная навигация браузера (F5, закладка, прямая ссылка) не
+    // несёт Authorization, а access-токен SPA держит только в памяти (static/inmemory.js).
+    // Доступ проверяет сама вью и уводит анонима на /welcome.
+    @Bean
+    public RouterFunction<ServerResponse> profilePageRouter(WEBFLUX_Service wf_handler,
+                                                            ISpringWebFluxTemplateEngine templateEngine) {
+        return route(GET("/profile"), req -> wf_handler.renderAppShell(req, templateEngine));
+    }
     // Мутация создания чата живёт под /api/*, т.е. снаружи это
     // POST /reactive/api/createchat (сервлет смонтирован на /reactive/*).
     // Путь НЕ должен совпадать с GET-шеллом /createchat: шелл публичен на
@@ -147,6 +160,16 @@ public class WebFluxConfig {
     public RouterFunction<ServerResponse> createchatHandle(
             WEBFLUX_Service chatListHandler) {
         return route(POST("/api/createchat"),req->chatListHandler.handleCreateChat(req));
+    }
+    // Загрузка аватарки. Снаружи POST /reactive/api/avatar — путь добавлен в ingress
+    // http-protected рядом с /reactive/api/createchat. Разведение GET-шелла и POST-мутации
+    // по РАЗНЫМ путям обязательно: ingress не умеет разводить auth_request по методу
+    // (configuration-snippet отбивается admission-вебхуком по annotations-risk-level).
+    // Возврат этого роута на /profile открыл бы загрузку аватарки анониму —
+    // см. WebFluxRouteSecurityBoundaryTest.
+    @Bean
+    public RouterFunction<ServerResponse> avatarHandle(WEBFLUX_Service wf_handler) {
+        return route(POST("/api/avatar"), req -> wf_handler.handleAvatarUpload(req));
     }
     @Bean
     public RouterFunction<ServerResponse> loginHandle(
