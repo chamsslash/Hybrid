@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 6 | 36 | 2 | 38 |
-| HTTPService | 39 | 301 | 2 | 303 |
+| HTTPService | 41 | 307 | 2 | 309 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **50** | **351** | **7** | **358** |
+| **Итого** | **52** | **357** | **7** | **364** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -513,6 +513,20 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`buildSecurityCheckPrompt_wrapsBothFingerprintsInSingleUserTurn`** — два `ClientMeta` → ровно 1 content-turn с `role: user`, системная инструкция содержит методику (`secureUUID`). Зачем: контракт анти-фрод промпта (оба отпечатка в одном user-turn, методика — в system-инструкции).
 - **`extractPlainText_pullsNestedTextOutOfFullGeminiEnvelope`** — вход: полный конверт ответа Gemini (`candidates[0].content.parts[0].text` = JSON-строка `{"reasoning":...,"probability":85}`). Проверяет: возвращает именно вложенную JSON-строку, не сам конверт. Зачем: **регрессия бага** — `aiSecurePredict()` раньше парсил `reasoning`/`probability` прямо из конверта (минуя `extractPlainText`), оба поля были `null`/кидали NPE при любом реальном (не замоканном) ответе Gemini — баг не проявлялся раньше только потому, что вызов падал ещё на этапе сериализации запроса (см. `fix/gemini-webclient-gson-jackson-mismatch`), обнаружен только после того фикса живым тестом 2026-08-01.
 - **`extractPlainText_throwsOnEmptyBody`** — пустая строка → `RuntimeException` с "uncorrect struckture".
+
+### `Utils/AccessTokenVerifierSidTest` — `unit` — sid в Authentication.details (beads ehe)
+`AccessTokenVerifier` с настоящей парой RSA-ключей, сгенерированной в `@BeforeEach`. Проверяется перенос клейма, а не валидация подписи — её стережёт `JwtCheckControllerTest`.
+
+- **`sidClaimIsExposedAsAuthenticationDetails`** — вход: валидный токен с `sub=42` и `sid=sid-1`. Проверяет: принципал `42`, `getDetails()` = `"sid-1"`. Зачем: по этому значению смена пароля отличает текущую сессию от чужих; берётся оно из подписанного токена, а не из заголовка `X-Sid`, доверие к которому держалось бы на топологии ingress.
+- **`tokenWithoutSidYieldsNullDetailsButStillAuthenticates`** — вход: валидный токен БЕЗ клейма `sid`. Проверяет: аутентификация проходит, `getDetails()` = `null`. Зачем: sid нужен ровно одной операции, и ронять из-за его отсутствия весь доступ незачем.
+
+### `Utils/TokensResolverSessionCleanupTest` — `unit` — гашение чужих refresh-сессий (beads ehe)
+`TokensResolver` с замоканным `RedisTemplate`/`SetOperations`. Ключи в ассертах написаны буквально (`RefreshSession:{sid}`, `user:{sub}`) — тест стережёт именно формат, который строят приватные генераторы ключей.
+
+- **`deletesEveryOtherSessionAndKeepsTheCurrentOne`** — вход: три сессии `sid-a`/`sid-b`/`sid-c`, сохраняем `sid-b`. Проверяет: удаляются ровно `RefreshSession:sid-a` и `RefreshSession:sid-c`, они же убираются из набора `user:42`, набор целиком НЕ удаляется. Зачем: смена пароля обязана выкинуть чужие сессии и оставить свою; удаление набора осиротило бы текущую сессию.
+- **`keepsEverythingWhenTheOnlySessionIsTheCurrentOne`** — вход: одна сессия, она же текущая. Проверяет: `delete` не вызывается вовсе. Зачем: не делать бессмысленных обращений к Redis и не логировать несуществующее гашение.
+- **`doesNothingWhenUserHasNoSessions`** — вход: `members` вернул `null`. Проверяет: ничего не удаляется, NPE нет. Зачем: у пользователя может не быть набора сессий (истёк по TTL).
+- **`deletesAllSessionsWhenCurrentSidIsUnknown`** — вход: `keepSid = null` (токен без клейма `sid`). Проверяет: удаляются ОБЕ сессии, включая свою. Зачем: если текущую опознать нечем, безопаснее погасить всё — пользователь просто залогинится заново.
 
 ---
 

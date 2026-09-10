@@ -248,6 +248,44 @@ public class TokensResolver {
         redisTemplate.delete(allSessionKeys);
         log.info("All sessions by user were deleted");
     }
+
+    /**
+     * Гасит все refresh-сессии пользователя, КРОМЕ одной — той, из которой пришёл запрос
+     * (beads ehe). Вызывается после успешной смены пароля.
+     *
+     * Смысл именно в исключении: смена пароля — это реакция на подозрение, что доступ есть
+     * у кого-то ещё. Оставить чужие сессии живыми значит не решить проблему; выкинуть
+     * заодно себя — раздражать без причины, человек только что подтвердил, что это он.
+     *
+     * keepSid == null означает, что текущую сессию опознать нечем (access-токен без клейма
+     * sid). Тогда гасятся ВСЕ, включая свою: безопасность важнее удобства, а
+     * пользователь просто залогинится заново.
+     *
+     * Отличие от deleteAllSessionsByUser рядом: тот удаляет и сам набор user:{sub}, потому
+     * что после него не остаётся ни одной сессии. Здесь набор остаётся жить — в нём лежит
+     * текущая, и удаление набора осиротило бы её (ключ сессии остался бы, а найти её через
+     * набор было бы нельзя).
+     */
+    public void deleteOtherSessionsByUser(String sub, String keepSid) {
+        Set<String> allSessionKeys = redisTemplate.opsForSet().members(generateUserSessionsSetKey(sub));
+        if (allSessionKeys == null || allSessionKeys.isEmpty()) {
+            log.warn("У пользователя {} нет активных сессий — гасить нечего", sub);
+            return;
+        }
+        String keepKey = keepSid != null ? generateSessionKey(keepSid) : null;
+        List<String> doomed = allSessionKeys.stream()
+                .filter(key -> !key.equals(keepKey))
+                .toList();
+        if (doomed.isEmpty()) {
+            log.info("У пользователя {} только текущая сессия — гасить нечего", sub);
+            return;
+        }
+        redisTemplate.delete(doomed);
+        redisTemplate.opsForSet().remove(generateUserSessionsSetKey(sub), doomed.toArray());
+        log.info("После смены пароля у пользователя {} погашено {} сессий, текущая ({}) сохранена",
+                sub, doomed.size(), keepSid);
+    }
+
     private void deleteSessionBySid(String sid){
         String keyOfSession =  generateSessionKey(sid);
         String jsoned = redisTemplate.opsForValue().get(keyOfSession);

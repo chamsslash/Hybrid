@@ -38,7 +38,8 @@ public class AccessTokenVerifier {
 
     /**
      * @param bearerOrToken значение вида "Bearer xxx" либо сам токен
-     * @return Authentication с userId-принципалом и authorities, либо null если токен невалиден
+     * @return Authentication с userId-принципалом, authorities и клеймом sid в details,
+     *         либо null если токен невалиден
      */
     public Authentication verify(String bearerOrToken) {
         if (!StringUtils.hasText(bearerOrToken)) {
@@ -68,7 +69,21 @@ public class AccessTokenVerifier {
                     }
                 }
             }
-            return new UsernamePasswordAuthenticationToken(userId, null, authorities);
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(userId, null, authorities);
+            // sid — идентификатор refresh-сессии, из которой выдан этот access-токен.
+            // Нужен там, где надо отличить ТЕКУЩУЮ сессию от остальных (смена пароля гасит
+            // чужие, но не свою — beads ehe).
+            //
+            // Берём из подписанного токена, а не из заголовка X-Sid: тот ставит ingress через
+            // auth-response-headers, и доверенным его делает исключительно топология ingress.
+            // От этой зависимости приложение уже ушло (beads 1fs) — личность проверяется по
+            // RSA-подписи локально, и sid лежит в том же самом токене.
+            //
+            // Токен без клейма sid оставляет details = null и по-прежнему аутентифицирует:
+            // sid нужен ровно одной операции, а ронять из-за него весь доступ незачем.
+            authentication.setDetails(claims.get("sid", String.class));
+            return authentication;
         } catch (Exception e) {
             log.debug("Access token rejected: {}", e.getMessage());
             return null;
