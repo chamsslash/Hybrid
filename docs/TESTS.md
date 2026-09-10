@@ -28,9 +28,9 @@
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
 | AuthService | 6 | 24 | 2 | 26 |
-| HTTPService | 38 | 297 | 2 | 299 |
+| HTTPService | 39 | 301 | 2 | 303 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **49** | **335** | **7** | **342** |
+| **Итого** | **50** | **339** | **7** | **346** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -375,6 +375,14 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
   - обратный слэш (ключ `/userimage/4/a\b.png`, в Java-литерале теста — `"a\\b.png"`) — в ключах MinIO его нет, а частью клиентов он трактуется как разделитель пути.
 - **`missingPrincipalIsRefused`** — `auth == null`. Проверяет: `403`, MinIO не тронут. Зачем: страховка на случай, если запрос дойдёт до метода мимо `MvcJwtAuthFilter` — метод обязан отказать сам, а не упасть с NPE на `auth.getName()` (та же страховка, что в dz5).
 - **`minioFailureStaysNotFound`** — авторизация пройдена (`userimage/4/missing.png`), но `getObject` отдаёт `Mono.error`. Проверяет: `404 NOT FOUND`. Зачем: разграничение «не имеешь права» (`403`) и «объекта нет» (`404`) — прежнее поведение при ошибке MinIO должно сохраниться, иначе отсутствующая картинка станет неотличима от запрета и фронтовые фолбэки (`avatarHtml` → `rofl-cat.jpg`) поведут себя иначе.
+
+### `Services/ApiControllerUserSearchTest` — `unit` — контракт эндпоинта подсказок (beads cdn)
+`ApiController.userSearch` с замоканным `AuthGrpc`. Проверяется форма ответа и то, откуда берётся личность запрашивающего.
+
+- **`returnsUserIdUsernameAndImageKeyForEachHit`** — вход: gRPC вернул двух пользователей, у одного `image_url` пуст. Проверяет: в JSON у каждого ровно `userId` (строка), `username`, `imageUrl`; пустой ключ так и остаётся пустой строкой. Зачем: это контракт, который читает `createchat.view.js` — ключ картинки приезжает вместе с ником, чтобы чипс не делал за ним отдельного запроса.
+- **`requesterIdComesFromAuthenticationNotFromRequest`** — вход: принципал `77`, префикс `ми`. Проверяет: в gRPC уходит `requesterId=77` и лимит `10`. Зачем: id запрашивающего определяет, кого исключить из выдачи; принимать его из запроса значило бы позволить клиенту исключать произвольного человека и завести второй источник личности рядом с подписью токена.
+- **`nonNumericPrincipalYieldsEmptyListWithoutCallingGrpc`** — вход: принципал `not-a-number`. Проверяет: пустой список, gRPC не дёргается. Зачем: сломанный токен — не повод ходить в AuthService, и `NumberFormatException` не должна превращаться в 500.
+- **`grpcFailurePropagatesInsteadOfLookingLikeEmptyResult`** — вход: gRPC отвечает ошибкой. Проверяет: исключение летит наверх (500), а не подменяется пустым списком. Зачем: «никого не нашли» и «не смогли поискать» обязаны различаться в логе; мягкую деградацию делает клиент, не сервер.
 
 ### `Services/AiAssistMembershipTest` — `reactive-unit` — авторизация `/AiAssist` по членству в чате (beads dz5)
 `WEBFLUX_Service.aiAssistHandler` с настоящим `ChatMembershipService` поверх замоканного gRPC-стаба (`ReactorReactiveTransferServiceStub`, `RETURNS_SELF` — см. `ApiControllerChatAccessTest`), замоканным `GeminiService` и реактивным Redis-стеком (`ReactiveRedisTemplate`/`ReactiveListOperations`/`ReactiveSetOperations`), поля контроллера подставлены `ReflectionTestUtils`. До фикса dz5 у хендлера **вообще не было `Principal` в сигнатуре**: `chat_id` брался из тела запроса, и любой залогиненный пользователь получал Redis-контекст чужого чата, пересказанный Gemini (подтверждено живьём на стенде kind: аккаунт `sunny` id=4, состоящий только в чате 3, получил `200` на `chat_id=2`). Тесты стерегут два контракта сразу: членство проверяется **до** чтения Redis, и отказ — настоящий HTTP-403, а не прежние `200` + текст в теле.

@@ -44,6 +44,7 @@ public class ApiController {
     private final ReactiveGrpcClient reactiveGrpcClient;
     private final ImageStorageService imageStorageService;
     private final ChatMembershipService chatMembershipService;
+    private final AuthGrpc authGrpc;
 
     /** Префикс ключа для аватарки пользователя: userimage/&lt;userId&gt;/&lt;uuid&gt;.&lt;ext&gt;. */
     private static final String USER_IMAGE_PREFIX = "userimage";
@@ -51,6 +52,8 @@ public class ApiController {
     private static final String CHAT_IMAGE_PREFIX = "chatimage";
     /** Идентификатор в ключе — только десятичные цифры, как их пишут производители ключей. */
     private static final Pattern TARGET_ID = Pattern.compile("\\d+");
+    /** Сколько подсказок отдаём за один запрос. Больше десятка в выпадашке всё равно не читают. */
+    private static final int USER_SEARCH_LIMIT = 10;
 
     /**
      * Прокси-отдача картинок из MinIO (beads 6s0). Ключ может содержать слэши
@@ -321,6 +324,48 @@ public class ApiController {
                             })
                             .map(ResponseEntity::ok);
                 })
+                .block();
+    }
+
+    /**
+     * Подсказки по началу ника для формы создания чата (beads cdn).
+     *
+     * Идентификатор запрашивающего берётся из {@link Authentication}, а НЕ из запроса:
+     * от него зависит только одно — кого исключить из выдачи, — но принимать его снаружи
+     * значило бы позволить клиенту исключать произвольного человека, а заодно завести
+     * второй источник личности рядом с подписью access-токена.
+     *
+     * Нечисловой принципал — это не запрос «найди мне что-нибудь», а сломанный токен;
+     * ходить с ним в AuthService незачем, поэтому отвечаем пустым списком сразу. В норме
+     * sub access-токена — это id пользователя в БД (beads 820), так что ветка не срабатывает.
+     *
+     * Ключ картинки (imageUrl) отдаётся для всех найденных: это строка, она едет вместе с
+     * ником и не стоит ничего. Дорого стоит скачивание байтов через image_loader.js, и его
+     * фронт делает только для выбранных чипсов — 2-3 картинки за всю форму вместо 10 на
+     * каждую выдачу подсказок.
+     *
+     * Защита эндпоинта отдельно не настраивается: /api закрыт auth_request на ingress
+     * http-protected, а внутри приложения — .anyRequest().authenticated() в
+     * MvcSecurityConfig.mvcFilterChain.
+     */
+    @GetMapping("/usersearch")
+    public Callable<List<Map<String, Object>>> userSearch(Authentication auth,
+                                                          @RequestParam("prefix") String prefix) {
+        long requesterId;
+        try {
+            requesterId = Long.parseLong(auth.getName());
+        } catch (NumberFormatException notAUserId) {
+            log.warn("GET /api/usersearch: нечисловой принципал {}", auth.getName());
+            return List::of;
+        }
+        return () -> authGrpc.searchUsersByPrefix(prefix, requesterId, USER_SEARCH_LIMIT)
+                .map(users -> users.stream().map(user -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("userId", String.valueOf(user.getId()));
+                    item.put("username", user.getUsername());
+                    item.put("imageUrl", user.getImageUrl());
+                    return item;
+                }).toList())
                 .block();
     }
 }

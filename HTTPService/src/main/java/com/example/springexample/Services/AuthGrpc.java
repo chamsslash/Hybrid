@@ -75,6 +75,29 @@ public class AuthGrpc {
                 authTransferServiceBlockingStub.getUserByUsername(repeatedUsernames).getUsersList()
         ).subscribeOn(Schedulers.boundedElastic());
     }
+
+    /**
+     * Подсказки по началу ника. Блокирующий стаб уводится на boundedElastic — тот же приём,
+     * что у {@link #GetUsersByUnames}: поток контейнера на время gRPC-вызова не держится.
+     *
+     * Ошибка НЕ гасится пустым списком. Сбой gRPC и «никого не нашли» — разные события, и
+     * если бы сервер отвечал на них одинаково, отличить их стало бы невозможно ни в логе,
+     * ни на глаз. Мягкую деградацию делает клиент: выпадашка не открывается, форма создания
+     * чата остаётся рабочей.
+     */
+    public Mono<List<DataTransferService.UserDataRequest>> searchUsersByPrefix(String prefix,
+                                                                              long requesterId,
+                                                                              int limit) {
+        grpcRequestsMetric.increment();
+        DataTransferService.UsernamePrefixRequest request = DataTransferService.UsernamePrefixRequest.newBuilder()
+                .setPrefix(prefix)
+                .setRequesterId(requesterId)
+                .setLimit(limit)
+                .build();
+        return Mono.fromCallable(() ->
+                authTransferServiceBlockingStub.searchUsersByPrefix(request).getUsersList()
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
 //    public List<String> GetAllNamesByChat(DataTransferService.ChatData chatData){
 //        grpcRequestsMetric.increment();
 //        DataTransferService.ChatData resp =  authTransferServiceBlockingStub.getAllUsersByChatid(chatData);

@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 /**
  * Контроль доступа GET /api/images/{*key} (beads e1o).
@@ -52,7 +53,8 @@ class ApiControllerImageAccessTest {
     private final MembershipCacheMetric cacheMetric = new MembershipCacheMetric(new SimpleMeterRegistry());
 
     private final ApiController controller =
-            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric, cacheMetric));
+            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric, cacheMetric),
+                    mock(AuthGrpc.class));
 
     private static final Authentication SUNNY =
             new UsernamePasswordAuthenticationToken("4", null, List.of());
@@ -141,7 +143,8 @@ class ApiControllerImageAccessTest {
                     Duration membershipTimeout() {
                         return Duration.ofMillis(200);
                     }
-                });
+                },
+                mock(AuthGrpc.class));
 
         ResponseEntity<byte[]> response = fastController.image(SUNNY, "/chatimage/1/uuid.jpg").call();
 
