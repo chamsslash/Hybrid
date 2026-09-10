@@ -115,6 +115,29 @@ message ChangeUsernameRequest {
   string new_username = 2;
 }
 
+// Смена пароля (beads ehe). Требуется текущий пароль: без него любой перехваченный
+// access-токен превращается в полный захват аккаунта.
+// Коды status в AuthResponse: "200" успех, "401" неверный текущий пароль,
+// "409" у аккаунта нет пароля (вход через Google), "400" пустой новый пароль,
+// "404" пользователя нет.
+//
+// ВАЖНО для вызывающей стороны: "401" здесь — это код В ТЕЛЕ ответа, а не HTTP-статус.
+// Отдавать его наружу как HTTP 401 нельзя: интерцептор SPA (static/axios.js) трактует
+// 401 как «протух токен», делает refresh и ПОВТОРЯЕТ запрос — ошибка ввода ушла бы в
+// бесконечный цикл повторов вместо экрана. Наружу это 403.
+message ChangePasswordRequest {
+  int64 user_id = 1;
+  string current_password = 2;
+  string new_password = 3;
+}
+
+// Признак «у аккаунта есть пароль» для экрана профиля. Сам хеш наружу не отдаётся
+// ни при каких условиях — только этот флаг. Аккаунты, заведённые через Google, пароля
+// не имеют, и секция смены пароля им не показывается.
+message ProfileFlags {
+  bool has_password = 1;
+}
+
 service AuthTransferService {
   rpc getUserBySub(Sub_Role) returns (User);
   rpc get_all_users_by_chatid(ChatData) returns (ChatData); // Receives chatdata only with chat_id and gets chat data with chat_id and all users of the chat
@@ -127,6 +150,8 @@ service AuthTransferService {
   rpc CheckAuthorization(idToken) returns (AccessResponse);
   rpc CheckOneTimeCodeAndGetSub_Role(idToken) returns (Sub_Role);
   rpc change_username(ChangeUsernameRequest) returns (AuthResponse);
+  rpc change_password(ChangePasswordRequest) returns (AuthResponse);
+  rpc has_password(UserDataRequest) returns (ProfileFlags);
 }
 
 service ChatService {

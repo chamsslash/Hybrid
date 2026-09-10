@@ -370,6 +370,84 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 );
     }
 
+    /**
+     * Смена пароля (beads ehe).
+     *
+     * Текущий пароль обязателен. Без него смена пароля превращает любой перехваченный
+     * access-токен в полный захват аккаунта: злоумышленник ставит свой пароль и получает
+     * постоянный вход, уже не зависящий от срока жизни токена.
+     *
+     * Аккаунт без пароля (заведён через Google) получает отдельный код 409, а не 401:
+     * «пароль неверный» и «пароля нет вовсе» — разные ситуации, и вторая означает, что
+     * пользователю показали форму, которой у него быть не должно. Возможность ЗАДАТЬ
+     * пароль такому аккаунту в эту фичу не входит — это новый сценарий аутентификации,
+     * подтверждать в нём нечем.
+     *
+     * Гашение чужих сессий делает НЕ этот метод: refresh-сессии живут в Redis у HTTPService
+     * (TokensResolver), AuthService о них не знает. См. ApiController.changePassword.
+     */
+    @Override
+    @Transactional
+    public void changePassword(DataTransferService.ChangePasswordRequest request,
+                               StreamObserver<DataTransferService.AuthResponse> responseObserver) {
+        String newPassword = request.getNewPassword();
+        if (newPassword == null || newPassword.isBlank()) {
+            respond(responseObserver, "400", "New password must not be blank");
+            return;
+        }
+
+        Optional<User> found = auth_rep.findFirstById(request.getUserId());
+        if (found.isEmpty()) {
+            respond(responseObserver, "404", "User not found");
+            return;
+        }
+
+        User user = found.get();
+        String currentHash = user.getMyapppassword();
+        if (currentHash == null || currentHash.isBlank()) {
+            log.info("Смена пароля отклонена: у пользователя {} пароля нет (вход через Google)",
+                    request.getUserId());
+            respond(responseObserver, "409", "Account has no password");
+            return;
+        }
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), currentHash)) {
+            log.warn("Смена пароля отклонена: неверный текущий пароль у пользователя {}",
+                    request.getUserId());
+            respond(responseObserver, "401", "Current password is incorrect");
+            return;
+        }
+
+        user.setMyapppassword(passwordEncoder.encodePassword(newPassword));
+        auth_rep.save(user);
+        log.info("Пароль пользователя {} изменён", request.getUserId());
+        respond(responseObserver, "200", "Password changed");
+    }
+
+    /**
+     * Есть ли у аккаунта пароль (beads ehe). Наружу едет ТОЛЬКО этот флаг — сам хеш не
+     * отдаётся ни при каких условиях.
+     *
+     * Экран профиля по нему решает, показывать ли форму смены пароля: у аккаунтов,
+     * заведённых через Google, поля myapppassword пусто, и форма им не нужна.
+     *
+     * Несуществующий пользователь даёт false, а не ошибку: единственное последствие —
+     * скрытая секция, а падать на чтении флага незачем.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public void hasPassword(DataTransferService.UserDataRequest request,
+                            StreamObserver<DataTransferService.ProfileFlags> responseObserver) {
+        boolean has = auth_rep.findFirstById(request.getId())
+                .map(User::getMyapppassword)
+                .filter(hash -> !hash.isBlank())
+                .isPresent();
+        responseObserver.onNext(DataTransferService.ProfileFlags.newBuilder()
+                .setHasPassword(has)
+                .build());
+        responseObserver.onCompleted();
+    }
+
     /** Однострочный ответ парой status/message — несколько методов класса отвечают одинаково. */
     private void respond(StreamObserver<DataTransferService.AuthResponse> responseObserver,
                          String status, String message) {

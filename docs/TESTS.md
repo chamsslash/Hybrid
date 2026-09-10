@@ -27,10 +27,10 @@
 
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
-| AuthService | 6 | 29 | 2 | 31 |
+| AuthService | 6 | 36 | 2 | 38 |
 | HTTPService | 39 | 301 | 2 | 303 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **50** | **344** | **7** | **351** |
+| **Итого** | **50** | **351** | **7** | **358** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -78,6 +78,13 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 - **`changeUsernameToBlankReturns400WithoutTouchingRepository`** — вход: ник из пробелов. Проверяет: `status=400`, ни `findFirstById`, ни `saveAndFlush` не дёргаются. Зачем: колонка `name` nullable — без этой проверки пользователь стёр бы себе имя и перестал находиться поиском.
 - **`changeUsernameForUnknownUserReturns404`** — вход: несуществующий id. Проверяет: `status=404`, `saveAndFlush` не вызывается. Зачем: отличать «пользователя нет» от «ник занят» — разные ответы пользователю.
 - **`changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable`** — вход: успешная смена ника. Проверяет: репозиторий зовётся через `saveAndFlush`, а не `save`. Зачем: `changeUsername` намеренно не `@Transactional` — под управляемой сущностью `save()` откладывает UPDATE на коммит транзакции, то есть на момент ПОСЛЕ отправки ответа клиенту, и нарушение UNIQUE ушло бы мимо `catch`, отдавая ложный `"200"` на занятом нике; `saveAndFlush` выпускает UPDATE внутри вызова, пока `try` ещё жив.
+- **`changePasswordWithCorrectCurrentPersistsNewHash`** — вход: верный текущий пароль. Проверяет: `status=200`, в `save` уходит НОВЫЙ хеш (`new-hash`, отличный от `old-hash`). Зачем: успешный путь; заодно стережёт, что сохраняется именно хеш кодировщика, а не сырой пароль.
+- **`changePasswordWithWrongCurrentReturns401AndKeepsHash`** — вход: неверный текущий пароль. Проверяет: `status=401`, `save` НЕ вызывается. Зачем: подтверждение текущим паролем — единственное, что мешает перехваченному access-токену стать постоянным входом.
+- **`changePasswordOnAccountWithoutPasswordReturns409`** — вход: аккаунт с пустым `myapppassword` (Google). Проверяет: `status=409`, `save` не вызывается, `matches` вообще не дёргается. Зачем: «пароль неверный» и «пароля нет» — разные ситуации; вторая означает, что пользователю показали форму, которой у него быть не должно, и `matches` против пустого хеша — бессмысленный вызов.
+- **`changePasswordToBlankReturns400WithoutTouchingRepository`** — вход: новый пароль из пробелов. Проверяет: `status=400`, в БД не ходим. Зачем: пустой пароль сделал бы вход по паролю невозможным.
+- **`changePasswordForUnknownUserReturns404`** — вход: несуществующий id. Проверяет: `status=404`. Зачем: отдельный код вместо тихого 401.
+- **`hasPasswordTrueForLocalAccount`** — вход: пользователь с непустым `myapppassword`. Проверяет: `has_password=true`, ответ через `onNext`+`onCompleted`. Зачем: по этому флагу экран профиля решает, показывать ли форму смены пароля.
+- **`hasPasswordFalseForGoogleAccountAndForUnknownUser`** — вход: аккаунт с пустым `myapppassword` и несуществующий id. Проверяет: в обоих случаях `has_password=false`, без ошибки. Зачем: Google-аккаунту секция пароля не показывается, а падать на чтении флага для несуществующего пользователя незачем — последствие всего одно, скрытая секция.
 
 ### `Services/UsernameSearchServiceTest` — `unit` — правила поиска по префиксу ника (beads cdn)
 `UsernameSearchService` с замоканным `Auth_rep`. Проверяются ровно те решения, которые нельзя увидеть глазами в ответе: какой шаблон уходит в БД и уходит ли он вообще.
