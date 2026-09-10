@@ -172,7 +172,6 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
      * пользователь мог бы стереть себе имя, а вместе с ним — возможность быть найденным.
      */
     @Override
-    @Transactional
     public void changeUsername(DataTransferService.ChangeUsernameRequest request,
                                StreamObserver<DataTransferService.AuthResponse> responseObserver) {
         String newName = request.getNewUsername();
@@ -190,8 +189,20 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
         User user = found.get();
         String previousName = user.getName();
         user.setName(newName);
+        // Метод намеренно НЕ @Transactional, а сохранение идёт через saveAndFlush.
+        //
+        // Под @Transactional сущность из findFirstById управляемая, save() сводится к merge()
+        // без принудительного flush, и UPDATE уезжает на коммит транзакции — то есть ПОСЛЕ
+        // возврата из метода, когда ответ клиенту уже отправлен. Нарушение UNIQUE вылетело бы
+        // вне этого catch, а клиент получил бы ложный "200" на занятом нике.
+        //
+        // register() выше работает верно по той же причине с обратным знаком: он тоже не
+        // транзакционный, и его save() коммитится внутри собственной транзакции репозитория.
+        //
+        // saveAndFlush оставлен даже без аннотации — как страховка на случай, если
+        // @Transactional вернут: тогда UPDATE всё равно выпустится внутри try.
         try {
-            auth_rep.save(user);
+            auth_rep.saveAndFlush(user);
         } catch (DataIntegrityViolationException duplicate) {
             log.info("Смена ника отклонена: {} уже занят (нарушен ux_users_lower_name)", newName);
             respond(responseObserver, "666", "User with such name already exists");

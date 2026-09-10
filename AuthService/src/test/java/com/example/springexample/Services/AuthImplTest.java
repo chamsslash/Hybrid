@@ -208,7 +208,7 @@ class AuthImplTest {
     void changeUsernameSuccessPersistsNewName() {
         User u = user(42L, "Миша", "USER", "hashed");
         when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
-        when(authRep.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
         auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
@@ -221,16 +221,16 @@ class AuthImplTest {
         assertEquals("200", resp.getValue().getStatus());
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
-        verify(authRep).save(saved.capture());
+        verify(authRep).saveAndFlush(saved.capture());
         assertEquals("МишаНовый", saved.getValue().getName());
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void changeUsernameToTakenNameReturns666AndKeepsOldName() {
+    void changeUsernameToTakenNameReturns666() {
         User u = user(42L, "Миша", "USER", "hashed");
         when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
-        when(authRep.save(any(User.class)))
+        when(authRep.saveAndFlush(any(User.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate key ... ux_users_lower_name"));
 
         StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
@@ -256,7 +256,7 @@ class AuthImplTest {
                 ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
         verify(obs).onNext(resp.capture());
         assertEquals("400", resp.getValue().getStatus());
-        verify(authRep, never()).save(any(User.class));
+        verify(authRep, never()).saveAndFlush(any(User.class));
         verify(authRep, never()).findFirstById(anyLong());
     }
 
@@ -273,6 +273,23 @@ class AuthImplTest {
                 ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
         verify(obs).onNext(resp.capture());
         assertEquals("404", resp.getValue().getStatus());
+        verify(authRep, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable() {
+        User u = user(42L, "Миша", "USER", "hashed");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("МишаНовый").build(), obs);
+
+        // Именно saveAndFlush, а не save: под отложенным flush нарушение UNIQUE прилетело бы
+        // после ответа клиенту, вне catch, и ветка "666" стала бы недостижимой.
+        verify(authRep).saveAndFlush(any(User.class));
         verify(authRep, never()).save(any(User.class));
     }
 }
