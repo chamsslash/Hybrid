@@ -17,6 +17,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -199,5 +200,79 @@ class AuthImplTest {
         DataTransferService.Sub_Role resp = captor.getValue();
         assertEquals("99", resp.getSub());
         assertEquals("USER", resp.getRole());
+    }
+
+    // --- Смена ника (beads ehe) ---
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameSuccessPersistsNewName() {
+        User u = user(42L, "Миша", "USER", "hashed");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(authRep.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("МишаНовый").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        verify(obs).onCompleted();
+        assertEquals("200", resp.getValue().getStatus());
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(authRep).save(saved.capture());
+        assertEquals("МишаНовый", saved.getValue().getName());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameToTakenNameReturns666AndKeepsOldName() {
+        User u = user(42L, "Миша", "USER", "hashed");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(authRep.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key ... ux_users_lower_name"));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("САША").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        verify(obs).onCompleted();
+        verify(obs, never()).onError(any());
+        assertEquals("666", resp.getValue().getStatus());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameToBlankReturns400WithoutTouchingRepository() {
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("   ").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("400", resp.getValue().getStatus());
+        verify(authRep, never()).save(any(User.class));
+        verify(authRep, never()).findFirstById(anyLong());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameForUnknownUserReturns404() {
+        when(authRep.findFirstById(999L)).thenReturn(Optional.empty());
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(999L).setNewUsername("кто-то").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("404", resp.getValue().getStatus());
+        verify(authRep, never()).save(any(User.class));
     }
 }

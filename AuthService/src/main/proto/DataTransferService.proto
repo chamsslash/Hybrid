@@ -105,6 +105,16 @@ message Sub_Role{
   string role =4;
 }
 
+// Смена ника (beads ehe). Ответ — существующее AuthResponse: у него уже есть пара
+// status/message, и заводить второе сообщение с той же формой незачем.
+// Коды status: "200" успех, "666" ник занят, "400" пустой ник, "404" пользователя нет.
+//
+// Номера полей и имя rpc обязаны БУКВАЛЬНО совпадать с копией этого файла в HTTPService.
+message ChangeUsernameRequest {
+  int64 user_id = 1;
+  string new_username = 2;
+}
+
 service AuthTransferService {
   rpc getUserBySub(Sub_Role) returns (User);
   rpc get_all_users_by_chatid(ChatData) returns (ChatData); // Receives chatdata only with chat_id and gets chat data with chat_id and all users of the chat
@@ -116,6 +126,7 @@ service AuthTransferService {
   rpc getUserImageurl(UserDataRequest) returns(DriveUrl);
   rpc CheckAuthorization(idToken) returns (AccessResponse);
   rpc CheckOneTimeCodeAndGetSub_Role(idToken) returns (Sub_Role);
+  rpc change_username(ChangeUsernameRequest) returns (AuthResponse);
 }
 
 service ChatService {

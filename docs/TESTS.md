@@ -27,10 +27,10 @@
 
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
-| AuthService | 6 | 24 | 2 | 26 |
+| AuthService | 6 | 28 | 2 | 30 |
 | HTTPService | 39 | 301 | 2 | 303 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **50** | **339** | **7** | **346** |
+| **Итого** | **50** | **343** | **7** | **350** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -73,6 +73,10 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 - **`getUserBySubNonNumericReturnsNotFound`** (A4) — нечисловой `sub` → `onError` (`StatusRuntimeException` NOT_FOUND), без краша `NumberFormatException`. Зачем: graceful-обработка старых/битых токенов после смены контракта.
 - **`checkOneTimeCodeReturnsNumericUserIdAsSub`** (A3) — по коду в Redis лежит `google_sub`, юзер найден `findByGoogleSub` → в ответ идёт **`sub="99"` (numeric user id)**, а не google_sub. Зачем: Google-путь тоже отдаёт канонический numeric sub.
 - **`registerDuplicateInDifferentCaseReturns666`** — вход: регистрация ника `МИША`, `findFirstByName("МИША")` пуст (точное сравнение регистра не ловит живую `Миша`), `save` бросает `DataIntegrityViolationException`. Проверяет: ответ `AuthResponse status=666, message="User with such name already exists"` уходит через `onNext`+`onCompleted`, `onError` НЕ вызывается. Зачем: после появления UNIQUE-индекса `ux_users_lower_name` арбитром занятости ника стала БД; без обработки нарушение приезжало бы клиенту как gRPC `UNKNOWN` (500) вместо внятного отказа, и та же дыра закрывает гонку check-then-insert между двумя одновременными регистрациями.
+- **`changeUsernameSuccessPersistsNewName`** — вход: пользователь 42 существует, новый ник `МишаНовый`. Проверяет: `AuthResponse status=200`, в `save` уходит сущность с новым именем. Зачем: базовый успешный путь смены ника.
+- **`changeUsernameToTakenNameReturns666AndKeepsOldName`** — вход: `save` бросает `DataIntegrityViolationException`. Проверяет: `status=666`, ответ через `onNext`+`onCompleted`, `onError` НЕ вызывается. Зачем: занятость ника решает UNIQUE-индекс `ux_users_lower_name`, а не предпроверка; без обработки нарушение приезжало бы клиенту как gRPC `UNKNOWN` (500).
+- **`changeUsernameToBlankReturns400WithoutTouchingRepository`** — вход: ник из пробелов. Проверяет: `status=400`, ни `findFirstById`, ни `save` не дёргаются. Зачем: колонка `name` nullable — без этой проверки пользователь стёр бы себе имя и перестал находиться поиском.
+- **`changeUsernameForUnknownUserReturns404`** — вход: несуществующий id. Проверяет: `status=404`, `save` не вызывается. Зачем: отличать «пользователя нет» от «ник занят» — разные ответы пользователю.
 
 ### `Services/UsernameSearchServiceTest` — `unit` — правила поиска по префиксу ника (beads cdn)
 `UsernameSearchService` с замоканным `Auth_rep`. Проверяются ровно те решения, которые нельзя увидеть глазами в ответе: какой шаблон уходит в БД и уходит ли он вообще.

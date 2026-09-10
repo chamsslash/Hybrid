@@ -158,6 +158,50 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
         responseObserver.onCompleted();
     }
 
+    /**
+     * Смена ника (beads ehe).
+     *
+     * Предварительного поиска «а не занят ли» здесь нет намеренно. Он не добавил бы ни одной
+     * гарантии: между «поискали» и «сохранили» есть промежуток, в который влезает второй
+     * такой же запрос, — классический check-then-insert. Настоящий арбитр — UNIQUE-индекс
+     * ux_users_lower_name (lower(name) text_pattern_ops): проверка и запись становятся одной
+     * операцией. Он же делает ники регистронезависимо уникальными, поэтому «САША» при живой
+     * «Саша» тоже отбивается.
+     *
+     * Пустой ник отсекается до обращения к БД: колонка nullable, и без этой проверки
+     * пользователь мог бы стереть себе имя, а вместе с ним — возможность быть найденным.
+     */
+    @Override
+    @Transactional
+    public void changeUsername(DataTransferService.ChangeUsernameRequest request,
+                               StreamObserver<DataTransferService.AuthResponse> responseObserver) {
+        String newName = request.getNewUsername();
+        if (newName == null || newName.isBlank()) {
+            respond(responseObserver, "400", "Username must not be blank");
+            return;
+        }
+
+        Optional<User> found = auth_rep.findFirstById(request.getUserId());
+        if (found.isEmpty()) {
+            respond(responseObserver, "404", "User not found");
+            return;
+        }
+
+        User user = found.get();
+        String previousName = user.getName();
+        user.setName(newName);
+        try {
+            auth_rep.save(user);
+        } catch (DataIntegrityViolationException duplicate) {
+            log.info("Смена ника отклонена: {} уже занят (нарушен ux_users_lower_name)", newName);
+            respond(responseObserver, "666", "User with such name already exists");
+            return;
+        }
+
+        log.info("Ник пользователя {} изменён с {} на {}", request.getUserId(), previousName, newName);
+        respond(responseObserver, "200", "Username changed");
+    }
+
     @Override
     public void register(DataTransferService.UserDataRequest request, StreamObserver<DataTransferService.AuthResponse> responseObserver) {
         Optional<User> user =auth_rep.findFirstByName(request.getUsername());
