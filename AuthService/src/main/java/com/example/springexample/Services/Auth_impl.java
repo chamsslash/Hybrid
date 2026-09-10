@@ -129,8 +129,7 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
     public void register(DataTransferService.UserDataRequest request, StreamObserver<DataTransferService.AuthResponse> responseObserver) {
         Optional<User> user =auth_rep.findFirstByName(request.getUsername());
         if (user.isPresent()){
-            responseObserver.onNext(DataTransferService.AuthResponse.newBuilder().setStatus("666").setMessage("User with such name already exists").build());
-            responseObserver.onCompleted();
+            respond(responseObserver, "666", "User with such name already exists");
             return;
         }else {
             try {
@@ -162,11 +161,7 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 // бы на клиент как gRPC UNKNOWN, то есть 500 вместо внятного «ник занят».
                 log.info("Регистрация отклонена: ник {} уже занят (нарушен ux_users_lower_name)",
                         request.getUsername());
-                responseObserver.onNext(DataTransferService.AuthResponse.newBuilder()
-                        .setStatus("666")
-                        .setMessage("User with such name already exists")
-                        .build());
-                responseObserver.onCompleted();
+                respond(responseObserver, "666", "User with such name already exists");
             } catch (Exception e) {
                 log.error("Reg error",e);
                 responseObserver.onError(e);
@@ -285,5 +280,15 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                                 .withDescription("Auth Error: user with sub " + sub + " does not exist")
                                 .asRuntimeException())
                 );
+    }
+
+    /** Однострочный ответ парой status/message — несколько методов класса отвечают одинаково. */
+    private void respond(StreamObserver<DataTransferService.AuthResponse> responseObserver,
+                         String status, String message) {
+        responseObserver.onNext(DataTransferService.AuthResponse.newBuilder()
+                .setStatus(status)
+                .setMessage(message)
+                .build());
+        responseObserver.onCompleted();
     }
 }
