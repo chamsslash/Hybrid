@@ -9,6 +9,7 @@ import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -109,6 +110,33 @@ class AuthImplTest {
         verify(obs).onNext(captor.capture());
         verify(obs, never()).onError(any());
         assertEquals("401", captor.getValue().getStatus());
+    }
+
+    // --- Занятость ника решает БД, а не предпроверка (UNIQUE ux_users_lower_name) ---
+    @Test
+    @SuppressWarnings("unchecked")
+    void registerDuplicateInDifferentCaseReturns666() {
+        // findFirstByName сравнивает точно, поэтому предпроверка "МИША" при живой "Миша"
+        // ничего не находит и пропускает запрос дальше — отбивает уже уникальный индекс.
+        when(authRep.findFirstByName("МИША")).thenReturn(Optional.empty());
+        when(passwordEncoder.encodePassword("pw")).thenReturn("hashed");
+        when(authRep.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint \"ux_users_lower_name\""));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.register(DataTransferService.UserDataRequest.newBuilder()
+                .setUsername("МИША")
+                .setPassword("pw")
+                .setImageUrl("")
+                .build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> captor =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(captor.capture());
+        verify(obs).onCompleted();
+        verify(obs, never()).onError(any());
+        assertEquals("666", captor.getValue().getStatus());
+        assertEquals("User with such name already exists", captor.getValue().getMessage());
     }
 
     // --- A4: getUserBySub numeric sub -> findById ---

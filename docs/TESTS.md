@@ -27,10 +27,10 @@
 
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
-| AuthService | 5 | 17 | 2 | 19 |
+| AuthService | 5 | 18 | 2 | 20 |
 | HTTPService | 38 | 297 | 2 | 299 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **48** | **328** | **7** | **335** |
+| **Итого** | **48** | **329** | **7** | **336** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -72,6 +72,7 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 - **`getUserBySubNumericResolvesById`** (A4) — `sub="42"` → `findById(42)`, возвращает User; `findByGoogleSub` НЕ дёргается. Зачем: после канонизации `sub`=DB id резолв идёт по id.
 - **`getUserBySubNonNumericReturnsNotFound`** (A4) — нечисловой `sub` → `onError` (`StatusRuntimeException` NOT_FOUND), без краша `NumberFormatException`. Зачем: graceful-обработка старых/битых токенов после смены контракта.
 - **`checkOneTimeCodeReturnsNumericUserIdAsSub`** (A3) — по коду в Redis лежит `google_sub`, юзер найден `findByGoogleSub` → в ответ идёт **`sub="99"` (numeric user id)**, а не google_sub. Зачем: Google-путь тоже отдаёт канонический numeric sub.
+- **`registerDuplicateInDifferentCaseReturns666`** — вход: регистрация ника `МИША`, `findFirstByName("МИША")` пуст (точное сравнение регистра не ловит живую `Миша`), `save` бросает `DataIntegrityViolationException`. Проверяет: ответ `AuthResponse status=666, message="User with such name already exists"` уходит через `onNext`+`onCompleted`, `onError` НЕ вызывается. Зачем: после появления UNIQUE-индекса `ux_users_lower_name` арбитром занятости ника стала БД; без обработки нарушение приезжало бы клиенту как gRPC `UNKNOWN` (500) вместо внятного отказа, и та же дыра закрывает гонку check-then-insert между двумя одновременными регистрациями.
 
 ### `Services/ImageStorageServiceIT` — `integration` (Docker) — MinIO round-trip (beads ok9)
 `ImageStorageService` против реального `MinIOContainer`, чтение обратно сырым `MinioClient`.

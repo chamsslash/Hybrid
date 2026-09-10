@@ -12,6 +12,7 @@ import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.transaction.annotation.Transactional;
@@ -148,6 +149,23 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 creation.setUser_role("USER");
                 User created = auth_rep.save(creation);
                 responseObserver.onNext(DataTransferService.AuthResponse.newBuilder().setStatus("200").setMessage("Ahueno").setRole(created.getUser_role()).setSub(String.valueOf(created.getId())).build());
+                responseObserver.onCompleted();
+            } catch (DataIntegrityViolationException duplicate) {
+                // Настоящим арбитром занятости ника стал UNIQUE-индекс ux_users_lower_name
+                // (lower(name) text_pattern_ops). Предпроверка findFirstByName выше сравнивает
+                // точно, с учётом регистра, и потому пропускает и «МИША» при живой «Миша», и
+                // второй одновременный запрос с тем же именем — между «поискали» и «сохранили»
+                // есть промежуток. Обе ситуации приезжают сюда, и обе означают ровно то же,
+                // что и предпроверка, поэтому и ответ тот же самый.
+                //
+                // Без этого catch нарушение улетало бы в responseObserver.onError и приезжало
+                // бы на клиент как gRPC UNKNOWN, то есть 500 вместо внятного «ник занят».
+                log.info("Регистрация отклонена: ник {} уже занят (нарушен ux_users_lower_name)",
+                        request.getUsername());
+                responseObserver.onNext(DataTransferService.AuthResponse.newBuilder()
+                        .setStatus("666")
+                        .setMessage("User with such name already exists")
+                        .build());
                 responseObserver.onCompleted();
             } catch (Exception e) {
                 log.error("Reg error",e);
