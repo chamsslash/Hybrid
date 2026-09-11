@@ -684,6 +684,18 @@ body {
 /* the primary submit button gets the ember accent */
 .add-comment button[type="submit"] { background: var(--ember-grad); box-shadow: 0 6px 16px rgba(255,106,91,.3); }
 .add-comment button[type="submit"]:hover { filter: brightness(1.03); }
+/* Выключенные контролы: экран профиля отдаёт формы disabled, пока mount не получил
+   /api/me и не навесил обработчики submit. Без видимого отличия «выключено» неотличимо
+   от «нажми меня», и человек упирается в кнопку, которая молча не реагирует — то есть
+   ровно в тот симптом, ради которого disabled и ставится. */
+.add-comment button:disabled,
+.add-comment button[type="submit"]:disabled {
+    filter: grayscale(.5) opacity(.55);
+    box-shadow: none;
+    cursor: progress;
+}
+.add-comment button:disabled:hover { transform: none; filter: grayscale(.5) opacity(.55); }
+.add-comment input:disabled { opacity: .55; cursor: progress; }
 
 #result {
     margin-top: 4px;
