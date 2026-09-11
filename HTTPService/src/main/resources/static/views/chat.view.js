@@ -16,9 +16,27 @@ const CHAT_HTML = `
 
     <div class="chat-header">
         <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
-        <div class="chat-avatar-container" id="chat-header-avatar"></div>
-        <span id="chat-title"></span>
+        <!-- Аватарка и название обёрнуты в кнопку: состав чата открывается кликом по шапке,
+             как в привычных мессенджерах. Кнопка, а не div с onclick, — чтобы работали
+             Tab и Enter и чтобы скринридер назвал элемент действием, а не текстом. -->
+        <button type="button" id="chat-info-btn" class="chat-info-button"
+                aria-haspopup="dialog" aria-label="Показать участников чата">
+            <div class="chat-avatar-container" id="chat-header-avatar"></div>
+            <span id="chat-title"></span>
+        </button>
         <div id="typing-indicator"></div>
+    </div>
+
+    <!-- Модалка состава. Лежит в разметке сразу, а не создаётся по клику: содержимое
+         заполняется один раз при загрузке чата, открытие — это только снятие hidden. -->
+    <div id="members-overlay" class="modal-overlay" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="members-title">
+            <div class="modal-head">
+                <h3 id="members-title">Участники</h3>
+                <button type="button" id="members-close" class="modal-close" aria-label="Закрыть">✕</button>
+            </div>
+            <ul id="members-list" class="members-list"></ul>
+        </div>
     </div>
 
     <div class="chat-messages" id="chatMessages"></div>
@@ -149,15 +167,77 @@ function renderHeader(data) {
     hydrateImages(headerAvatar);
 }
 
+// Состав чата приезжает вместе с остальными данными экрана (/api/chat, поле members) —
+// отдельного запроса при открытии модалки нет. Состав меняется только при создании чата,
+// так что перечитывать его по клику незачем.
 function renderMembers(members) {
+    const list = members || [];
+    renderAiRecipients(list);
+    renderMembersList(list);
+}
+
+function renderAiRecipients(members) {
     const select = document.getElementById('aiUserSelect');
-    for (const member of members || []) {
-        if (member === user_name) continue;
+    for (const member of members) {
+        // Себя в список «кому ответить через AI» не кладём: просить AI ответить за себя
+        // бессмысленно.
+        if (member.username === user_name) continue;
         const opt = document.createElement('option');
-        opt.value = member;
-        opt.textContent = member;
+        opt.value = member.username;
+        opt.textContent = member.username;
         select.appendChild(opt);
     }
+}
+
+function renderMembersList(members) {
+    const list = document.getElementById('members-list');
+    if (!list) return;
+    list.replaceChildren();
+
+    document.getElementById('members-title').textContent = `Участники (${members.length})`;
+
+    for (const member of members) {
+        const item = document.createElement('li');
+        item.className = 'member-row';
+        item.innerHTML = policy.createHTML(`
+            ${imageTag(member.imageUrl, 'member-avatar', 'аватарка участника')}
+            <div class="member-info">
+                <span class="member-name"></span>
+                <span class="member-id"></span>
+            </div>
+        `);
+        item.querySelector('.member-name').textContent = member.username;
+        item.querySelector('.member-id').textContent = `ID: ${member.userId}`;
+        // Себя помечаем — в чате на несколько человек с похожими никами иначе непонятно,
+        // где ты. textContent, а не разметкой: ник приходит с сервера.
+        if (String(member.userId) === String(user_id)) {
+            const badge = document.createElement('span');
+            badge.className = 'member-badge';
+            badge.textContent = 'вы';
+            item.querySelector('.member-info').appendChild(badge);
+        }
+        list.appendChild(item);
+    }
+    hydrateImages(list);
+}
+
+// --- модалка состава ---
+
+function openMembers() {
+    const overlay = document.getElementById('members-overlay');
+    if (!overlay) return;
+    overlay.hidden = false;
+    // Фокус уезжает на «закрыть»: иначе он остался бы на шапке под затемнением, и Tab
+    // ходил бы по элементам чата, которых уже не видно.
+    document.getElementById('members-close')?.focus();
+}
+
+function closeMembers() {
+    const overlay = document.getElementById('members-overlay');
+    if (!overlay || overlay.hidden) return;
+    overlay.hidden = true;
+    // Возвращаем фокус туда, откуда модалку открыли.
+    document.getElementById('chat-info-btn')?.focus();
 }
 
 // --- typing ---
@@ -535,6 +615,18 @@ export async function mount(params) {
     // экрана чата единственный родитель — список чатов, туда и ведём.
     document.getElementById('back-btn').addEventListener('click', () => {
         navigate('/reactive/chatlist');
+    }, { signal: ac.signal });
+
+    // Состав чата: открыть по шапке, закрыть крестиком, кликом по затемнению или Escape.
+    document.getElementById('chat-info-btn').addEventListener('click', openMembers, { signal: ac.signal });
+    document.getElementById('members-close').addEventListener('click', closeMembers, { signal: ac.signal });
+    document.getElementById('members-overlay').addEventListener('click', (e) => {
+        // Только по самому затемнению: клик внутри карточки всплывает сюда же, и без
+        // проверки модалка закрывалась бы от любого тычка по списку.
+        if (e.target.id === 'members-overlay') closeMembers();
+    }, { signal: ac.signal });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeMembers();
     }, { signal: ac.signal });
 
     document.getElementById('sendBtn').addEventListener('click', sendChatMessage, { signal: ac.signal });

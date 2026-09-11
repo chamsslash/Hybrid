@@ -1,6 +1,7 @@
 import api from "/axios.js";
 import { navigate } from "/router.js";
 import { ensureAccessToken } from "/auth.js";
+import { clearAccessToken } from "/inmemory.js";
 import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
 import { showToast } from "/toast.js";
@@ -45,6 +46,11 @@ const PROFILE_HTML = `
         </form>
 
         <div id="password-section"></div>
+
+        <!-- Выход отделён от форм редактирования: это не «сохранить поле», а уход с
+             экрана, и стоять в одном ряду с ними он не должен. -->
+        <hr class="profile-divider">
+        <button type="button" id="logout-btn" class="danger-button">Выйти из аккаунта</button>
     </div>
 `;
 
@@ -280,6 +286,22 @@ export async function mount(params) {
             console.error("[profile] загрузка аватарки не удалась", error);
             showToast("Не удалось загрузить аватарку", "error");
         }
+    }, { signal: ac.signal });
+
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+        // Сессию гасит сервер: снимает refresh-куку и убивает запись в Redis по sid.
+        try {
+            await api.post("/api/logout");
+        } catch (error) {
+            // Локальный выход выполняем в любом случае. Иначе сетевой сбой оставлял бы
+            // человека на экране профиля залогиненным после нажатия «выйти» — худший
+            // исход из возможных: он уверен, что вышел.
+            console.error("[profile] серверный выход не удался, выходим локально", error);
+        }
+        // Access живёт в памяти вкладки и сервером не отзывается (он подписанный) —
+        // стереть его может только клиент.
+        clearAccessToken();
+        await navigate("/welcome");
     }, { signal: ac.signal });
 
     enableProfileForms();

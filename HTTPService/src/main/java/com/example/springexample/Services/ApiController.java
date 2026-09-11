@@ -1,14 +1,17 @@
 package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.ChatMemberView;
 import com.example.springexample.MessageEvent;
 import com.example.springexample.ShortChatObject;
+import com.example.springexample.Utils.AuthCookies;
 import com.example.springexample.Utils.TokensResolver;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -314,7 +317,7 @@ public class ApiController {
 
                     Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId).onErrorReturn("");
                     Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
-                    Mono<List<String>> membersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData)
+                    Mono<List<ChatMemberView>> membersMono = reactiveGrpcClient.reactiveGetMembersByChatId(chatData)
                             .onErrorReturn(List.of());
                     Mono<String> chatImageMono = reactiveGrpcClient.reactiveGetImageUrl(chatId).onErrorReturn("");
                     Mono<String> myImageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId)).onErrorReturn("");
@@ -460,5 +463,37 @@ public class ApiController {
                             .body(Map.of("error", "UNEXPECTED"));
                 })
                 .block();
+    }
+
+    /**
+     * Выход из аккаунта на текущем устройстве.
+     *
+     * <p>Два действия, и оба обязательны. Гасим refresh-сессию в Redis по sid из
+     * подписанного access-токена — иначе refresh-кука, утащенная с машины, продолжала бы
+     * менять себя на свежие access-токены после «выхода». И снимаем сами куки, чтобы
+     * браузер не носил мёртвый refresh на каждый запрос.
+     *
+     * <p>Access-токен не отзывается и отзываться не может: он подписанный и живёт до
+     * своего exp (15 минут). Гасится то, что даёт его продлевать. Клиент дополнительно
+     * стирает access из памяти вкладки сразу (clearAccessToken в inmemory.js), так что
+     * практического окна не остаётся — оно есть только у того, кто уже перехватил токен,
+     * и закрывается само через четверть часа.
+     *
+     * <p>Легаси-кука access гасится заодно: access давно живёт в памяти, но у старых
+     * сессий она ещё может лежать в браузере.
+     *
+     * <p>Ответ всегда 200. Выход, падающий с ошибкой, — худшее из поведений: человек
+     * остаётся залогиненным, считая, что вышел. Ошибка на стороне Redis уже залогирована
+     * в {@link TokensResolver#logoutCurrentSession}, а куки снимаются в любом случае.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout(Authentication auth) {
+        Object rawSid = auth.getDetails();
+        String sid = rawSid instanceof String s ? s : null;
+        tokensResolver.logoutCurrentSession(sid);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, AuthCookies.deleteRefresh().toString())
+                .header(HttpHeaders.SET_COOKIE, AuthCookies.deleteLegacyAccess().toString())
+                .body(Map.of("status", "ok"));
     }
 }

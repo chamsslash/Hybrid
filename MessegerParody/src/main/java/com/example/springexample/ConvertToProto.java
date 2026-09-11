@@ -22,6 +22,19 @@ public class ConvertToProto {
         return DataTransferService.UserDataRequest.newBuilder()
                 .setId(user.getId())
                 .setUsername(user.getName())
+                // Ключ аватарки нужен экрану состава чата: без него список участников
+                // рисуется одними заглушками. Поле уже есть в UserDataRequest (image_url = 5),
+                // тут оно просто перестаёт теряться при маппинге.
+                //
+                // Пароль в ответ НЕ кладётся и класться не должен: r2dbc_user тянет
+                // myapppassword из строки таблицы, а UserDataRequest.password уезжает
+                // на HTTPService и дальше в браузер.
+                //
+                // Пустая строка вместо null обязательна, а не аккуратность: сеттеры
+                // protobuf бросают NPE на null, а image_url в БД нullable — у любого, кто
+                // не грузил аватарку. Без защиты падал бы весь getAllUsersByChatId, то есть
+                // и проверка членства на горячем STOMP-пути.
+                .setImageUrl(user.getImageUrl() == null ? "" : user.getImageUrl())
                 .build();
     }
     public Mono<DataTransferService.UserListResponse> toUserListResponse(Mono<List<r2dbc_user>> users){

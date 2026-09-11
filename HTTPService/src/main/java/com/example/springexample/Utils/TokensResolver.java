@@ -286,6 +286,29 @@ public class TokensResolver {
                 sub, doomed.size(), keepSid);
     }
 
+    /**
+     * Гасит ОДНУ сессию — ту, из которой пришёл запрос. Это выход из аккаунта на текущем
+     * устройстве.
+     *
+     * <p>Отличие от {@link #deleteOtherSessionsByUser}: тот оставляет текущую живой и
+     * убивает остальные (реакция на смену пароля), здесь ровно наоборот — уходит только
+     * текущая, а сессии на других устройствах не трогаются. Выйти на ноутбуке и остаться
+     * залогиненным на телефоне — это штатное ожидание, а не недоработка.
+     *
+     * <p>{@code sid == null} означает access-токен без клейма sid (выпущен до 7ad054b).
+     * Гасить в Redis нечего, но кука у клиента всё равно снимается вызывающим, поэтому
+     * сессия становится недостижимой и дотлевает до истечения TTL. Молча выходим, а не
+     * бросаем: для пользователя выход обязан сработать в любом случае.
+     */
+    public void logoutCurrentSession(String sid) {
+        if (sid == null || sid.isBlank()) {
+            log.warn("Выход без sid в access-токене: в Redis гасить нечего, снимаем только куку");
+            return;
+        }
+        deleteSessionBySid(sid);
+        log.info("Сессия {} завершена по выходу из аккаунта", sid);
+    }
+
     private void deleteSessionBySid(String sid){
         String keyOfSession =  generateSessionKey(sid);
         String jsoned = redisTemplate.opsForValue().get(keyOfSession);

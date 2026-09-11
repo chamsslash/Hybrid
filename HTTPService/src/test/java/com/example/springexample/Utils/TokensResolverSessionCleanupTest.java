@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.SetOperations;
+import org.springframework.data.redis.core.ValueOperations;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -79,6 +80,37 @@ class TokensResolverSessionCleanupTest {
         resolver.deleteOtherSessionsByUser("42", "sid-b");
 
         verify(redisTemplate, never()).delete(any(List.class));
+    }
+
+    // --- выход из аккаунта (logoutCurrentSession) ---
+
+    @Test
+    void logoutDeletesOnlyTheCurrentSession() {
+        // Сессия лежит в Redis: deleteSessionBySid читает её, чтобы узнать sub и вычистить
+        // ключ из набора пользователя.
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.get("RefreshSession:sid-b")).thenReturn("{\"sub\":\"42\"}");
+
+        resolver.logoutCurrentSession("sid-b");
+
+        // Ровно свой ключ — и он же снят с набора user:42. Сессии на других устройствах
+        // не трогаются: выйти на ноутбуке и остаться в телефоне — штатное ожидание.
+        verify(redisTemplate).delete("RefreshSession:sid-b");
+        verify(setOps).remove("user:42", "RefreshSession:sid-b");
+    }
+
+    @Test
+    void logoutWithoutSidTouchesNothingInRedis() {
+        // Access-токен без клейма sid (выпущен до появления клейма): опознать сессию нечем.
+        // Гасить вслепую нельзя — под руку попали бы чужие устройства; куку снимает
+        // вызывающий, поэтому сессия всё равно становится недостижимой.
+        resolver.logoutCurrentSession(null);
+
+        // verifyNoInteractions тут не годится: setUp уже трогает redisTemplate при
+        // настройке opsForSet, и проверка упала бы на этом, а не на поведении метода.
+        verify(redisTemplate, never()).delete(anyString());
+        verify(setOps, never()).remove(anyString(), any(Object[].class));
     }
 
     @Test
