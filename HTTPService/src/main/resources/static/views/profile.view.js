@@ -31,17 +31,17 @@ const PROFILE_HTML = `
         <form id="username-form" class="add-comment">
             <label>
                 Новый ник
-                <input type="text" id="username-input" name="username" placeholder="Новый ник" required>
+                <input type="text" id="username-input" name="username" placeholder="Новый ник" required disabled>
             </label>
-            <button type="submit">Сменить ник</button>
+            <button type="submit" disabled>Сменить ник</button>
         </form>
 
         <form id="avatar-form" class="add-comment" enctype="multipart/form-data">
             <label>
                 Новая аватарка
-                <input type="file" id="avatar-input" name="file" accept="image/*" required>
+                <input type="file" id="avatar-input" name="file" accept="image/*" required disabled>
             </label>
-            <button type="submit">Загрузить аватарку</button>
+            <button type="submit" disabled>Загрузить аватарку</button>
         </form>
 
         <div id="password-section"></div>
@@ -135,6 +135,20 @@ function schedulePendingAvatarRefresh(attempt = 0) {
         }
         schedulePendingAvatarRefresh(attempt + 1);
     }, PENDING_RETRY_DELAYS_MS[attempt]);
+}
+
+// Разблокировка форм после того, как экран получил данные и обработчики submit.
+//
+// Формы приезжают из PROFILE_HTML выключенными не для красоты: разметка вставляется в DOM
+// синхронно, а обработчики submit навешиваются только ПОСЛЕ await api.get("/api/me"). В
+// промежутке (локально ~0.8 c, на холодном поде секунды) экран уже нарисован и кнопки
+// нажимаются, но слушателя нет — нажатие уходит в никуда, браузер молча упирается в
+// required у пустого поля, и всё выглядит так, будто кнопка сломана. Выключенный контрол
+// честно показывает «ещё не готово» вместо того, чтобы принимать клики, которые никто не
+// обработает.
+function enableProfileForms() {
+    document.querySelectorAll("#username-input, #avatar-input, #username-form button, #avatar-form button")
+        .forEach((el) => { el.disabled = false; });
 }
 
 function renderPasswordSection(hasPassword) {
@@ -267,6 +281,8 @@ export async function mount(params) {
             showToast("Не удалось загрузить аватарку", "error");
         }
     }, { signal: ac.signal });
+
+    enableProfileForms();
 
     connectStomp(token);
 }
