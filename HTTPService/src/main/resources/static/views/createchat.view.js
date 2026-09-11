@@ -36,7 +36,9 @@ const CREATECHAT_HTML = `
                        aria-controls="user-suggestions" aria-autocomplete="list">
                 <ul id="user-suggestions" role="listbox" style="display: none; position: absolute;
                     z-index: 10; left: 0; right: 0; margin: 0; padding: 0; list-style: none;
-                    max-height: 220px; overflow-y: auto; background: #1b1b1b; border: 1px solid #444;"></ul>
+                    max-height: 220px; overflow-y: auto; background: var(--surface);
+                    color: var(--ink); border: 1px solid var(--line-2); border-radius: 12px;
+                    box-shadow: var(--shadow-2);"></ul>
             </div>
             <div id="user-chips" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;"></div>
 
@@ -82,7 +84,7 @@ function highlight(index) {
     const items = list.querySelectorAll("li[data-user-id]");
     items.forEach((node, i) => {
         const on = i === index;
-        node.style.background = on ? "#333" : "transparent";
+        node.style.background = on ? "var(--iris-050)" : "transparent";
         node.setAttribute("aria-selected", on ? "true" : "false");
     });
     activeIndex = index;
@@ -99,7 +101,7 @@ function renderSuggestions(users) {
         const empty = document.createElement("li");
         empty.textContent = "Никого не найдено";
         empty.style.padding = "8px";
-        empty.style.color = "#888";
+        empty.style.color = "var(--muted)";
         list.appendChild(empty);
     } else {
         users.forEach((user, index) => {
