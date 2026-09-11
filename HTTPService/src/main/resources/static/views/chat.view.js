@@ -3,6 +3,7 @@ import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 import { ensureAccessToken } from "/auth.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
+import { showToast } from "/toast.js";
 import { formatMessageTimestamp } from "/timestamp_format.js";
 
 // === SPA-вью страницы чата (beads 55/57/58) ===
@@ -365,19 +366,6 @@ function hideAISuggestion() {
     const panel = document.getElementById('aiSuggestionPanel');
     panel.style.display = 'none';
     panel.innerHTML = '';
-}
-
-function showToast(message, type = 'info', duration = 3000) {
-    const container = document.getElementById('toastContainer');
-    if (!container) return null;
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-    if (duration > 0) {
-        setTimeout(() => toast.remove(), duration);
-    }
-    return toast;
 }
 
 // --- STOMP ---

@@ -17,6 +17,13 @@ import { formatMessageTimestamp } from "/timestamp_format.js";
 // рядом с «У вас пока нет чатов».
 const CHATLIST_HTML = `
     <div class="post-feed">
+        <div id="profile-header" class="post-header" style="cursor: pointer; align-items: center; gap: 10px;"
+             role="button" tabindex="0" aria-label="Мой профиль">
+            <div class="chat-avatar-container" id="me-avatar"></div>
+            <div class="user-info">
+                <span class="user-name" id="me-username"></span>
+            </div>
+        </div>
         <h2 style="text-align: center;">Ваши чаты</h2>
         <button type="button" id="create-chat-btn" class="btn btn-regular">+ Новый чат</button>
         <p id="no-chats-message" style="text-align: center; color: #888; display: none;">У вас пока нет чатов</p>
@@ -78,6 +85,36 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
         if (authorSpan) authorSpan.textContent = `${chat_preview_username} : `;
     }
     return chatPart;
+}
+
+// Компактная шапка-вход в профиль (beads ehe). До неё во фронте не было ни одного места,
+// где пользователь видит свои данные: /api/me отдаёт username и imageUrl с самого начала,
+// но UI их не показывал.
+function renderProfileHeader(me) {
+    const header = document.getElementById('profile-header');
+    if (!header) return;
+
+    const nameSpan = document.getElementById('me-username');
+    if (nameSpan) nameSpan.textContent = me.username || '';
+
+    const avatar = document.getElementById('me-avatar');
+    if (avatar) {
+        avatar.innerHTML = me.imageUrl === 'pending'
+            ? policy.createHTML(`<div class="spinner-avatar"></div>`)
+            : policy.createHTML(imageTag(me.imageUrl, 'chat-avatar', 'моя аватарка'));
+        hydrateImages(avatar);
+    }
+
+    // Слушатели не снимаются в unmount намеренно: узел живёт внутри #app и целиком
+    // заменяется следующим innerHTML — тот же приём, что у кнопки создания чата.
+    header.onclick = () => navigate('/reactive/profile');
+    header.onkeydown = (e) => {
+        // Шапка — div с role="button", клавиатурная активация ей не достаётся сама.
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            navigate('/reactive/profile');
+        }
+    };
 }
 
 function appendChat(chat) {
@@ -329,6 +366,7 @@ export async function mount(params) {
             api.get('/api/chatlist').then(r => r.data),
         ]);
         user_id = String(me.userId);
+        renderProfileHeader(me);
         renderInitialChats(chats);
 
         connectStomp(token);
