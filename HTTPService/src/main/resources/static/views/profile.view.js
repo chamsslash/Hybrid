@@ -100,6 +100,43 @@ function renderAvatar(objectKey) {
     hydrateImages(container);
 }
 
+// Догон аватарки, потерянной мимо STOMP (follow-on к beads ehe).
+//
+// В списке чатов (chatlist.view.js) добор нужен из-за гонки «событие опубликовано ДО
+// того, как встала подписка»: создатель чата попадает на экран списка уже после того,
+// как STOMP-событие о его картинке ушло, а STOMP кадры до SUBSCRIBE не переигрывает.
+// Здесь этой гонки нет: подписка на /mutual/user_image/${user_id} встаёт при
+// монтировании экрана — задолго до того, как пользователь вообще нажмёт «Загрузить
+// аватарку». Добор нужен по другой причине — на случай ПОТЕРИ события где-то в
+// пайплайне MinIO -> Kafka -> ImageUrlPersistenceService -> STOMP (упал консьюмер,
+// оборвалось соединение между загрузкой и рассылкой): подписка жива, но слушать ей
+// нечего, и спиннер крутится до ручной перезагрузки страницы. Поэтому и запускается
+// добор не при монтировании (там подписке ещё нечего было прозевать), а сразу после
+// успешной загрузки — там же, где рисуется спиннер.
+const PENDING_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
+let pendingRetryTimer = null;
+
+function schedulePendingAvatarRefresh(attempt = 0) {
+    if (attempt >= PENDING_RETRY_DELAYS_MS.length) return;
+    // Спиннера уже нет — событие успело дойти и renderAvatar его отрисовал, добирать нечего.
+    if (!document.querySelector(".spinner-avatar")) return;
+
+    pendingRetryTimer = setTimeout(async () => {
+        pendingRetryTimer = null;
+        try {
+            const me = (await api.get("/api/me")).data;
+            // 'pending' и пустая строка — ключа ещё нет, байты всё ещё едут по пайплайну.
+            if (me.imageUrl && me.imageUrl !== "pending") {
+                renderAvatar(me.imageUrl);
+            }
+        } catch (e) {
+            // Не обрываем цепочку: разовый сбой сети не повод бросать оставшиеся попытки.
+            console.error("pending avatar refresh failed:", e);
+        }
+        schedulePendingAvatarRefresh(attempt + 1);
+    }, PENDING_RETRY_DELAYS_MS[attempt]);
+}
+
 function renderPasswordSection(hasPassword) {
     const section = document.getElementById("password-section");
     if (!section) return;
@@ -152,6 +189,7 @@ export async function mount(params) {
     ac = new AbortController();
     stomp = createStompRegistry();
     user_id = null;
+    pendingRetryTimer = null;
 
     const app = document.getElementById("app");
     app.innerHTML = policy.createHTML(PROFILE_HTML);
@@ -221,6 +259,7 @@ export async function mount(params) {
             // Ключ появится в БД после прохода Kafka -> ImageUrlPersistenceService, и тогда
             // же придёт событие на /mutual/user_image/{userId}.
             renderAvatar("pending");
+            schedulePendingAvatarRefresh();
             input.value = "";
         } catch (error) {
             // Прежняя картинка остаётся на месте — renderAvatar здесь не зовём.
@@ -233,6 +272,12 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // Таймер догона снимаем раньше остального: иначе уже отмонтированная вью сходила бы
+    // в /api/me и полезла бы в узлы (#profile-avatar), которых в DOM больше нет.
+    if (pendingRetryTimer) {
+        clearTimeout(pendingRetryTimer);
+        pendingRetryTimer = null;
+    }
     if (ac) ac.abort();
     ac = null;
     // blob-URL живут до отзыва — иначе вкладка копит их при каждом переходе.
