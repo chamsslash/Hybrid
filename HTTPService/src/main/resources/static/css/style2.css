@@ -530,7 +530,8 @@ body {
     flex-wrap: wrap;
 }
 .chat-header .chat-avatar { width: 44px; height: 44px; border-radius: 13px; }
-.chat-header > span {
+.chat-header > span,
+.chat-header #chat-title {
     font-weight: 700;
     font-size: 16px;
     letter-spacing: -.01em;
@@ -539,6 +540,7 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    color: var(--ink);
 }
 /* Правило описывает кнопки-действия справа от названия чата (своих у шапки сейчас нет,
    но геометрия рассчитана на них). Кнопка возврата исключена: она стоит первой в строке,

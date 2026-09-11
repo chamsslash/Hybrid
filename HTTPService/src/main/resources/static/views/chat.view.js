@@ -214,7 +214,10 @@ function renderMembersList(members) {
             const badge = document.createElement('span');
             badge.className = 'member-badge';
             badge.textContent = 'вы';
-            item.querySelector('.member-info').appendChild(badge);
+            // Ставим МЕЖДУ ником и id, а не в конец: у .member-id стоит flex-basis:100%,
+            // он занимает строку целиком, и добавленная после него метка уезжала бы на
+            // третью строку вместо того, чтобы стоять рядом с ником.
+            item.querySelector('.member-id').before(badge);
         }
         list.appendChild(item);
     }
