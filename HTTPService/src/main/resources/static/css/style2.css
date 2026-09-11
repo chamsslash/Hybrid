@@ -303,6 +303,17 @@ body {
     box-shadow: inset 0 0 0 1px rgba(27,26,46,.06);
 }
 
+/* Аватарка внутри чипса выбранного участника. Отдельный размер, а не .chat-avatar:
+   тот 52px — размер строки списка чатов, в подписи-пилюле он разносит вёрстку. */
+.chip-avatar {
+    width: 22px;
+    height: 22px;
+    object-fit: cover;
+    border-radius: 7px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+}
+
 /* Spinners */
 .spinner-avatar {
     width: 52px;

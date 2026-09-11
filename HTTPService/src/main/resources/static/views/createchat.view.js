@@ -148,7 +148,7 @@ function renderChips() {
         // Authorization, см. image_loader.js). Три чипса — три запроса; десять подсказок на
         // каждую букву — десятки.
         chip.innerHTML = policy.createHTML(`
-            ${imageTag(user.imageUrl, "avatar", "avatar")}
+            ${imageTag(user.imageUrl, "chip-avatar", "avatar")}
             <span class="chip-name"></span>
             <button type="button" class="chip-remove" aria-label="Убрать участника">×</button>
         `);
