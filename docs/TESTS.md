@@ -27,10 +27,10 @@
 
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
-| AuthService | 6 | 36 | 2 | 38 |
+| AuthService | 7 | 40 | 2 | 42 |
 | HTTPService | 43 | 322 | 2 | 324 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **54** | **372** | **7** | **379** |
+| **Итого** | **55** | **376** | **7** | **383** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -51,6 +51,16 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 `CustomOAuth2UserService.Upload_image` с замоканными `ImageStorageService` и `KafkaProducer`.
 
 - **`uploadsDecodedBytesAndPublishesLowercaseContract`** — вход: Base64-аватарка + `userId="42"`. Проверяет: в MinIO (`putObject`) уходит ключ `userimage/42/*.jpg`, **декодированные** байты (не Base64) и content-type `image/jpeg`; в Kafka-топик `Images` уходит ровно 3 поля `{targetType:"userimage", targetId:"42", objectKey:<тот же ключ>}`, без поля `Base64Image`. Зачем: стережёт новый lowercase-контракт топика картинок и переход с Base64-в-Kafka на ключ-в-Kafka.
+
+### `CustomOAuth2UserServiceResolveUserTest` — `unit` — коллизия ников на входе через Google (beads cdn)
+`CustomOAuth2UserService.resolveUser` с замоканным `Auth_rep`. Бьёт в `resolveUser`, а не в `loadUser`: последний первым делом ходит в Google через `super.loadUser`, и без поднятой сети до нужной ветки не добраться — ради этого метод и вынесен отдельно.
+
+Путь Google-логина — третий писатель `users.name` наравне с `register` и `changeUsername`, и единственный, который не считался с UNIQUE-индексом `ux_users_lower_name`. До этих тестов `loadUser` не был покрыт ничем (соседний `CustomOAuth2UserServiceUploadImageTest` проверяет только выгрузку аватарки).
+
+- **`existingUserIsReturnedWithoutWriting`** — вход: `findFirstByName("misha")` находит пользователя. Проверяет: возвращается та же сущность (`assertSame`), `save` не вызывается ни разу. Зачем: обычный повторный вход не должен трогать базу на запись.
+- **`freeNameCreatesUserPendingAvatar`** — вход: ник свободен. Проверяет по захваченному аргументу `save`: `name`, `google_sub`, `user_role="USER"` и `imageUrl="pending"`. Зачем: `pending` — маркер, на котором фронт рисует спиннер, пока аватарка едет в MinIO; потеря маркера оставила бы Google-юзера без аватарки молча.
+- **`caseOnlyCollisionFailsAuthenticationInsteadOf500`** — вход: `"Misha"` из Google при живой `"misha"` в базе, `save` бросает `DataIntegrityViolationException`. Проверяет: наружу летит `OAuth2AuthenticationException` с кодом `username_taken`. Зачем: `findFirstByName` сравнивает точно, с учётом регистра, поэтому промахивается и уводит код на INSERT, который упирается в индекс; без обработки нарушение уходило из OAuth-флоу как **500** — вход через Google ломался полностью.
+- **`collisionDoesNotHandOverTheExistingAccount`** — тот же сценарий коллизии. Проверяет: после отказа не вызывается ни `findByGoogleSub`, ни `findFirstById`. Зачем: стережёт намеренное решение, а не реализацию. «Починить» отказ во входе подхватом существующей строки нельзя — пользователь ищется по ИМЕНИ, а не по `google_sub`, и подхват пустил бы владельца Google-аккаунта в чужой локальный аккаунт вместе со всеми чатами. Тест покраснеет ровно на такой «починке».
 
 ### `JwtCheckControllerTest` — `unit` — валидация JWT в gateway-проверке
 `JwtCheckController.jwtCheckProcess` с реальной парой RSA-ключей (генерится в `@BeforeEach`) и замоканным `RedisTemplate`. Токены строятся `Jwts.builder()`.
