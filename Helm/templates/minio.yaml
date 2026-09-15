@@ -52,6 +52,14 @@ spec:
     metadata:
       labels:
         app: minio
+      annotations:
+        # MinIO читает MINIO_ROOT_USER/PASSWORD только при старте процесса. Без этой
+        # аннотации `helm upgrade` с новым Secret оставлял под жить со СТАРЫМИ root-кредами:
+        # в Secret одно, в памяти пода другое, и расхождение ничем не проявлялось, пока
+        # provision-джоб (или приложение) не упирался в "Access Key Id does not exist".
+        # Хэш Secret'а в аннотации заставляет Deployment пересоздать под ровно тогда,
+        # когда креды поменялись, и никогда — когда не менялись.
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
     spec:
       containers:
         - name: minio
@@ -128,14 +136,48 @@ spec:
             - -c
             - |
               set -e
-              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
-                echo "waiting for minio..."; sleep 2
+
+              # Ожидание с ПОТОЛКОМ, а не `until` без конца. Разница видна в логе: бесконечный
+              # цикл на неверных root-кредах выглядел так же, как на ещё не поднявшемся MinIO —
+              # джоб молча крутился до backoffLimit, и причина не называлась нигде.
+              ok=0
+              for i in $(seq 1 30); do
+                if mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; then
+                  ok=1; break
+                fi
+                echo "waiting for minio ($i/30)..."; sleep 2
               done
+              if [ "$ok" != "1" ]; then
+                echo "FATAL: mc alias set не прошёл за 60с." >&2
+                echo "  Либо MinIO не поднялся, либо root-креды в поде разошлись с Secret" >&2
+                echo "  (под переживает смену Secret, если у него нет аннотации checksum/secret)." >&2
+                exit 1
+              fi
+
               mc mb --ignore-existing "local/$MINIO_BUCKET"
-              # Provision a dedicated application user so the app does not use root creds.
-              mc admin user add local "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" || true
-              mc admin policy attach local readwrite --user "$MINIO_ACCESS_KEY" || true
-              echo "minio provisioned: bucket=$MINIO_BUCKET"
+
+              # Выделенный пользователь приложения, чтобы оно не ходило под root.
+              # `|| true` на обеих командах раньше глушил ЛЮБУЮ ошибку — включая ту,
+              # из-за которой пользователь не создавался вовсе, а приложение потом
+              # получало "Access Key Id does not exist" без единой жалобы со стороны
+              # провижнинга. Маскировка не нужна: обе команды проверены на повторный
+              # прогон против живого MinIO и возвращают 0 на уже существующем
+              # пользователе и уже привязанной политике. Джоб — post-upgrade хук, и
+              # идемпотентность здесь свойство самих команд, а не глушилки.
+              mc admin user add local "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+              mc admin policy attach local readwrite --user "$MINIO_ACCESS_KEY"
+
+              # Проба под кредами ПРИЛОЖЕНИЯ, а не чтение админских метаданных.
+              # Проверяем ровно то, что сломалось в прошлый раз: может ли приложение
+              # писать и удалять в бакете своим ключом. Разбор вывода `mc admin policy
+              # entities` тут не годится ещё и технически — образ собран на ubi-micro,
+              # в нём нет ни grep, ни sed, ни jq.
+              mc alias set appcheck http://minio:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+              echo provisioned > /tmp/provision-probe
+              mc cp /tmp/provision-probe "appcheck/$MINIO_BUCKET/.provision-probe"
+              mc rm "appcheck/$MINIO_BUCKET/.provision-probe"
+
+              echo "minio provisioned: bucket=$MINIO_BUCKET, user=$MINIO_ACCESS_KEY (проба записи прошла)"
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
