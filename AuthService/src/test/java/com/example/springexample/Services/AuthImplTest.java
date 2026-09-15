@@ -9,6 +9,7 @@ import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -301,7 +302,7 @@ class AuthImplTest {
         when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
         when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
         when(passwordEncoder.encodePassword("new")).thenReturn("new-hash");
-        when(authRep.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
         auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
@@ -313,7 +314,7 @@ class AuthImplTest {
         assertEquals("200", resp.getValue().getStatus());
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
-        verify(authRep).save(saved.capture());
+        verify(authRep).saveAndFlush(saved.capture());
         assertEquals("new-hash", saved.getValue().getMyapppassword());
     }
 
@@ -332,7 +333,7 @@ class AuthImplTest {
                 ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
         verify(obs).onNext(resp.capture());
         assertEquals("401", resp.getValue().getStatus());
-        verify(authRep, never()).save(any(User.class));
+        verify(authRep, never()).saveAndFlush(any(User.class));
     }
 
     @Test
@@ -349,8 +350,36 @@ class AuthImplTest {
                 ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
         verify(obs).onNext(resp.capture());
         assertEquals("409", resp.getValue().getStatus());
-        verify(authRep, never()).save(any(User.class));
+        verify(authRep, never()).saveAndFlush(any(User.class));
         verify(passwordEncoder, never()).matches(anyString(), anyString());
+    }
+
+    /**
+     * Зеркало changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable, но цена
+     * ошибки здесь выше: по "200" от этого метода ApiController гасит ВСЕ остальные
+     * refresh-сессии пользователя. Под отложенным flush UPDATE уехал бы на коммит — уже
+     * после ответа и после гашения, и сбой оставил бы человека без доступа со всех
+     * устройств со старым паролем и надписью «Пароль изменён» на экране.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordFlushesBeforeRespondingSoSessionsAreNotKilledOnAFalseSuccess() {
+        User u = user(42L, "Миша", "USER", "old-hash");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encodePassword("new")).thenReturn("new-hash");
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(42L).setCurrentPassword("old").setNewPassword("new").build(), obs);
+
+        // Порядок важнее самого факта записи: UPDATE обязан выпуститься ДО того, как
+        // клиент увидит "200". save() без flush этот порядок нарушает молча.
+        InOrder order = inOrder(authRep, obs);
+        order.verify(authRep).saveAndFlush(any(User.class));
+        order.verify(obs).onNext(any(DataTransferService.AuthResponse.class));
+        verify(authRep, never()).save(any(User.class));
     }
 
     @Test
