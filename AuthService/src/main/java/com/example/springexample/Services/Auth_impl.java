@@ -387,7 +387,6 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
      * (TokensResolver), AuthService о них не знает. См. ApiController.changePassword.
      */
     @Override
-    @Transactional
     public void changePassword(DataTransferService.ChangePasswordRequest request,
                                StreamObserver<DataTransferService.AuthResponse> responseObserver) {
         String newPassword = request.getNewPassword();
@@ -419,7 +418,19 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
         }
 
         user.setMyapppassword(passwordEncoder.encodePassword(newPassword));
-        auth_rep.save(user);
+        // Метод намеренно НЕ @Transactional, а запись идёт через saveAndFlush — ровно по той
+        // же причине, что и в changeUsername выше, но с более дорогой ценой ошибки.
+        //
+        // Под @Transactional сущность из findFirstById управляемая, save() сводится к merge()
+        // без принудительного flush, и UPDATE уезжает на коммит транзакции — то есть ПОСЛЕ
+        // возврата из метода. К этому моменту клиент уже получил "200", а ApiController по
+        // этому "200" уже погасил все остальные refresh-сессии пользователя
+        // (ApiController.changePassword -> deleteOtherSessionsByUser). Сбой на коммите
+        // означал бы худший из возможных исходов: человека выкинуло со всех устройств,
+        // пароль остался прежним, а на экране висит «Пароль изменён».
+        //
+        // saveAndFlush выпускает UPDATE здесь же: до ответа и до гашения сессий.
+        auth_rep.saveAndFlush(user);
         log.info("Пароль пользователя {} изменён", request.getUserId());
         respond(responseObserver, "200", "Password changed");
     }
