@@ -302,6 +302,17 @@ fi
 # Пин версии, а не latest: cert-manager применяется сырым манифестом релиза, и
 # «поехавшая» версия CRD между запусками ломает уже выпущенные Certificate.
 : "${CERT_MANAGER_VERSION:=v1.21.1}"
+# Пин по той же причине, что и cert-manager выше, только тут было хуже: манифест
+# брался с ветки `main` апстрима, а не с релиза. То есть версию контроллера (и
+# kube-webhook-certgen) выбирал не репозиторий, а день запуска — два прогона одного
+# и того же нашего коммита могли поставить разные контроллеры. Работающий стенд это
+# скрывает: образ уже в кэше ноды, и никто не замечает, пока не поднимут кластер с
+# нуля. Ровно так же молча ломался MinIO, пока Docker Hub не закрыл его репозитории.
+#
+# controller-v1.15.1 — это байт-в-байт то, что `main` отдавал на момент пина
+# (controller:v1.15.1, kube-webhook-certgen:v1.6.9), так что поведение стенда не
+# менялось. Апгрейд — осознанная смена этой переменной, а не побочный эффект `apply`.
+: "${INGRESS_NGINX_VERSION:=controller-v1.15.1}"
 
 # Предполётная проверка часов VM (beads 75d). Docker Desktop/Colima гоняют кластер
 # внутри Linux-VM, и её CLOCK_REALTIME умеет расходиться с хостом. Наблюдалось живьём:
@@ -494,8 +505,8 @@ kind load docker-image authservice:latest --name "$CLUSTER"
 kind load docker-image httpservice:latest --name "$CLUSTER"
 kind load docker-image messegerparody:latest --name "$CLUSTER"
 
-echo "▶ install ingress-nginx"
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+echo "▶ install ingress-nginx ($INGRESS_NGINX_VERSION)"
+kubectl apply -f "https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_VERSION}/deploy/static/provider/kind/deploy.yaml"
 kubectl wait -n ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
 kubectl -n ingress-nginx patch configmap ingress-nginx-controller --type merge \
   -p "{\"data\":{\"allow-snippet-annotations\":\"true\",\"use-forwarded-headers\":\"${INGRESS_USE_FORWARDED_HEADERS}\"}}"
