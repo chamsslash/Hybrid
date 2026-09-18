@@ -252,6 +252,28 @@ if [ -f .env ]; then
   . ./.env
   set +a
 else
+  # .env в .gitignore, поэтому он физически лежит ТОЛЬКО в корне основного клона —
+  # в git-воркт­ри его нет. Запуск раскатки из воркт­ри поэтому молча уезжал на
+  # плейсхолдеры: в кластер попадал GOOGLE_CLIENT_ID=local-google-client-id и пустой
+  # секрет, Google отвечал "invalid_client", и выглядело это как сломанный OAuth,
+  # а не как запуск не из того каталога. Предупреждения в первой строке лога не
+  # хватило — оно тонет в выводе сборки образов.
+  #
+  # Поэтому: если .env нет здесь, но есть в корне основного клона — это почти
+  # наверняка ошибка запуска, и падаем сразу. Осознанный запуск без секретов
+  # (чистая машина, CI) разрешается через ALLOW_MISSING_ENV=true.
+  main_root=""
+  if common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"; then
+    main_root="$(cd "$(dirname "$common_dir")" && pwd)"
+  fi
+  if [ "${ALLOW_MISSING_ENV:-false}" != "true" ] && [ -n "$main_root" ] \
+     && [ "$main_root" != "$(pwd)" ] && [ -f "$main_root/.env" ]; then
+    echo "✖ .env здесь нет, но он есть в корне основного клона:" >&2
+    echo "    $main_root/.env" >&2
+    echo "  Раскатка отсюда уехала бы на плейсхолдеры вместо настоящих секретов." >&2
+    echo "  Запусти скрипт из $main_root, либо ALLOW_MISSING_ENV=true если так и задумано." >&2
+    exit 1
+  fi
   echo "⚠ no .env found — falling back to built-in local-dev defaults (see .env.example)." >&2
 fi
 
