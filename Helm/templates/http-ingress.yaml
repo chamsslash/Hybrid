@@ -127,4 +127,15 @@ spec:
                 name: httpservice
                 port:
                   number: 8080
+          # Загрузка аватарки профиля (beads ehe). Та же схема, что у createchat выше:
+          # GET-шелл /reactive/profile публичен (правило "/" из http-public), а мутация
+          # закрыта auth_request -> /jwtcheck. Разведены путями, а не методами, — ingress
+          # не умеет разводить auth_request по HTTP-методу.
+          - path: /reactive/api/avatar
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
 {{- end }}

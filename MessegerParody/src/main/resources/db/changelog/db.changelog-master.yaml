@@ -21,3 +21,6 @@ databaseChangeLog:
   # уже применены на существующих БД, правка сломала бы их checksum.
   - include:
       file: db/changelog/changes/v2/001-message-idempotency.yaml
+  # Релиз v3. Правило то же: v1 и v2 — применённые релизы, их changeSet'ы менять нельзя.
+  - include:
+      file: db/changelog/changes/v3/001-users-unique-lower-name.yaml

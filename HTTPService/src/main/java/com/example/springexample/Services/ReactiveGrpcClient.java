@@ -3,6 +3,7 @@ package com.example.springexample.Services;
 
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.ChatMemberView;
 import com.example.springexample.MessageEvent;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
 import com.example.springexample.ShortChatObject;
@@ -59,13 +60,23 @@ public class ReactiveGrpcClient {
         return users;
     }
 
-    public Mono<List<String>> reactiveGetAllUsernamesByChatId(DataTransferService.ChatData chatData) {
+    /**
+     * Состав чата для экрана участников: id, ник и ключ аватарки на каждого.
+     *
+     * <p>Раньше метод отдавал только ники ({@code List<String>}) — этого хватало
+     * выпадающему списку «кому ответить через AI», но не списку участников, где
+     * нужны и аватарка, и id. Маппинг в {@link ChatMemberView} здесь, а не у
+     * вызывающего: наружу не должен уезжать {@code UserDataRequest} с полем
+     * {@code password}.
+     */
+    public Mono<List<ChatMemberView>> reactiveGetMembersByChatId(DataTransferService.ChatData chatData) {
         return grpcRequestsMetric.measure("getAllUsersByChatId", reactiveTransferServiceStub.getAllUsersByChatId(chatData))
-                .map(users->users.getUsersList().stream()
-                .map(userdata->userdata.getUsername())
+                .map(users -> users.getUsersList().stream()
+                        .map(userdata -> new ChatMemberView(
+                                userdata.getId(),
+                                userdata.getUsername(),
+                                userdata.getImageUrl()))
                         .collect(Collectors.toList()));
-
-
     }
 
     public Mono<ShortChatObject> reactiveGetNewestMessage(DataTransferService.ChatData chatData) {

@@ -48,7 +48,10 @@ public class ReactiveSecurityConfig {
                                 .pathMatchers("/register").permitAll()
                                 .pathMatchers("/login").permitAll()
                                 // SPA-шеллы публичны — данные защищены на уровне /api/* (beads 57)
-                                .pathMatchers(org.springframework.http.HttpMethod.GET, "/chatlist", "/chat", "/createchat").permitAll()
+                                // "/profile" добавлен вместе с экраном профиля (beads ehe): шеллы
+                                // перечислены поимённо, а ниже стоит .anyExchange().authenticated(),
+                                // поэтому забытый шелл отдаёт 401 на обычной навигации вместо приложения.
+                                .pathMatchers(org.springframework.http.HttpMethod.GET, "/chatlist", "/chat", "/createchat", "/profile").permitAll()
                                 .anyExchange().authenticated() // Все остальные требуют аутентификации
                 )
 

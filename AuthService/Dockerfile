@@ -5,8 +5,13 @@ WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 
-RUN mvn dependency:go-offline -B
-RUN mvn clean package -DskipTests
+# Кэш Maven переживает сборку. Без него каждая пересборка тянула весь Spring
+# из central заново — 18 минут против секунд, притом что HTTPService и
+# MessegerParody этот mount имеют с самого начала и собираются мгновенно.
+# Кэш общий: id по умолчанию берётся из target, так что три сервиса делят
+# один /root/.m2 и первый же собранный прогревает остальных.
+RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B
+RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests
 
 # Runtime stage
 FROM eclipse-temurin:21-jre

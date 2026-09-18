@@ -1,13 +1,17 @@
 package com.example.springexample.Services;
 
 import com.example.grpc.DataTransferService;
+import com.example.springexample.ChatMemberView;
 import com.example.springexample.MessageEvent;
 import com.example.springexample.ShortChatObject;
+import com.example.springexample.Utils.AuthCookies;
+import com.example.springexample.Utils.TokensResolver;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +19,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,6 +50,8 @@ public class ApiController {
     private final ReactiveGrpcClient reactiveGrpcClient;
     private final ImageStorageService imageStorageService;
     private final ChatMembershipService chatMembershipService;
+    private final AuthGrpc authGrpc;
+    private final TokensResolver tokensResolver;
 
     /** Префикс ключа для аватарки пользователя: userimage/&lt;userId&gt;/&lt;uuid&gt;.&lt;ext&gt;. */
     private static final String USER_IMAGE_PREFIX = "userimage";
@@ -51,6 +59,8 @@ public class ApiController {
     private static final String CHAT_IMAGE_PREFIX = "chatimage";
     /** Идентификатор в ключе — только десятичные цифры, как их пишут производители ключей. */
     private static final Pattern TARGET_ID = Pattern.compile("\\d+");
+    /** Сколько подсказок отдаём за один запрос. Больше десятка в выпадашке всё равно не читают. */
+    private static final int USER_SEARCH_LIMIT = 10;
 
     /**
      * Прокси-отдача картинок из MinIO (beads 6s0). Ключ может содержать слэши
@@ -200,11 +210,25 @@ public class ApiController {
                     .onErrorReturn("");
             Mono<String> imageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId))
                     .onErrorReturn("");
-            return Mono.zip(usernameMono, imageMono).map(tuple -> {
+            // Признак «у аккаунта есть пароль» (beads ehe) — по нему экран профиля решает,
+            // показывать ли форму смены пароля. Сам хеш наружу не едет ни при каких условиях.
+            //
+            // Спрашивается у AuthService, а не у MessegerParody, как два поля выше: колонкой
+            // myapppassword владеет он, и другого метода, который её отдаёт, в копии .proto
+            // у HTTPService нет.
+            //
+            // Сбой даёт false, как и два соседних вызова дают "": /api/me — это бутстрап
+            // экрана, и уронить его целиком из-за недоступности одного признака значило бы
+            // не показать пользователю вообще ничего. Последствие ошибки здесь одно —
+            // скрытая секция смены пароля.
+            Mono<Boolean> hasPasswordMono = authGrpc.hasPassword(Long.valueOf(userId))
+                    .onErrorReturn(false);
+            return Mono.zip(usernameMono, imageMono, hasPasswordMono).map(tuple -> {
                 Map<String, Object> me = new HashMap<>();
                 me.put("userId", userId);
                 me.put("username", tuple.getT1());
                 me.put("imageUrl", tuple.getT2());
+                me.put("hasPassword", tuple.getT3());
                 me.put("authorities", authorities);
                 return me;
             }).block();
@@ -293,7 +317,7 @@ public class ApiController {
 
                     Mono<String> usernameMono = reactiveGrpcClient.reactiveGetUsernameById(userId).onErrorReturn("");
                     Mono<String> chatResponseMono = reactiveGrpcClient.reactiveChatServe(chatData);
-                    Mono<List<String>> membersMono = reactiveGrpcClient.reactiveGetAllUsernamesByChatId(chatData)
+                    Mono<List<ChatMemberView>> membersMono = reactiveGrpcClient.reactiveGetMembersByChatId(chatData)
                             .onErrorReturn(List.of());
                     Mono<String> chatImageMono = reactiveGrpcClient.reactiveGetImageUrl(chatId).onErrorReturn("");
                     Mono<String> myImageMono = reactiveGrpcClient.reactiveGetUserImageUrl(Long.valueOf(userId)).onErrorReturn("");
@@ -322,5 +346,154 @@ public class ApiController {
                             .map(ResponseEntity::ok);
                 })
                 .block();
+    }
+
+    /**
+     * Подсказки по началу ника для формы создания чата (beads cdn).
+     *
+     * Идентификатор запрашивающего берётся из {@link Authentication}, а НЕ из запроса:
+     * от него зависит только одно — кого исключить из выдачи, — но принимать его снаружи
+     * значило бы позволить клиенту исключать произвольного человека, а заодно завести
+     * второй источник личности рядом с подписью access-токена.
+     *
+     * Нечисловой принципал — это не запрос «найди мне что-нибудь», а сломанный токен;
+     * ходить с ним в AuthService незачем, поэтому отвечаем пустым списком сразу. В норме
+     * sub access-токена — это id пользователя в БД (beads 820), так что ветка не срабатывает.
+     *
+     * Ключ картинки (imageUrl) отдаётся для всех найденных: это строка, она едет вместе с
+     * ником и не стоит ничего. Дорого стоит скачивание байтов через image_loader.js, и его
+     * фронт делает только для выбранных чипсов — 2-3 картинки за всю форму вместо 10 на
+     * каждую выдачу подсказок.
+     *
+     * Защита эндпоинта отдельно не настраивается: /api закрыт auth_request на ingress
+     * http-protected, а внутри приложения — .anyRequest().authenticated() в
+     * MvcSecurityConfig.mvcFilterChain.
+     */
+    @GetMapping("/usersearch")
+    public Callable<List<Map<String, Object>>> userSearch(Authentication auth,
+                                                          @RequestParam("prefix") String prefix) {
+        long requesterId;
+        try {
+            requesterId = Long.parseLong(auth.getName());
+        } catch (NumberFormatException notAUserId) {
+            log.warn("GET /api/usersearch: нечисловой принципал {}", auth.getName());
+            return List::of;
+        }
+        return () -> authGrpc.searchUsersByPrefix(prefix, requesterId, USER_SEARCH_LIMIT)
+                .map(users -> users.stream().map(user -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("userId", String.valueOf(user.getId()));
+                    item.put("username", user.getUsername());
+                    item.put("imageUrl", user.getImageUrl());
+                    return item;
+                }).toList())
+                .block();
+    }
+
+    /**
+     * Смена ника (beads ehe).
+     *
+     * userId берётся из {@link Authentication}, из тела запроса не принимается никогда:
+     * иначе любой залогиненный переименовывал бы кого угодно.
+     *
+     * Занятость ника определяет UNIQUE-индекс ux_users_lower_name на стороне БД, а не
+     * предпроверка — см. Auth_impl.changeUsername.
+     */
+    @PostMapping("/profile/username")
+    public Callable<ResponseEntity<Map<String, String>>> changeUsername(Authentication auth,
+                                                                        @RequestBody Map<String, String> body) {
+        String userId = auth.getName();
+        String newUsername = body.getOrDefault("username", "");
+        return () -> authGrpc.changeUsername(Long.parseLong(userId), newUsername)
+                .map(response -> switch (response.getStatus()) {
+                    case "200" -> ResponseEntity.ok(Map.of("status", "ok"));
+                    case "666" -> ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(Map.of("error", "USERNAME_TAKEN"));
+                    case "400" -> ResponseEntity.badRequest()
+                            .body(Map.of("error", "USERNAME_BLANK"));
+                    case "404" -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(Map.of("error", "USER_NOT_FOUND"));
+                    default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(Map.of("error", "UNEXPECTED"));
+                })
+                .block();
+    }
+
+    /**
+     * Смена пароля (beads ehe).
+     *
+     * Неверный текущий пароль отдаётся как 403, а НЕ 401. Это не описка: интерцептор
+     * static/axios.js трактует 401 как «протух access-токен», делает refresh и ПОВТОРЯЕТ
+     * запрос. Ошибка ввода, отданная как 401, ушла бы в цикл повторов и никогда не доехала
+     * бы до экрана.
+     *
+     * После успешной смены гасятся все refresh-сессии пользователя, КРОМЕ текущей. Смена
+     * пароля — реакция на подозрение, что доступ есть у кого-то ещё: оставить чужие сессии
+     * живыми значит не решить проблему, выкинуть заодно себя — раздражать без причины.
+     * Текущая опознаётся по sid из подписанного access-токена (Authentication.getDetails()).
+     *
+     * Сессии гасятся ПОСЛЕ подтверждения смены, а не до: иначе неверный текущий пароль
+     * разлогинивал бы человека со всех устройств — бесплатный способ навредить, имея один
+     * перехваченный токен.
+     */
+    @PostMapping("/profile/password")
+    public Callable<ResponseEntity<Map<String, String>>> changePassword(Authentication auth,
+                                                                        @RequestBody Map<String, String> body) {
+        String userId = auth.getName();
+        Object rawSid = auth.getDetails();
+        String sid = rawSid instanceof String s ? s : null;
+        String currentPassword = body.getOrDefault("currentPassword", "");
+        String newPassword = body.getOrDefault("newPassword", "");
+        return () -> authGrpc.changePassword(Long.parseLong(userId), currentPassword, newPassword)
+                .map(response -> switch (response.getStatus()) {
+                    case "200" -> {
+                        tokensResolver.deleteOtherSessionsByUser(userId, sid);
+                        yield ResponseEntity.ok(Map.of("status", "ok"));
+                    }
+                    // gRPC-код 401 -> HTTP 403. См. javadoc выше.
+                    case "401" -> ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(Map.of("error", "WRONG_CURRENT_PASSWORD"));
+                    case "409" -> ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(Map.of("error", "NO_PASSWORD_ON_ACCOUNT"));
+                    case "400" -> ResponseEntity.badRequest()
+                            .body(Map.of("error", "PASSWORD_BLANK"));
+                    case "404" -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(Map.of("error", "USER_NOT_FOUND"));
+                    default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(Map.of("error", "UNEXPECTED"));
+                })
+                .block();
+    }
+
+    /**
+     * Выход из аккаунта на текущем устройстве.
+     *
+     * <p>Два действия, и оба обязательны. Гасим refresh-сессию в Redis по sid из
+     * подписанного access-токена — иначе refresh-кука, утащенная с машины, продолжала бы
+     * менять себя на свежие access-токены после «выхода». И снимаем сами куки, чтобы
+     * браузер не носил мёртвый refresh на каждый запрос.
+     *
+     * <p>Access-токен не отзывается и отзываться не может: он подписанный и живёт до
+     * своего exp (15 минут). Гасится то, что даёт его продлевать. Клиент дополнительно
+     * стирает access из памяти вкладки сразу (clearAccessToken в inmemory.js), так что
+     * практического окна не остаётся — оно есть только у того, кто уже перехватил токен,
+     * и закрывается само через четверть часа.
+     *
+     * <p>Легаси-кука access гасится заодно: access давно живёт в памяти, но у старых
+     * сессий она ещё может лежать в браузере.
+     *
+     * <p>Ответ всегда 200. Выход, падающий с ошибкой, — худшее из поведений: человек
+     * остаётся залогиненным, считая, что вышел. Ошибка на стороне Redis уже залогирована
+     * в {@link TokensResolver#logoutCurrentSession}, а куки снимаются в любом случае.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout(Authentication auth) {
+        Object rawSid = auth.getDetails();
+        String sid = rawSid instanceof String s ? s : null;
+        tokensResolver.logoutCurrentSession(sid);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, AuthCookies.deleteRefresh().toString())
+                .header(HttpHeaders.SET_COOKIE, AuthCookies.deleteLegacyAccess().toString())
+                .body(Map.of("status", "ok"));
     }
 }

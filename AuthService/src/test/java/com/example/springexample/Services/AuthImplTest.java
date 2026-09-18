@@ -9,6 +9,8 @@ import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -16,6 +18,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -37,7 +40,8 @@ class AuthImplTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         passwordEncoder = mock(MyPasswordEncoder.class);
         oauth2Utils = mock(Oauth2Utils.class);
-        auth = new Auth_impl(authRep, redisTemplate, oauth2Utils, passwordEncoder);
+        auth = new Auth_impl(authRep, redisTemplate, oauth2Utils, passwordEncoder,
+                new UsernameSearchService(authRep));
     }
 
     private User user(long id, String name, String role, String encodedPassword) {
@@ -111,6 +115,33 @@ class AuthImplTest {
         assertEquals("401", captor.getValue().getStatus());
     }
 
+    // --- Занятость ника решает БД, а не предпроверка (UNIQUE ux_users_lower_name) ---
+    @Test
+    @SuppressWarnings("unchecked")
+    void registerDuplicateInDifferentCaseReturns666() {
+        // findFirstByName сравнивает точно, поэтому предпроверка "МИША" при живой "Миша"
+        // ничего не находит и пропускает запрос дальше — отбивает уже уникальный индекс.
+        when(authRep.findFirstByName("МИША")).thenReturn(Optional.empty());
+        when(passwordEncoder.encodePassword("pw")).thenReturn("hashed");
+        when(authRep.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint \"ux_users_lower_name\""));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.register(DataTransferService.UserDataRequest.newBuilder()
+                .setUsername("МИША")
+                .setPassword("pw")
+                .setImageUrl("")
+                .build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> captor =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(captor.capture());
+        verify(obs).onCompleted();
+        verify(obs, never()).onError(any());
+        assertEquals("666", captor.getValue().getStatus());
+        assertEquals("User with such name already exists", captor.getValue().getMessage());
+    }
+
     // --- A4: getUserBySub numeric sub -> findById ---
     @Test
     @SuppressWarnings("unchecked")
@@ -170,5 +201,250 @@ class AuthImplTest {
         DataTransferService.Sub_Role resp = captor.getValue();
         assertEquals("99", resp.getSub());
         assertEquals("USER", resp.getRole());
+    }
+
+    // --- Смена ника (beads ehe) ---
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameSuccessPersistsNewName() {
+        User u = user(42L, "Миша", "USER", "hashed");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("МишаНовый").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        verify(obs).onCompleted();
+        assertEquals("200", resp.getValue().getStatus());
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(authRep).saveAndFlush(saved.capture());
+        assertEquals("МишаНовый", saved.getValue().getName());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameToTakenNameReturns666() {
+        User u = user(42L, "Миша", "USER", "hashed");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(authRep.saveAndFlush(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key ... ux_users_lower_name"));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("САША").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        verify(obs).onCompleted();
+        verify(obs, never()).onError(any());
+        assertEquals("666", resp.getValue().getStatus());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameToBlankReturns400WithoutTouchingRepository() {
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("   ").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("400", resp.getValue().getStatus());
+        verify(authRep, never()).saveAndFlush(any(User.class));
+        verify(authRep, never()).findFirstById(anyLong());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameForUnknownUserReturns404() {
+        when(authRep.findFirstById(999L)).thenReturn(Optional.empty());
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(999L).setNewUsername("кто-то").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("404", resp.getValue().getStatus());
+        verify(authRep, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable() {
+        User u = user(42L, "Миша", "USER", "hashed");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changeUsername(DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(42L).setNewUsername("МишаНовый").build(), obs);
+
+        // Именно saveAndFlush, а не save: под отложенным flush нарушение UNIQUE прилетело бы
+        // после ответа клиенту, вне catch, и ветка "666" стала бы недостижимой.
+        verify(authRep).saveAndFlush(any(User.class));
+        verify(authRep, never()).save(any(User.class));
+    }
+
+    // --- Смена пароля (beads ehe) ---
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordWithCorrectCurrentPersistsNewHash() {
+        User u = user(42L, "Миша", "USER", "old-hash");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encodePassword("new")).thenReturn("new-hash");
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(42L).setCurrentPassword("old").setNewPassword("new").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("200", resp.getValue().getStatus());
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(authRep).saveAndFlush(saved.capture());
+        assertEquals("new-hash", saved.getValue().getMyapppassword());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordWithWrongCurrentReturns401AndKeepsHash() {
+        User u = user(42L, "Миша", "USER", "old-hash");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(passwordEncoder.matches("wrong", "old-hash")).thenReturn(false);
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(42L).setCurrentPassword("wrong").setNewPassword("new").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("401", resp.getValue().getStatus());
+        verify(authRep, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordOnAccountWithoutPasswordReturns409() {
+        User u = user(1L, "ДМИТРИЙ ХОРОХОРИН", "USER", "");
+        when(authRep.findFirstById(1L)).thenReturn(Optional.of(u));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(1L).setCurrentPassword("whatever").setNewPassword("new").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("409", resp.getValue().getStatus());
+        verify(authRep, never()).saveAndFlush(any(User.class));
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+    }
+
+    /**
+     * Зеркало changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable, но цена
+     * ошибки здесь выше: по "200" от этого метода ApiController гасит ВСЕ остальные
+     * refresh-сессии пользователя. Под отложенным flush UPDATE уехал бы на коммит — уже
+     * после ответа и после гашения, и сбой оставил бы человека без доступа со всех
+     * устройств со старым паролем и надписью «Пароль изменён» на экране.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordFlushesBeforeRespondingSoSessionsAreNotKilledOnAFalseSuccess() {
+        User u = user(42L, "Миша", "USER", "old-hash");
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(u));
+        when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encodePassword("new")).thenReturn("new-hash");
+        when(authRep.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(42L).setCurrentPassword("old").setNewPassword("new").build(), obs);
+
+        // Порядок важнее самого факта записи: UPDATE обязан выпуститься ДО того, как
+        // клиент увидит "200". save() без flush этот порядок нарушает молча.
+        InOrder order = inOrder(authRep, obs);
+        order.verify(authRep).saveAndFlush(any(User.class));
+        order.verify(obs).onNext(any(DataTransferService.AuthResponse.class));
+        verify(authRep, never()).save(any(User.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordToBlankReturns400WithoutTouchingRepository() {
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(42L).setCurrentPassword("old").setNewPassword("   ").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("400", resp.getValue().getStatus());
+        verify(authRep, never()).findFirstById(anyLong());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void changePasswordForUnknownUserReturns404() {
+        when(authRep.findFirstById(999L)).thenReturn(Optional.empty());
+
+        StreamObserver<DataTransferService.AuthResponse> obs = mock(StreamObserver.class);
+        auth.changePassword(DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(999L).setCurrentPassword("old").setNewPassword("new").build(), obs);
+
+        ArgumentCaptor<DataTransferService.AuthResponse> resp =
+                ArgumentCaptor.forClass(DataTransferService.AuthResponse.class);
+        verify(obs).onNext(resp.capture());
+        assertEquals("404", resp.getValue().getStatus());
+    }
+
+    // --- Признак «есть пароль» (beads ehe) ---
+    @Test
+    @SuppressWarnings("unchecked")
+    void hasPasswordTrueForLocalAccount() {
+        when(authRep.findFirstById(42L)).thenReturn(Optional.of(user(42L, "Миша", "USER", "hash")));
+
+        StreamObserver<DataTransferService.ProfileFlags> obs = mock(StreamObserver.class);
+        auth.hasPassword(DataTransferService.UserDataRequest.newBuilder().setId(42L).build(), obs);
+
+        ArgumentCaptor<DataTransferService.ProfileFlags> flags =
+                ArgumentCaptor.forClass(DataTransferService.ProfileFlags.class);
+        verify(obs).onNext(flags.capture());
+        verify(obs).onCompleted();
+        assertTrue(flags.getValue().getHasPassword());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void hasPasswordFalseForGoogleAccountAndForUnknownUser() {
+        when(authRep.findFirstById(1L)).thenReturn(Optional.of(user(1L, "Google", "USER", "")));
+        when(authRep.findFirstById(999L)).thenReturn(Optional.empty());
+
+        StreamObserver<DataTransferService.ProfileFlags> google = mock(StreamObserver.class);
+        auth.hasPassword(DataTransferService.UserDataRequest.newBuilder().setId(1L).build(), google);
+        ArgumentCaptor<DataTransferService.ProfileFlags> googleFlags =
+                ArgumentCaptor.forClass(DataTransferService.ProfileFlags.class);
+        verify(google).onNext(googleFlags.capture());
+        assertFalse(googleFlags.getValue().getHasPassword());
+
+        StreamObserver<DataTransferService.ProfileFlags> unknown = mock(StreamObserver.class);
+        auth.hasPassword(DataTransferService.UserDataRequest.newBuilder().setId(999L).build(), unknown);
+        ArgumentCaptor<DataTransferService.ProfileFlags> unknownFlags =
+                ArgumentCaptor.forClass(DataTransferService.ProfileFlags.class);
+        verify(unknown).onNext(unknownFlags.capture());
+        assertFalse(unknownFlags.getValue().getHasPassword());
     }
 }

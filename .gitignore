@@ -72,6 +72,10 @@ Desktop.ini
 # Beads issue tracking — personal dev tooling, not shared upstream
 /.beads/
 
+# Superpowers SDD scratch: ledger, брифы, отчёты исполнителей, review-пакеты.
+# Локальная рабочая память исполнения планов, к коду отношения не имеет.
+/.superpowers/
+
 # Local runtime data (grafana/redis state from compose era)
 HTTPService/grafana/
 HTTPService/redis/

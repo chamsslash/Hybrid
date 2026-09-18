@@ -303,6 +303,174 @@ body {
     box-shadow: inset 0 0 0 1px rgba(27,26,46,.06);
 }
 
+/* Аватарка внутри чипса выбранного участника. Отдельный размер, а не .chat-avatar:
+   тот 52px — размер строки списка чатов, в подписи-пилюле он разносит вёрстку. */
+.chip-avatar {
+    width: 22px;
+    height: 22px;
+    object-fit: cover;
+    border-radius: 7px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+}
+
+/* ============================================================
+   СОСТАВ ЧАТА (модалка) + ВЫХОД ИЗ АККАУНТА
+   ============================================================ */
+
+/* Шапка чата как кнопка открытия состава. Сбрасываем вид кнопки до содержимого: это
+   область клика, а не элемент управления со своей рамкой и фоном. */
+.chat-info-button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    margin: -4px -8px;      /* компенсируем padding, чтобы шапка не подросла */
+    border: none;
+    background: transparent;
+    border-radius: 12px;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+.chat-info-button:hover { background: var(--surface-2); }
+.chat-info-button:focus-visible { outline: 2px solid var(--iris); outline-offset: 2px; }
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(27, 26, 46, .45);
+    backdrop-filter: blur(2px);
+}
+/* Правило обязательно: у .modal-overlay стоит display:flex, а он перебивает
+   display:none, которым браузер по умолчанию скрывает [hidden] — без этого
+   модалка висела бы на экране всегда. */
+.modal-overlay[hidden] { display: none; }
+
+.modal-card {
+    width: 100%;
+    max-width: 380px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-2);
+    overflow: hidden;
+}
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--line);
+}
+.modal-head h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    color: var(--ink);
+}
+.modal-close {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+.modal-close:hover { background: var(--surface-2); color: var(--ink); }
+
+/* Скролл на списке, а не на карточке: шапка с заголовком и крестиком остаётся на месте
+   при длинном составе. */
+.members-list {
+    margin: 0;
+    padding: 8px;
+    list-style: none;
+    overflow-y: auto;
+}
+.member-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 12px;
+}
+.member-row:hover { background: var(--surface-2); }
+.member-avatar {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 12px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+}
+.member-info {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    min-width: 0;
+}
+.member-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ink);
+}
+.member-id {
+    font-size: 12px;
+    color: var(--faint);
+    flex-basis: 100%;
+}
+/* Метка «вы» — сама себя, а не соседей, поэтому order не трогаем: она добавляется
+   последней и встаёт справа от ника. */
+.member-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--iris-600);
+    background: var(--iris-050);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.profile-divider {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 20px 0 4px;
+}
+
+/* Выход — деструктивное действие, и выглядеть как «сохранить» он не должен. Контурная
+   кнопка, а не залитая: залитая красная конкурировала бы вниманием с основными
+   действиями экрана, хотя нажимают её раз в сто заходов. */
+.danger-button {
+    align-self: flex-start;
+    padding: 10px 18px;
+    border: 1px solid var(--ember);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ember);
+    font: 600 14px/1 var(--sans);
+    cursor: pointer;
+    transition: background .18s ease, color .18s ease;
+}
+.danger-button:hover { background: var(--ember); color: #fff; }
+.danger-button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
 /* Spinners */
 .spinner-avatar {
     width: 52px;
@@ -362,7 +530,8 @@ body {
     flex-wrap: wrap;
 }
 .chat-header .chat-avatar { width: 44px; height: 44px; border-radius: 13px; }
-.chat-header > span {
+.chat-header > span,
+.chat-header #chat-title {
     font-weight: 700;
     font-size: 16px;
     letter-spacing: -.01em;
@@ -371,6 +540,7 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    color: var(--ink);
 }
 /* Правило описывает кнопки-действия справа от названия чата (своих у шапки сейчас нет,
    но геометрия рассчитана на них). Кнопка возврата исключена: она стоит первой в строке,
@@ -684,6 +854,18 @@ body {
 /* the primary submit button gets the ember accent */
 .add-comment button[type="submit"] { background: var(--ember-grad); box-shadow: 0 6px 16px rgba(255,106,91,.3); }
 .add-comment button[type="submit"]:hover { filter: brightness(1.03); }
+/* Выключенные контролы: экран профиля отдаёт формы disabled, пока mount не получил
+   /api/me и не навесил обработчики submit. Без видимого отличия «выключено» неотличимо
+   от «нажми меня», и человек упирается в кнопку, которая молча не реагирует — то есть
+   ровно в тот симптом, ради которого disabled и ставится. */
+.add-comment button:disabled,
+.add-comment button[type="submit"]:disabled {
+    filter: grayscale(.5) opacity(.55);
+    box-shadow: none;
+    cursor: progress;
+}
+.add-comment button:disabled:hover { transform: none; filter: grayscale(.5) opacity(.55); }
+.add-comment input:disabled { opacity: .55; cursor: progress; }
 
 #result {
     margin-top: 4px;

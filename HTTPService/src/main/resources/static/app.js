@@ -10,5 +10,6 @@ registerRoute("/authcallback",        () => import("/views/callback.view.js"));
 registerRoute("/reactive/chatlist",   () => import("/views/chatlist.view.js"));
 registerRoute("/reactive/chat",       () => import("/views/chat.view.js"));
 registerRoute("/reactive/createchat", () => import("/views/createchat.view.js"));
+registerRoute("/reactive/profile",     () => import("/views/profile.view.js"));
 
 start();

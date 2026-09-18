@@ -75,6 +75,74 @@ public class AuthGrpc {
                 authTransferServiceBlockingStub.getUserByUsername(repeatedUsernames).getUsersList()
         ).subscribeOn(Schedulers.boundedElastic());
     }
+
+    /**
+     * Подсказки по началу ника. Блокирующий стаб уводится на boundedElastic — тот же приём,
+     * что у {@link #GetUsersByUnames}: поток контейнера на время gRPC-вызова не держится.
+     *
+     * Ошибка НЕ гасится пустым списком. Сбой gRPC и «никого не нашли» — разные события, и
+     * если бы сервер отвечал на них одинаково, отличить их стало бы невозможно ни в логе,
+     * ни на глаз. Мягкую деградацию делает клиент: выпадашка не открывается, форма создания
+     * чата остаётся рабочей.
+     */
+    public Mono<List<DataTransferService.UserDataRequest>> searchUsersByPrefix(String prefix,
+                                                                              long requesterId,
+                                                                              int limit) {
+        grpcRequestsMetric.increment();
+        DataTransferService.UsernamePrefixRequest request = DataTransferService.UsernamePrefixRequest.newBuilder()
+                .setPrefix(prefix)
+                .setRequesterId(requesterId)
+                .setLimit(limit)
+                .build();
+        return Mono.fromCallable(() ->
+                authTransferServiceBlockingStub.searchUsersByPrefix(request).getUsersList()
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Смена ника (beads ehe). Возвращает ответ AuthService как есть — отображением кодов
+     * в HTTP занимается ApiController, это его политика, а не транспорта.
+     */
+    public Mono<DataTransferService.AuthResponse> changeUsername(long userId, String newUsername) {
+        grpcRequestsMetric.increment();
+        DataTransferService.ChangeUsernameRequest request = DataTransferService.ChangeUsernameRequest.newBuilder()
+                .setUserId(userId)
+                .setNewUsername(newUsername)
+                .build();
+        return Mono.fromCallable(() -> authTransferServiceBlockingStub.changeUsername(request))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Смена пароля (beads ehe). Гашение чужих refresh-сессий сюда не входит: они живут в
+     * Redis у HTTPService (TokensResolver), а не в AuthService.
+     */
+    public Mono<DataTransferService.AuthResponse> changePassword(long userId,
+                                                                 String currentPassword,
+                                                                 String newPassword) {
+        grpcRequestsMetric.increment();
+        DataTransferService.ChangePasswordRequest request = DataTransferService.ChangePasswordRequest.newBuilder()
+                .setUserId(userId)
+                .setCurrentPassword(currentPassword)
+                .setNewPassword(newPassword)
+                .build();
+        return Mono.fromCallable(() -> authTransferServiceBlockingStub.changePassword(request))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Есть ли у аккаунта пароль (beads ehe). Наружу едет только флаг — хеш не отдаётся
+     * ни при каких условиях.
+     */
+    public Mono<Boolean> hasPassword(long userId) {
+        grpcRequestsMetric.increment();
+        DataTransferService.UserDataRequest request = DataTransferService.UserDataRequest.newBuilder()
+                .setId(userId)
+                .build();
+        return Mono.fromCallable(() ->
+                authTransferServiceBlockingStub.hasPassword(request).getHasPassword()
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
 //    public List<String> GetAllNamesByChat(DataTransferService.ChatData chatData){
 //        grpcRequestsMetric.increment();
 //        DataTransferService.ChatData resp =  authTransferServiceBlockingStub.getAllUsersByChatid(chatData);

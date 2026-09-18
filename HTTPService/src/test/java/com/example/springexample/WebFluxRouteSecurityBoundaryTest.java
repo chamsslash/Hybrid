@@ -63,4 +63,28 @@ class WebFluxRouteSecurityBoundaryTest {
         assertThat(matches(shell, org.springframework.http.HttpMethod.GET, "/createchat")).isTrue();
         assertThat(matches(shell, org.springframework.http.HttpMethod.POST, "/createchat")).isFalse();
     }
+
+    @Test
+    void avatarMutationIsRoutedUnderProtectedApiPrefix() {
+        RouterFunction<ServerResponse> router = config.avatarHandle(new WEBFLUX_Service());
+
+        // снаружи это POST /reactive/api/avatar — путь покрыт ingress http-protected
+        assertThat(matches(router, org.springframework.http.HttpMethod.POST, "/api/avatar")).isTrue();
+    }
+
+    @Test
+    void avatarMutationIsNotRoutedUnderPublicShellPath() {
+        RouterFunction<ServerResponse> router = config.avatarHandle(new WEBFLUX_Service());
+
+        // /profile = публичный шелл; POST здесь означал бы загрузку аватарки без auth_request
+        assertThat(matches(router, org.springframework.http.HttpMethod.POST, "/profile")).isFalse();
+    }
+
+    @Test
+    void profileShellStaysGetOnlyOnPublicPath() {
+        RouterFunction<ServerResponse> shell = config.profilePageRouter(new WEBFLUX_Service(), null);
+
+        assertThat(matches(shell, org.springframework.http.HttpMethod.GET, "/profile")).isTrue();
+        assertThat(matches(shell, org.springframework.http.HttpMethod.POST, "/profile")).isFalse();
+    }
 }

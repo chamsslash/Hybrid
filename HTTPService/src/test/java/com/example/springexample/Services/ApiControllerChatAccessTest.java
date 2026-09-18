@@ -3,7 +3,9 @@ package com.example.springexample.Services;
 import com.example.grpc.DataTransferService;
 import com.example.springexample.Metrics.GrpcRequestsMetric;
 import com.example.springexample.Metrics.MembershipCacheMetric;
+import com.example.springexample.Utils.TokensResolver;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import com.example.springexample.ChatMemberView;
 import com.example.springexample.MessageEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 /**
  * Контроль доступа GET /api/chat (beads 7f7).
@@ -45,7 +48,8 @@ class ApiControllerChatAccessTest {
     private final MembershipCacheMetric cacheMetric = new MembershipCacheMetric(new SimpleMeterRegistry());
 
     private final ApiController controller =
-            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric, cacheMetric));
+            new ApiController(grpc, imageStorage, new ChatMembershipService(stub, grpcMetric, cacheMetric),
+                    mock(AuthGrpc.class), mock(TokensResolver.class));
 
     private static final Authentication SUNNY =
             new UsernamePasswordAuthenticationToken("4", null, List.of());
@@ -72,8 +76,10 @@ class ApiControllerChatAccessTest {
         Mockito.when(grpc.reactiveGetUsernameById("4")).thenReturn(Mono.just("sunny"));
         Mockito.when(grpc.reactiveChatServe(Mockito.any()))
                 .thenReturn(Mono.just("{\"status\":\"200\",\"message\":\"ok\",\"id\":\"3\"}"));
-        Mockito.when(grpc.reactiveGetAllUsernamesByChatId(Mockito.any()))
-                .thenReturn(Mono.just(List.of("sunny", "user-7")));
+        Mockito.when(grpc.reactiveGetMembersByChatId(Mockito.any()))
+                .thenReturn(Mono.just(List.of(
+                        new ChatMemberView(4L, "sunny", "sunny.png"),
+                        new ChatMemberView(7L, "user-7", ""))));
         Mockito.when(grpc.reactiveGetImageUrl(3L)).thenReturn(Mono.just("chat-3.png"));
         Mockito.when(grpc.reactiveGetUserImageUrl(4L)).thenReturn(Mono.just("sunny.png"));
         Mockito.when(grpc.reactiveGetAllMessages(Mockito.any())).thenReturn(Mono.just(List.of(message)));
@@ -91,7 +97,11 @@ class ApiControllerChatAccessTest {
         assertNotNull(model);
         assertEquals(3L, model.get("chatId"));
         assertEquals("sunny", model.get("username"));
-        assertEquals(List.of("sunny", "user-7"), model.get("members"));
+        assertEquals(List.of(
+                        new ChatMemberView(4L, "sunny", "sunny.png"),
+                        new ChatMemberView(7L, "user-7", "")),
+                model.get("members"),
+                "состав чата едет с id и ключом аватарки — их рисует экран участников");
         assertEquals(1, ((List<?>) model.get("messages")).size(), "история участнику отдаётся как раньше");
     }
 

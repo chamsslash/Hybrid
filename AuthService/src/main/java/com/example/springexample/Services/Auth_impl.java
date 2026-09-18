@@ -12,6 +12,7 @@ import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
     private final RedisTemplate<String, String> redisTemplate;
     private final Oauth2Utils oauth2Utils;
     private final MyPasswordEncoder passwordEncoder;
+    private final UsernameSearchService usernameSearchService;
     private final Gson gson = new Gson();
 
     @Override
@@ -124,12 +126,98 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
         responseObserver.onCompleted();
     }
 
+    /**
+     * Подсказки по началу ника. Тонкая обёртка: все правила поиска живут в
+     * {@link UsernameSearchService}, здесь только перекладывание в protobuf.
+     *
+     * Ответ — существующее {@code UserListResponse}: оно уже несёт ровно нужные три поля
+     * (id, username, image_url) и уже объявлено одинаково в обеих правимых копиях .proto.
+     *
+     * {@code image_url} едет вместе с ником и не стоит ничего — это ключ объекта в MinIO,
+     * обычная строка. Дорого стоит скачивание байтов, и его делает только выбранный чипс.
+     *
+     * Явные проверки на null у name и imageUrl обязательны: обе колонки nullable, а сеттеры
+     * protobuf бросают NullPointerException.
+     */
+    @Override
+    public void searchUsersByPrefix(DataTransferService.UsernamePrefixRequest request,
+                                    StreamObserver<DataTransferService.UserListResponse> responseObserver) {
+        List<DataTransferService.UserDataRequest> found = usernameSearchService
+                .searchByPrefix(request.getPrefix(), request.getRequesterId(), request.getLimit())
+                .stream()
+                .map(user -> DataTransferService.UserDataRequest.newBuilder()
+                        .setId(user.getId())
+                        .setUsername(user.getName() == null ? "" : user.getName())
+                        .setImageUrl(user.getImageUrl() == null ? "" : user.getImageUrl())
+                        .build())
+                .collect(Collectors.toList());
+
+        responseObserver.onNext(DataTransferService.UserListResponse.newBuilder()
+                .addAllUsers(found)
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * Смена ника (beads ehe).
+     *
+     * Предварительного поиска «а не занят ли» здесь нет намеренно. Он не добавил бы ни одной
+     * гарантии: между «поискали» и «сохранили» есть промежуток, в который влезает второй
+     * такой же запрос, — классический check-then-insert. Настоящий арбитр — UNIQUE-индекс
+     * ux_users_lower_name (lower(name) text_pattern_ops): проверка и запись становятся одной
+     * операцией. Он же делает ники регистронезависимо уникальными, поэтому «САША» при живой
+     * «Саша» тоже отбивается.
+     *
+     * Пустой ник отсекается до обращения к БД: колонка nullable, и без этой проверки
+     * пользователь мог бы стереть себе имя, а вместе с ним — возможность быть найденным.
+     */
+    @Override
+    public void changeUsername(DataTransferService.ChangeUsernameRequest request,
+                               StreamObserver<DataTransferService.AuthResponse> responseObserver) {
+        String newName = request.getNewUsername();
+        if (newName == null || newName.isBlank()) {
+            respond(responseObserver, "400", "Username must not be blank");
+            return;
+        }
+
+        Optional<User> found = auth_rep.findFirstById(request.getUserId());
+        if (found.isEmpty()) {
+            respond(responseObserver, "404", "User not found");
+            return;
+        }
+
+        User user = found.get();
+        String previousName = user.getName();
+        user.setName(newName);
+        // Метод намеренно НЕ @Transactional, а сохранение идёт через saveAndFlush.
+        //
+        // Под @Transactional сущность из findFirstById управляемая, save() сводится к merge()
+        // без принудительного flush, и UPDATE уезжает на коммит транзакции — то есть ПОСЛЕ
+        // возврата из метода, когда ответ клиенту уже отправлен. Нарушение UNIQUE вылетело бы
+        // вне этого catch, а клиент получил бы ложный "200" на занятом нике.
+        //
+        // register() выше работает верно по той же причине с обратным знаком: он тоже не
+        // транзакционный, и его save() коммитится внутри собственной транзакции репозитория.
+        //
+        // saveAndFlush оставлен даже без аннотации — как страховка на случай, если
+        // @Transactional вернут: тогда UPDATE всё равно выпустится внутри try.
+        try {
+            auth_rep.saveAndFlush(user);
+        } catch (DataIntegrityViolationException duplicate) {
+            log.info("Смена ника отклонена: {} уже занят (нарушен ux_users_lower_name)", newName);
+            respond(responseObserver, "666", "User with such name already exists");
+            return;
+        }
+
+        log.info("Ник пользователя {} изменён с {} на {}", request.getUserId(), previousName, newName);
+        respond(responseObserver, "200", "Username changed");
+    }
+
     @Override
     public void register(DataTransferService.UserDataRequest request, StreamObserver<DataTransferService.AuthResponse> responseObserver) {
         Optional<User> user =auth_rep.findFirstByName(request.getUsername());
         if (user.isPresent()){
-            responseObserver.onNext(DataTransferService.AuthResponse.newBuilder().setStatus("666").setMessage("User with such name already exists").build());
-            responseObserver.onCompleted();
+            respond(responseObserver, "666", "User with such name already exists");
             return;
         }else {
             try {
@@ -149,6 +237,19 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                 User created = auth_rep.save(creation);
                 responseObserver.onNext(DataTransferService.AuthResponse.newBuilder().setStatus("200").setMessage("Ahueno").setRole(created.getUser_role()).setSub(String.valueOf(created.getId())).build());
                 responseObserver.onCompleted();
+            } catch (DataIntegrityViolationException duplicate) {
+                // Настоящим арбитром занятости ника стал UNIQUE-индекс ux_users_lower_name
+                // (lower(name) text_pattern_ops). Предпроверка findFirstByName выше сравнивает
+                // точно, с учётом регистра, и потому пропускает и «МИША» при живой «Миша», и
+                // второй одновременный запрос с тем же именем — между «поискали» и «сохранили»
+                // есть промежуток. Обе ситуации приезжают сюда, и обе означают ровно то же,
+                // что и предпроверка, поэтому и ответ тот же самый.
+                //
+                // Без этого catch нарушение улетало бы в responseObserver.onError и приезжало
+                // бы на клиент как gRPC UNKNOWN, то есть 500 вместо внятного «ник занят».
+                log.info("Регистрация отклонена: ник {} уже занят (нарушен ux_users_lower_name)",
+                        request.getUsername());
+                respond(responseObserver, "666", "User with such name already exists");
             } catch (Exception e) {
                 log.error("Reg error",e);
                 responseObserver.onError(e);
@@ -267,5 +368,104 @@ public class Auth_impl extends AuthTransferServiceGrpc.AuthTransferServiceImplBa
                                 .withDescription("Auth Error: user with sub " + sub + " does not exist")
                                 .asRuntimeException())
                 );
+    }
+
+    /**
+     * Смена пароля (beads ehe).
+     *
+     * Текущий пароль обязателен. Без него смена пароля превращает любой перехваченный
+     * access-токен в полный захват аккаунта: злоумышленник ставит свой пароль и получает
+     * постоянный вход, уже не зависящий от срока жизни токена.
+     *
+     * Аккаунт без пароля (заведён через Google) получает отдельный код 409, а не 401:
+     * «пароль неверный» и «пароля нет вовсе» — разные ситуации, и вторая означает, что
+     * пользователю показали форму, которой у него быть не должно. Возможность ЗАДАТЬ
+     * пароль такому аккаунту в эту фичу не входит — это новый сценарий аутентификации,
+     * подтверждать в нём нечем.
+     *
+     * Гашение чужих сессий делает НЕ этот метод: refresh-сессии живут в Redis у HTTPService
+     * (TokensResolver), AuthService о них не знает. См. ApiController.changePassword.
+     */
+    @Override
+    public void changePassword(DataTransferService.ChangePasswordRequest request,
+                               StreamObserver<DataTransferService.AuthResponse> responseObserver) {
+        String newPassword = request.getNewPassword();
+        if (newPassword == null || newPassword.isBlank()) {
+            respond(responseObserver, "400", "New password must not be blank");
+            return;
+        }
+
+        Optional<User> found = auth_rep.findFirstById(request.getUserId());
+        if (found.isEmpty()) {
+            respond(responseObserver, "404", "User not found");
+            return;
+        }
+
+        User user = found.get();
+        String currentHash = user.getMyapppassword();
+        if (currentHash == null || currentHash.isBlank()) {
+            log.info("Смена пароля отклонена: у пользователя {} пароля нет (вход через Google)",
+                    request.getUserId());
+            respond(responseObserver, "409", "Account has no password");
+            return;
+        }
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), currentHash)) {
+            log.warn("Смена пароля отклонена: неверный текущий пароль у пользователя {}",
+                    request.getUserId());
+            respond(responseObserver, "401", "Current password is incorrect");
+            return;
+        }
+
+        user.setMyapppassword(passwordEncoder.encodePassword(newPassword));
+        // Метод намеренно НЕ @Transactional, а запись идёт через saveAndFlush — ровно по той
+        // же причине, что и в changeUsername выше, но с более дорогой ценой ошибки.
+        //
+        // Под @Transactional сущность из findFirstById управляемая, save() сводится к merge()
+        // без принудительного flush, и UPDATE уезжает на коммит транзакции — то есть ПОСЛЕ
+        // возврата из метода. К этому моменту клиент уже получил "200", а ApiController по
+        // этому "200" уже погасил все остальные refresh-сессии пользователя
+        // (ApiController.changePassword -> deleteOtherSessionsByUser). Сбой на коммите
+        // означал бы худший из возможных исходов: человека выкинуло со всех устройств,
+        // пароль остался прежним, а на экране висит «Пароль изменён».
+        //
+        // saveAndFlush выпускает UPDATE здесь же: до ответа и до гашения сессий.
+        auth_rep.saveAndFlush(user);
+        log.info("Пароль пользователя {} изменён", request.getUserId());
+        respond(responseObserver, "200", "Password changed");
+    }
+
+    /**
+     * Есть ли у аккаунта пароль (beads ehe). Наружу едет ТОЛЬКО этот флаг — сам хеш не
+     * отдаётся ни при каких условиях.
+     *
+     * Экран профиля по нему решает, показывать ли форму смены пароля: у аккаунтов,
+     * заведённых через Google, поля myapppassword пусто, и форма им не нужна.
+     *
+     * Несуществующий пользователь даёт false, а не ошибку: единственное последствие —
+     * скрытая секция, а падать на чтении флага незачем.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public void hasPassword(DataTransferService.UserDataRequest request,
+                            StreamObserver<DataTransferService.ProfileFlags> responseObserver) {
+        boolean has = auth_rep.findFirstById(request.getId())
+                .map(User::getMyapppassword)
+                .filter(hash -> !hash.isBlank())
+                .isPresent();
+        responseObserver.onNext(DataTransferService.ProfileFlags.newBuilder()
+                .setHasPassword(has)
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    /** Однострочный ответ парой status/message — несколько методов класса отвечают одинаково. */
+    private void respond(StreamObserver<DataTransferService.AuthResponse> responseObserver,
+                         String status, String message) {
+        responseObserver.onNext(DataTransferService.AuthResponse.newBuilder()
+                .setStatus(status)
+                .setMessage(message)
+                .build());
+        responseObserver.onCompleted();
     }
 }

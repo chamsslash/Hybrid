@@ -27,10 +27,10 @@
 
 | Модуль | Файлов | unit/reactive | integration | Тестов всего |
 |---|---|---|---|---|
-| AuthService | 5 | 17 | 2 | 19 |
-| HTTPService | 38 | 297 | 2 | 299 |
+| AuthService | 7 | 41 | 2 | 43 |
+| HTTPService | 43 | 322 | 2 | 324 |
 | MessegerParody | 5 | 14 | 3 | 17 |
-| **Итого** | **48** | **328** | **7** | **335** |
+| **Итого** | **55** | **377** | **7** | **384** |
 
 Счётчик «Файлов» считает только классы с тестами; тест-хелперы без тестов (`HTTPService/.../TestAccessTokens`) в него не входят.
 
@@ -52,6 +52,16 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 
 - **`uploadsDecodedBytesAndPublishesLowercaseContract`** — вход: Base64-аватарка + `userId="42"`. Проверяет: в MinIO (`putObject`) уходит ключ `userimage/42/*.jpg`, **декодированные** байты (не Base64) и content-type `image/jpeg`; в Kafka-топик `Images` уходит ровно 3 поля `{targetType:"userimage", targetId:"42", objectKey:<тот же ключ>}`, без поля `Base64Image`. Зачем: стережёт новый lowercase-контракт топика картинок и переход с Base64-в-Kafka на ключ-в-Kafka.
 
+### `CustomOAuth2UserServiceResolveUserTest` — `unit` — коллизия ников на входе через Google (beads cdn)
+`CustomOAuth2UserService.resolveUser` с замоканным `Auth_rep`. Бьёт в `resolveUser`, а не в `loadUser`: последний первым делом ходит в Google через `super.loadUser`, и без поднятой сети до нужной ветки не добраться — ради этого метод и вынесен отдельно.
+
+Путь Google-логина — третий писатель `users.name` наравне с `register` и `changeUsername`, и единственный, который не считался с UNIQUE-индексом `ux_users_lower_name`. До этих тестов `loadUser` не был покрыт ничем (соседний `CustomOAuth2UserServiceUploadImageTest` проверяет только выгрузку аватарки).
+
+- **`existingUserIsReturnedWithoutWriting`** — вход: `findFirstByName("misha")` находит пользователя. Проверяет: возвращается та же сущность (`assertSame`), `save` не вызывается ни разу. Зачем: обычный повторный вход не должен трогать базу на запись.
+- **`freeNameCreatesUserPendingAvatar`** — вход: ник свободен. Проверяет по захваченному аргументу `save`: `name`, `google_sub`, `user_role="USER"` и `imageUrl="pending"`. Зачем: `pending` — маркер, на котором фронт рисует спиннер, пока аватарка едет в MinIO; потеря маркера оставила бы Google-юзера без аватарки молча.
+- **`caseOnlyCollisionFailsAuthenticationInsteadOf500`** — вход: `"Misha"` из Google при живой `"misha"` в базе, `save` бросает `DataIntegrityViolationException`. Проверяет: наружу летит `OAuth2AuthenticationException` с кодом `username_taken`. Зачем: `findFirstByName` сравнивает точно, с учётом регистра, поэтому промахивается и уводит код на INSERT, который упирается в индекс; без обработки нарушение уходило из OAuth-флоу как **500** — вход через Google ломался полностью.
+- **`collisionDoesNotHandOverTheExistingAccount`** — тот же сценарий коллизии. Проверяет: после отказа не вызывается ни `findByGoogleSub`, ни `findFirstById`. Зачем: стережёт намеренное решение, а не реализацию. «Починить» отказ во входе подхватом существующей строки нельзя — пользователь ищется по ИМЕНИ, а не по `google_sub`, и подхват пустил бы владельца Google-аккаунта в чужой локальный аккаунт вместе со всеми чатами. Тест покраснеет ровно на такой «починке».
+
 ### `JwtCheckControllerTest` — `unit` — валидация JWT в gateway-проверке
 `JwtCheckController.jwtCheckProcess` с реальной парой RSA-ключей (генерится в `@BeforeEach`) и замоканным `RedisTemplate`. Токены строятся `Jwts.builder()`.
 
@@ -72,6 +82,30 @@ CI (`.github/workflows/build.yml`, job `unit-tests`) прогоняет unit-т�
 - **`getUserBySubNumericResolvesById`** (A4) — `sub="42"` → `findById(42)`, возвращает User; `findByGoogleSub` НЕ дёргается. Зачем: после канонизации `sub`=DB id резолв идёт по id.
 - **`getUserBySubNonNumericReturnsNotFound`** (A4) — нечисловой `sub` → `onError` (`StatusRuntimeException` NOT_FOUND), без краша `NumberFormatException`. Зачем: graceful-обработка старых/битых токенов после смены контракта.
 - **`checkOneTimeCodeReturnsNumericUserIdAsSub`** (A3) — по коду в Redis лежит `google_sub`, юзер найден `findByGoogleSub` → в ответ идёт **`sub="99"` (numeric user id)**, а не google_sub. Зачем: Google-путь тоже отдаёт канонический numeric sub.
+- **`registerDuplicateInDifferentCaseReturns666`** — вход: регистрация ника `МИША`, `findFirstByName("МИША")` пуст (точное сравнение регистра не ловит живую `Миша`), `save` бросает `DataIntegrityViolationException`. Проверяет: ответ `AuthResponse status=666, message="User with such name already exists"` уходит через `onNext`+`onCompleted`, `onError` НЕ вызывается. Зачем: после появления UNIQUE-индекса `ux_users_lower_name` арбитром занятости ника стала БД; без обработки нарушение приезжало бы клиенту как gRPC `UNKNOWN` (500) вместо внятного отказа, и та же дыра закрывает гонку check-then-insert между двумя одновременными регистрациями.
+- **`changeUsernameSuccessPersistsNewName`** — вход: пользователь 42 существует, новый ник `МишаНовый`. Проверяет: `AuthResponse status=200`, в `saveAndFlush` уходит сущность с новым именем. Зачем: базовый успешный путь смены ника.
+- **`changeUsernameToTakenNameReturns666`** — вход: `saveAndFlush` бросает `DataIntegrityViolationException`. Проверяет: `status=666`, ответ через `onNext`+`onCompleted`, `onError` НЕ вызывается. Зачем: занятость ника решает UNIQUE-индекс `ux_users_lower_name`, а не предпроверка; без обработки нарушение приезжало бы клиенту как gRPC `UNKNOWN` (500).
+- **`changeUsernameToBlankReturns400WithoutTouchingRepository`** — вход: ник из пробелов. Проверяет: `status=400`, ни `findFirstById`, ни `saveAndFlush` не дёргаются. Зачем: колонка `name` nullable — без этой проверки пользователь стёр бы себе имя и перестал находиться поиском.
+- **`changeUsernameForUnknownUserReturns404`** — вход: несуществующий id. Проверяет: `status=404`, `saveAndFlush` не вызывается. Зачем: отличать «пользователя нет» от «ник занят» — разные ответы пользователю.
+- **`changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable`** — вход: успешная смена ника. Проверяет: репозиторий зовётся через `saveAndFlush`, а не `save`. Зачем: `changeUsername` намеренно не `@Transactional` — под управляемой сущностью `save()` откладывает UPDATE на коммит транзакции, то есть на момент ПОСЛЕ отправки ответа клиенту, и нарушение UNIQUE ушло бы мимо `catch`, отдавая ложный `"200"` на занятом нике; `saveAndFlush` выпускает UPDATE внутри вызова, пока `try` ещё жив.
+- **`changePasswordWithCorrectCurrentPersistsNewHash`** — вход: верный текущий пароль. Проверяет: `status=200`, в `saveAndFlush` уходит НОВЫЙ хеш (`new-hash`, отличный от `old-hash`). Зачем: успешный путь; заодно стережёт, что сохраняется именно хеш кодировщика, а не сырой пароль.
+- **`changePasswordWithWrongCurrentReturns401AndKeepsHash`** — вход: неверный текущий пароль. Проверяет: `status=401`, `saveAndFlush` НЕ вызывается. Зачем: подтверждение текущим паролем — единственное, что мешает перехваченному access-токену стать постоянным входом.
+- **`changePasswordOnAccountWithoutPasswordReturns409`** — вход: аккаунт с пустым `myapppassword` (Google). Проверяет: `status=409`, `saveAndFlush` не вызывается, `matches` вообще не дёргается. Зачем: «пароль неверный» и «пароля нет» — разные ситуации; вторая означает, что пользователю показали форму, которой у него быть не должно, и `matches` против пустого хеша — бессмысленный вызов.
+- **`changePasswordToBlankReturns400WithoutTouchingRepository`** — вход: новый пароль из пробелов. Проверяет: `status=400`, в БД не ходим. Зачем: пустой пароль сделал бы вход по паролю невозможным.
+- **`changePasswordForUnknownUserReturns404`** — вход: несуществующий id. Проверяет: `status=404`. Зачем: отдельный код вместо тихого 401.
+- **`changePasswordFlushesBeforeRespondingSoSessionsAreNotKilledOnAFalseSuccess`** — вход: успешная смена пароля. Проверяет через `InOrder`, что `saveAndFlush` выпускается ДО `onNext` с ответом, и что `save` не вызывается вовсе. Зачем: зеркало `changeUsernameFlushesImmediatelySoConstraintViolationIsCatchable`, но цена ошибки выше — по «200» от этого метода `ApiController` гасит все остальные refresh-сессии. Под отложенным flush (метод был `@Transactional` + `save`) UPDATE уезжал на коммит, уже после ответа и после гашения: сбой оставил бы человека без доступа со всех устройств, со старым паролем и надписью «Пароль изменён» на экране.
+- **`hasPasswordTrueForLocalAccount`** — вход: пользователь с непустым `myapppassword`. Проверяет: `has_password=true`, ответ через `onNext`+`onCompleted`. Зачем: по этому флагу экран профиля решает, показывать ли форму смены пароля.
+- **`hasPasswordFalseForGoogleAccountAndForUnknownUser`** — вход: аккаунт с пустым `myapppassword` и несуществующий id. Проверяет: в обоих случаях `has_password=false`, без ошибки. Зачем: Google-аккаунту секция пароля не показывается, а падать на чтении флага для несуществующего пользователя незачем — последствие всего одно, скрытая секция.
+
+### `Services/UsernameSearchServiceTest` — `unit` — правила поиска по префиксу ника (beads cdn)
+`UsernameSearchService` с замоканным `Auth_rep`. Проверяются ровно те решения, которые нельзя увидеть глазами в ответе: какой шаблон уходит в БД и уходит ли он вообще.
+
+- **`prefixIsLowercasedAndTerminatedWithWildcard`** — вход: префикс `МиШ`. Проверяет: в репозиторий уходит шаблон `миш%`, результат возвращается как есть. Зачем: индекс `ux_users_lower_name` построен на `lower(name)`, и приведение регистра на стороне приложения обязано совпасть с ним, иначе совпадений не будет вовсе.
+- **`requesterIdIsPassedToRepositoryForExclusion`** — вход: `requesterId=42`. Проверяет: именно это значение уходит в запрос. Зачем: запрашивающий обязан выпадать из выдачи — он и так автор чата.
+- **`limitIsPassedAsFirstPageOfThatSize`** — вход: `limit=10`. Проверяет: `Pageable` — первая страница размером 10. Зачем: без лимита один запрос вернул бы всю таблицу.
+- **`likeWildcardsInInputAreEscaped`** — вход: `%_!`. Проверяет: шаблон `!%!_!!%` — экранированы оба служебных символа LIKE и сам escape-символ. Зачем: без экранирования ввод `%` вернул бы всех пользователей системы одним запросом, а ник, начинающийся с `!`, ломал бы шаблон.
+- **`blankPrefixReturnsEmptyWithoutTouchingRepository`** — вход: `""`, `"   "`, `null`. Проверяет: пустой список и НИ ОДНОГО обращения к репозиторию. Зачем: подсказки на пустом поле не нужны, а запрос за ними стоил бы полного сканирования на каждый Backspace.
+- **`nonPositiveLimitReturnsEmptyWithoutTouchingRepository`** — вход: `limit=0` и `limit=-1`. Проверяет: пустой список без обращения к репозиторию. Зачем: `PageRequest.of(0, 0)` бросает `IllegalArgumentException` — отсечь дешевле, чем ловить.
 
 ### `Services/ImageStorageServiceIT` — `integration` (Docker) — MinIO round-trip (beads ok9)
 `ImageStorageService` против реального `MinIOContainer`, чтение обратно сырым `MinioClient`.
@@ -201,6 +235,11 @@ Round-trip `ImageUploadDTO` через Gson.
 - **`defaultsExtensionToJpgWhenFilenameHasNoExtension`** — имя файла без расширения → ключ оканчивается `.jpg`.
 - **`propagatesStorageFailureWithoutPublishingToKafka`** — `putObject` падает → ошибка пробрасывается, в Kafka **ничего не публикуется**. Зачем: не рассылать событие о картинке, которая не сохранилась.
 
+### `Services/WEBFLUX_ServiceAvatarUploadTest` — `reactive-unit` — загрузка аватарки без файла (beads ehe)
+`WEBFLUX_Service.handleAvatarUpload` на mock-серверном запросе через `StepVerifier`. Успешный путь сюда не входит: он идёт через `Upload_image`, у которого есть свой тест, и требует живых MinIO/Kafka.
+
+- **`missingFilePartYieldsBadRequest`** — вход: multipart-запрос без части `file`. Проверяет: HTTP 400. Зачем: без файла `Upload_image` падал бы с NPE на `file.content()` — та же ловушка, что уже ловилась для картинки чата (beads 2q5).
+
 ### `Services/AppShellRenderTest` — `unit` — рендеринг SPA-шелла (Thymeleaf)
 Рендерит шаблон `app.html` через `SpringWebFluxTemplateEngine` с classloader-резолвером, без поднятия контекста Spring. Маршрутные тесты идут через настоящие роутер-бины `WebFluxConfig` (`new WebFluxConfig()`, `new WEBFLUX_Service()` — рендер шелла не трогает ни одну зависимость сервиса) и пишут `ServerResponse` в mock-exchange, то есть проверяют всю цепочку «путь → хендлер → HTTP-ответ», а не только шаблон.
 
@@ -276,6 +315,9 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`createChatMutationIsRoutedUnderProtectedApiPrefix`** — `POST /api/createchat` (снаружи `/reactive/api/createchat`, сервлет смонтирован на `/reactive/*`) → роутер `createchatHandle` матчится. Зачем: путь мутации должен попадать под правило `/reactive/api/createchat` ingress `http-protected`; при рассинхроне путей POST начнёт отдавать 404.
 - **`createChatMutationIsNotRoutedUnderPublicShellPath`** — `POST /createchat` (снаружи `/reactive/createchat`) → роутер `createchatHandle` **не** матчится. Зачем: главный ассерт тикета — возврат POST-роута на путь публичного шелла означал бы создание чата без `auth_request`, т.е. дыру вместо UX-фикса (`MvcSecurityConfig` даёт `permitAll` на `/reactive/**`, а `ReactiveSecurityConfig` — на GET-шеллы, так что мутация на этом пути не защищена ничем). С beads 1fs подделка личности заголовками там уже невозможна — `ReactiveHybridAuthFilter` берёт принципала из подписи токена, — но обход проверки ревокации на `/jwtcheck` остаётся, поэтому разведение путей по-прежнему обязательно.
 - **`createChatShellStaysGetOnlyOnPublicPath`** — `GET /createchat` матчится роутером шелла, `POST /createchat` — нет. Зачем: публичный путь остаётся только read-only рендером app-shell.
+- **`avatarMutationIsRoutedUnderProtectedApiPrefix`** — проверяет: `POST /api/avatar` роутится (снаружи `/reactive/api/avatar`, покрыт ingress `http-protected`). Зачем: путь мутации обязан лежать под защищённым префиксом.
+- **`avatarMutationIsNotRoutedUnderPublicShellPath`** — проверяет: `POST /profile` НЕ роутится в загрузку аватарки. Зачем: `/profile` — публичный шелл; POST-мутация там означала бы загрузку аватарки без `auth_request`.
+- **`profileShellStaysGetOnlyOnPublicPath`** — проверяет: `GET /profile` роутится, `POST /profile` — нет. Зачем: публичным остаётся только чтение шелла.
 
 ### `MvcSecurityImagesChainBoundaryTest` — `unit` — граница цепочки картинок (beads cbq)
 Матчер `MvcSecurityConfig.IMAGES_MATCHER` на `MockHttpServletRequest`, без контекста Spring.
@@ -364,6 +406,27 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
   - обратный слэш (ключ `/userimage/4/a\b.png`, в Java-литерале теста — `"a\\b.png"`) — в ключах MinIO его нет, а частью клиентов он трактуется как разделитель пути.
 - **`missingPrincipalIsRefused`** — `auth == null`. Проверяет: `403`, MinIO не тронут. Зачем: страховка на случай, если запрос дойдёт до метода мимо `MvcJwtAuthFilter` — метод обязан отказать сам, а не упасть с NPE на `auth.getName()` (та же страховка, что в dz5).
 - **`minioFailureStaysNotFound`** — авторизация пройдена (`userimage/4/missing.png`), но `getObject` отдаёт `Mono.error`. Проверяет: `404 NOT FOUND`. Зачем: разграничение «не имеешь права» (`403`) и «объекта нет» (`404`) — прежнее поведение при ошибке MinIO должно сохраниться, иначе отсутствующая картинка станет неотличима от запрета и фронтовые фолбэки (`avatarHtml` → `rofl-cat.jpg`) поведут себя иначе.
+
+### `Services/ApiControllerUserSearchTest` — `unit` — контракт эндпоинта подсказок (beads cdn)
+`ApiController.userSearch` с замоканным `AuthGrpc`. Проверяется форма ответа и то, откуда берётся личность запрашивающего.
+
+- **`returnsUserIdUsernameAndImageKeyForEachHit`** — вход: gRPC вернул двух пользователей, у одного `image_url` пуст. Проверяет: в JSON у каждого ровно `userId` (строка), `username`, `imageUrl`; пустой ключ так и остаётся пустой строкой. Зачем: это контракт, который читает `createchat.view.js` — ключ картинки приезжает вместе с ником, чтобы чипс не делал за ним отдельного запроса.
+- **`requesterIdComesFromAuthenticationNotFromRequest`** — вход: принципал `77`, префикс `ми`. Проверяет: в gRPC уходит `requesterId=77` и лимит `10`. Зачем: id запрашивающего определяет, кого исключить из выдачи; принимать его из запроса значило бы позволить клиенту исключать произвольного человека и завести второй источник личности рядом с подписью токена.
+- **`nonNumericPrincipalYieldsEmptyListWithoutCallingGrpc`** — вход: принципал `not-a-number`. Проверяет: пустой список, gRPC не дёргается. Зачем: сломанный токен — не повод ходить в AuthService, и `NumberFormatException` не должна превращаться в 500.
+- **`grpcFailurePropagatesInsteadOfLookingLikeEmptyResult`** — вход: gRPC отвечает ошибкой. Проверяет: исключение летит наверх (500), а не подменяется пустым списком. Зачем: «никого не нашли» и «не смогли поискать» обязаны различаться в логе; мягкую деградацию делает клиент, не сервер.
+
+### `Services/ApiControllerProfileTest` — `unit` — эндпоинты профиля (beads ehe)
+`ApiController.me`, `.changeUsername`, `.changePassword` с замоканными `AuthGrpc`, `ReactiveGrpcClient` и `TokensResolver`. Проверяется отображение кодов AuthService в HTTP и источник личности.
+
+- **`meCarriesHasPasswordFlag`** — вход: gRPC вернул ник, ключ аватарки и `has_password=true`. Проверяет: в ответе `/api/me` есть поле `hasPassword=true` рядом с `userId`/`username`/`imageUrl`. Зачем: по этому флагу экран профиля решает, показывать ли форму смены пароля.
+- **`meReportsNoPasswordWhenAuthServiceIsUnreachable`** — вход: `hasPassword` отвечает ошибкой. Проверяет: `/api/me` отдаётся целиком, `hasPassword=false`. Зачем: `/api/me` — бутстрап экрана; уронить его из-за недоступности одного признака значило бы не показать пользователю вообще ничего.
+- **`changeUsernameSuccessReturns200`** — вход: gRPC `status=200`. Проверяет: HTTP 200, тело `{"status":"ok"}`. Зачем: успешный путь.
+- **`changeUsernameTakenReturns409`** — вход: gRPC `status=666`. Проверяет: HTTP 409, `{"error":"USERNAME_TAKEN"}`. Зачем: занятый ник — конфликт состояния, а не ошибка запроса.
+- **`changeUsernameTakesUserIdFromAuthenticationNotFromBody`** — вход: в теле лежит подставной `userId=999`, принципал `42`. Проверяет: в gRPC уходит `42`, вызова с `999` нет. Зачем: приём id из тела означал бы, что любой залогиненный переименовывает кого угодно.
+- **`changePasswordSuccessKillsOtherSessionsAndKeepsCurrent`** — вход: gRPC `status=200`, sid текущей сессии `sid-1`. Проверяет: HTTP 200 и вызов `deleteOtherSessionsByUser("42","sid-1")`. Зачем: смена пароля обязана выкинуть чужие сессии и оставить свою.
+- **`wrongCurrentPasswordReturns403NotUnauthorized`** — вход: gRPC `status=401`. Проверяет: HTTP **403** (не 401), `{"error":"WRONG_CURRENT_PASSWORD"}`, сессии НЕ гасятся. Зачем: главный тест этого файла — интерцептор `axios.js` на 401 делает refresh и повторяет запрос, поэтому ошибка ввода, отданная как 401, ушла бы в цикл повторов вместо экрана.
+- **`accountWithoutPasswordReturns409`** — вход: gRPC `status=409`. Проверяет: HTTP 409, `{"error":"NO_PASSWORD_ON_ACCOUNT"}`, сессии не гасятся. Зачем: Google-аккаунту форма пароля не показывается вовсе, и если запрос всё же пришёл — это конфликт состояния, а не неверный ввод.
+- **`blankNewPasswordReturns400`** — вход: gRPC `status=400`. Проверяет: HTTP 400, `{"error":"PASSWORD_BLANK"}`. Зачем: пустой пароль сделал бы вход по паролю невозможным.
 
 ### `Services/AiAssistMembershipTest` — `reactive-unit` — авторизация `/AiAssist` по членству в чате (beads dz5)
 `WEBFLUX_Service.aiAssistHandler` с настоящим `ChatMembershipService` поверх замоканного gRPC-стаба (`ReactorReactiveTransferServiceStub`, `RETURNS_SELF` — см. `ApiControllerChatAccessTest`), замоканным `GeminiService` и реактивным Redis-стеком (`ReactiveRedisTemplate`/`ReactiveListOperations`/`ReactiveSetOperations`), поля контроллера подставлены `ReflectionTestUtils`. До фикса dz5 у хендлера **вообще не было `Principal` в сигнатуре**: `chat_id` брался из тела запроса, и любой залогиненный пользователь получал Redis-контекст чужого чата, пересказанный Gemini (подтверждено живьём на стенде kind: аккаунт `sunny` id=4, состоящий только в чате 3, получил `200` на `chat_id=2`). Тесты стерегут два контракта сразу: членство проверяется **до** чтения Redis, и отказ — настоящий HTTP-403, а не прежние `200` + текст в теле.
@@ -482,6 +545,22 @@ Standalone-MockMvc поверх `MVC_Service`: `authcallbackpage` не обра�
 - **`buildSecurityCheckPrompt_wrapsBothFingerprintsInSingleUserTurn`** — два `ClientMeta` → ровно 1 content-turn с `role: user`, системная инструкция содержит методику (`secureUUID`). Зачем: контракт анти-фрод промпта (оба отпечатка в одном user-turn, методика — в system-инструкции).
 - **`extractPlainText_pullsNestedTextOutOfFullGeminiEnvelope`** — вход: полный конверт ответа Gemini (`candidates[0].content.parts[0].text` = JSON-строка `{"reasoning":...,"probability":85}`). Проверяет: возвращает именно вложенную JSON-строку, не сам конверт. Зачем: **регрессия бага** — `aiSecurePredict()` раньше парсил `reasoning`/`probability` прямо из конверта (минуя `extractPlainText`), оба поля были `null`/кидали NPE при любом реальном (не замоканном) ответе Gemini — баг не проявлялся раньше только потому, что вызов падал ещё на этапе сериализации запроса (см. `fix/gemini-webclient-gson-jackson-mismatch`), обнаружен только после того фикса живым тестом 2026-08-01.
 - **`extractPlainText_throwsOnEmptyBody`** — пустая строка → `RuntimeException` с "uncorrect struckture".
+
+### `Utils/AccessTokenVerifierSidTest` — `unit` — sid в Authentication.details (beads ehe)
+`AccessTokenVerifier` с настоящей парой RSA-ключей, сгенерированной в `@BeforeEach`. Проверяется перенос клейма, а не валидация подписи — её стережёт `JwtCheckControllerTest`.
+
+- **`sidClaimIsExposedAsAuthenticationDetails`** — вход: валидный токен с `sub=42` и `sid=sid-1`. Проверяет: принципал `42`, `getDetails()` = `"sid-1"`. Зачем: по этому значению смена пароля отличает текущую сессию от чужих; берётся оно из подписанного токена, а не из заголовка `X-Sid`, доверие к которому держалось бы на топологии ingress.
+- **`tokenWithoutSidYieldsNullDetailsButStillAuthenticates`** — вход: валидный токен БЕЗ клейма `sid`. Проверяет: аутентификация проходит, `getDetails()` = `null`. Зачем: sid нужен ровно одной операции, и ронять из-за его отсутствия весь доступ незачем.
+
+### `Utils/TokensResolverSessionCleanupTest` — `unit` — гашение чужих refresh-сессий (beads ehe)
+`TokensResolver` с замоканным `RedisTemplate`/`SetOperations`. Ключи в ассертах написаны буквально (`RefreshSession:{sid}`, `user:{sub}`) — тест стережёт именно формат, который строят приватные генераторы ключей.
+
+- **`deletesEveryOtherSessionAndKeepsTheCurrentOne`** — вход: три сессии `sid-a`/`sid-b`/`sid-c`, сохраняем `sid-b`. Проверяет: удаляются ровно `RefreshSession:sid-a` и `RefreshSession:sid-c`, они же убираются из набора `user:42`, набор целиком НЕ удаляется. Зачем: смена пароля обязана выкинуть чужие сессии и оставить свою; удаление набора осиротило бы текущую сессию.
+- **`keepsEverythingWhenTheOnlySessionIsTheCurrentOne`** — вход: одна сессия, она же текущая. Проверяет: `delete` не вызывается вовсе. Зачем: не делать бессмысленных обращений к Redis и не логировать несуществующее гашение.
+- **`doesNothingWhenUserHasNoSessions`** — вход: `members` вернул `null`. Проверяет: ничего не удаляется, NPE нет. Зачем: у пользователя может не быть набора сессий (истёк по TTL).
+- **`deletesAllSessionsWhenCurrentSidIsUnknown`** — вход: `keepSid = null` (токен без клейма `sid`). Проверяет: удаляются ОБЕ сессии, включая свою. Зачем: если текущую опознать нечем, безопаснее погасить всё — пользователь просто залогинится заново.
+- **`logoutDeletesOnlyTheCurrentSession`** — вход: выход с `sid-b`, сессия лежит в Redis с `sub=42`. Проверяет: удалён ровно `RefreshSession:sid-b` и он же снят с набора `user:42`. Зачем: выход — зеркало смены пароля (там гасится всё, КРОМЕ текущей, тут — ТОЛЬКО текущая); перепутать эти два метода значит либо разлогинить человека на всех устройствах при обычном выходе, либо оставить выход бездействующим.
+- **`logoutWithoutSidTouchesNothingInRedis`** — вход: `sid = null` (access-токен без клейма). Проверяет: ни `delete`, ни `remove` не вызваны. Зачем: опознать сессию нечем, а гасить вслепую нельзя — под руку попали бы чужие устройства; куку снимает вызывающий, поэтому сессия всё равно становится недостижимой. Осознанно расходится с `deleteOtherSessionsByUser`, где тот же `null` означает «погасить всё».
 
 ---
 

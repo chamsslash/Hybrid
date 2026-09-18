@@ -1,9 +1,15 @@
 import { navigate } from "/router.js";
 import api from "/axios.js";
 import { ensureAccessToken } from "/auth.js";
+import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 
 // Вью создания чата (перенесена из static/chatcreate.js под контракт mount/unmount SPA-роутера).
-// Разметка формы — из templates/chatcreatepage.html.
+//
+// Участники выбираются из подсказок по началу ника (beads cdn). Раньше здесь был блок
+// #userFields с кнопкой «+ Добавить пользователя» и N свободными текстовыми полями: ошибка
+// в букве обнаруживалась только после отправки, а сервер молча создавал чат без выпавшего
+// участника. Теперь свободного ввода нет вовсе — отправить можно только выбранных из
+// выдачи, и это и есть гарантия, что в чат попадают существующие пользователи.
 
 const CREATECHAT_HTML = `
     <div class="post-feed">
@@ -23,12 +29,20 @@ const CREATECHAT_HTML = `
             <label for="imageUpload">Загрузить изображение:</label>
             <input type="file" name="file" id="imageUpload" accept="image/*" />
 
-            <div id="userFields">
-                <!-- Сюда будут добавляться блоки пользователей -->
+            <label for="userSearch">Участники:</label>
+            <div id="user-picker" style="position: relative;">
+                <input type="text" id="userSearch" placeholder="Начните вводить ник"
+                       autocomplete="off" role="combobox" aria-expanded="false"
+                       aria-controls="user-suggestions" aria-autocomplete="list">
+                <ul id="user-suggestions" role="listbox" style="display: none; position: absolute;
+                    z-index: 10; left: 0; right: 0; margin: 0; padding: 0; list-style: none;
+                    max-height: 220px; overflow-y: auto; background: var(--surface);
+                    color: var(--ink); border: 1px solid var(--line-2); border-radius: 12px;
+                    box-shadow: var(--shadow-2);"></ul>
             </div>
+            <div id="user-chips" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;"></div>
 
-            <button type="button" id="addUserBtn">+ Добавить пользователя</button>
-            <br><br>
+            <br>
             <button type="submit">Отправить</button>
         </form>
 
@@ -36,29 +50,201 @@ const CREATECHAT_HTML = `
     </div>
 `;
 
+// Сколько ждать после последнего нажатия, прежде чем идти за подсказками. Без задержки
+// каждая буква — отдельный запрос в БД.
+const SEARCH_DEBOUNCE_MS = 200;
+
 let ac = null;
-let userCount = 0;
+let searchTimer = null;
+// Выбранные участники: userId -> { username, imageUrl }. Ключ — id, а не ник: два
+// одинаковых ника после UNIQUE-индекса невозможны, но id всё равно устойчивее.
+let selected = new Map();
+// Индекс подсвеченного пункта выпадашки; -1 = не подсвечен ни один.
+let activeIndex = -1;
+// Последняя выдача, показанная пользователю. Нужна, чтобы Enter знал, что именно выбирать.
+let currentSuggestions = [];
 
-function addUserField() {
-    const container = document.getElementById("userFields");
+function suggestionsEl() {
+    return document.getElementById("user-suggestions");
+}
 
-    const wrapper = document.createElement("div");
-    wrapper.classList.add("comment");
+function closeSuggestions() {
+    const list = suggestionsEl();
+    if (!list) return;
+    list.style.display = "none";
+    list.replaceChildren();
+    document.getElementById("userSearch")?.setAttribute("aria-expanded", "false");
+    activeIndex = -1;
+    currentSuggestions = [];
+}
 
-    wrapper.innerHTML = policy.createHTML(`
-            <label>
-                User ${userCount + 1} Name:
-                <input type="text" name="userlistname" placeholder="User Name" required />
-            </label>
+function highlight(index) {
+    const list = suggestionsEl();
+    if (!list) return;
+    const items = list.querySelectorAll("li[data-user-id]");
+    items.forEach((node, i) => {
+        const on = i === index;
+        node.style.background = on ? "var(--iris-050)" : "transparent";
+        node.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    activeIndex = index;
+}
+
+function renderSuggestions(users) {
+    const list = suggestionsEl();
+    if (!list) return;
+    list.replaceChildren();
+    currentSuggestions = users;
+
+    if (users.length === 0) {
+        // Пустая панель без объяснений выглядит как сломавшийся запрос — говорим прямо.
+        const empty = document.createElement("li");
+        empty.textContent = "Никого не найдено";
+        empty.style.padding = "8px";
+        empty.style.color = "var(--muted)";
+        list.appendChild(empty);
+    } else {
+        users.forEach((user, index) => {
+            const item = document.createElement("li");
+            item.dataset.userId = user.userId;
+            item.textContent = user.username;
+            item.style.padding = "8px";
+            item.style.cursor = "pointer";
+            item.setAttribute("role", "option");
+            item.setAttribute("aria-selected", "false");
+            // mousedown, а не click: click приходит уже после blur поля ввода, и к этому
+            // моменту обработчик blur успел бы закрыть выпадашку.
+            item.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                selectUser(user);
+            }, { signal: ac.signal });
+            item.addEventListener("mouseenter", () => highlight(index), { signal: ac.signal });
+            list.appendChild(item);
+        });
+    }
+
+    list.style.display = "block";
+    document.getElementById("userSearch")?.setAttribute("aria-expanded", "true");
+    highlight(users.length > 0 ? 0 : -1);
+}
+
+function renderChips() {
+    const container = document.getElementById("user-chips");
+    if (!container) return;
+    container.replaceChildren();
+
+    for (const [userId, user] of selected) {
+        const chip = document.createElement("span");
+        chip.className = "comment";
+        chip.dataset.userId = userId;
+        chip.style.display = "inline-flex";
+        chip.style.alignItems = "center";
+        chip.style.gap = "6px";
+        chip.style.padding = "4px 8px";
+
+        // Аватарки только у выбранных: в выпадашке их нет намеренно. Ключ приехал вместе с
+        // подсказкой, поэтому дополнительного запроса за ним нет — а вот БАЙТЫ каждой
+        // картинки тянутся отдельным авторизованным запросом (тег <img> не умеет послать
+        // Authorization, см. image_loader.js). Три чипса — три запроса; десять подсказок на
+        // каждую букву — десятки.
+        chip.innerHTML = policy.createHTML(`
+            ${imageTag(user.imageUrl, "chip-avatar", "avatar")}
+            <span class="chip-name"></span>
+            <button type="button" class="chip-remove" aria-label="Убрать участника">×</button>
         `);
+        chip.querySelector(".chip-name").textContent = user.username;
+        chip.querySelector(".chip-remove").addEventListener("click", () => {
+            selected.delete(userId);
+            renderChips();
+            document.getElementById("userSearch")?.focus();
+        }, { signal: ac.signal });
 
-    container.appendChild(wrapper);
-    userCount++;
+        container.appendChild(chip);
+        hydrateImages(chip);
+    }
+}
+
+function selectUser(user) {
+    selected.set(String(user.userId), {
+        username: user.username,
+        imageUrl: user.imageUrl,
+    });
+    renderChips();
+    const input = document.getElementById("userSearch");
+    if (input) {
+        input.value = "";
+        // Фокус остаётся в поле: следующего участника добавляют сразу, без лишнего клика.
+        input.focus();
+    }
+    closeSuggestions();
+}
+
+async function fetchSuggestions(prefix) {
+    let response;
+    try {
+        response = await api.get("/api/usersearch", { params: { prefix } });
+    } catch (e) {
+        // Сбой подсказок не ломает форму: выпадашка просто не открывается, создание чата
+        // остаётся доступным. Сервер на сбой отвечает 500, а не пустым списком, — именно
+        // чтобы «никого не нашли» и «не смогли поискать» различались.
+        console.warn("[createchat] не удалось получить подсказки", e);
+        closeSuggestions();
+        return;
+    }
+
+    // Ответ на устаревший префикс отбрасывается: медленный ответ на «ми» не должен
+    // перезаписать свежий на «миша». Сравнивается префикс, на который пришёл ответ, с
+    // текущим содержимым поля.
+    const input = document.getElementById("userSearch");
+    if (!input || input.value.trim() !== prefix) {
+        return;
+    }
+
+    // Уже выбранные в выдаче не показываем — второй раз их не добавить.
+    renderSuggestions((response.data || []).filter((u) => !selected.has(String(u.userId))));
+}
+
+function onSearchInput(event) {
+    clearTimeout(searchTimer);
+    const prefix = event.target.value.trim();
+    if (prefix === "") {
+        closeSuggestions();
+        return;
+    }
+    searchTimer = setTimeout(() => fetchSuggestions(prefix), SEARCH_DEBOUNCE_MS);
+}
+
+function onSearchKeydown(event) {
+    const list = suggestionsEl();
+    const open = list && list.style.display === "block" && currentSuggestions.length > 0;
+
+    if (event.key === "Escape") {
+        closeSuggestions();
+        return;
+    }
+    if (!open) return;
+
+    if (event.key === "ArrowDown") {
+        event.preventDefault();
+        highlight((activeIndex + 1) % currentSuggestions.length);
+    } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        highlight((activeIndex - 1 + currentSuggestions.length) % currentSuggestions.length);
+    } else if (event.key === "Enter") {
+        // preventDefault обязателен: без него Enter в поле поиска отправил бы форму.
+        event.preventDefault();
+        if (activeIndex >= 0) {
+            selectUser(currentSuggestions[activeIndex]);
+        }
+    }
 }
 
 export async function mount(params) {
     ac = new AbortController();
-    userCount = 0;
+    selected = new Map();
+    activeIndex = -1;
+    currentSuggestions = [];
+    searchTimer = null;
 
     // Шелл /reactive/createchat публичен на ingress (beads 52u) — иначе обычная
     // навигация (F5, закладка, прямая ссылка) не несёт Authorization и nginx
@@ -86,14 +272,41 @@ export async function mount(params) {
         navigate("/reactive/chatlist");
     }, { signal: ac.signal });
 
-    document.getElementById("addUserBtn").addEventListener("click", addUserField, { signal: ac.signal });
-    addUserField();
+    const searchInput = document.getElementById("userSearch");
+    searchInput.addEventListener("input", onSearchInput, { signal: ac.signal });
+    searchInput.addEventListener("keydown", onSearchKeydown, { signal: ac.signal });
+
+    // Клик мимо выпадашки закрывает её. Слушаем на document, потому что кликнуть могут
+    // куда угодно; сам picker из проверки исключён, иначе клик по пункту закрывал бы
+    // список раньше, чем срабатывал выбор.
+    document.addEventListener("click", (e) => {
+        if (!document.getElementById("user-picker")?.contains(e.target)) {
+            closeSuggestions();
+        }
+    }, { signal: ac.signal });
 
     document.getElementById("chatForm").addEventListener("submit", async function (e) {
         e.preventDefault();
+
+        const resultElement = document.getElementById("result");
+        if (selected.size === 0) {
+            resultElement.textContent = "Выберите хотя бы одного участника";
+            resultElement.style.color = "red";
+            return;
+        }
+
         const formData = new FormData(e.target);
         formData.set('title', formData.get('chatTitle'));
         formData.delete('chatTitle');
+        // Поле поиска в теле запроса не нужно — сервер о нём ничего не знает.
+        formData.delete('userSearch');
+        // Уходят те же поля userlistname с теми же именами, что и раньше: серверный
+        // контракт handleCreateChat не меняется вовсе. Отправляются имена, а не id, ровно
+        // по этой причине; неоднозначности нет, ники регистронезависимо уникальны
+        // (UNIQUE-индекс ux_users_lower_name).
+        for (const user of selected.values()) {
+            formData.append('userlistname', user.username);
+        }
 
         try {
             // api-интерцептор приложит Authorization и сделает refresh+retry на 401
@@ -101,7 +314,6 @@ export async function mount(params) {
             navigate("/reactive/chatlist");
         } catch (error) {
             console.error('Ошибка отправки:', error);
-            const resultElement = document.getElementById("result");
             resultElement.textContent = error?.response?.data || "Ошибка создания чата";
             resultElement.style.color = "red";
         }
@@ -109,6 +321,14 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    clearTimeout(searchTimer);
+    searchTimer = null;
     if (ac) ac.abort();
     ac = null;
+    selected = new Map();
+    currentSuggestions = [];
+    activeIndex = -1;
+    // Отзываем blob-URL аватарок чипсов — иначе браузер держит их живыми до закрытия
+    // вкладки, как в остальных вью.
+    releaseImages();
 }
