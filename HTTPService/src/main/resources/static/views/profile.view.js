@@ -1,6 +1,6 @@
 import api from "/axios.js";
 import { navigate } from "/router.js";
-import { resetShell } from "/shell.js";
+import { resetShell, updateShellUser } from "/shell.js";
 import { ensureAccessToken } from "/auth.js";
 import { clearAccessToken } from "/inmemory.js";
 import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
@@ -224,6 +224,8 @@ function connectStomp(token) {
         profileStomp.subscribe(`/mutual/user_image/${user_id}`, (msg) => {
             const event = JSON.parse(msg.body);
             renderAvatar(event.objectKey);
+            // Аватарка стоит и в рельсе — см. комментарий про ник выше.
+            updateShellUser({ imageUrl: event.objectKey });
             showToast("Аватарка обновлена", "success");
         });
     });
@@ -278,6 +280,11 @@ export async function mount(params) {
             await api.post("/api/profile/username", { username: newUsername });
             // Отображаемый ник обновляем сами — перезагрузка не нужна.
             document.getElementById("profile-username").textContent = newUsername;
+            current_username = newUsername;
+            // Тот же ник стоит в карточке рельса, а она живёт дольше этого экрана
+            // и кэширует /api/me на вкладку. Без этой строки навигация показывала
+            // бы старый ник рядом с новым до перезагрузки страницы.
+            updateShellUser({ username: newUsername });
             showToast("Ник изменён", "success");
         } catch (error) {
             // Поле НЕ очищаем: человек поправит один символ, а не наберёт всё заново.

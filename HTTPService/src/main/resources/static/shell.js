@@ -19,6 +19,10 @@ import { navigate } from "/router.js";
 const PUBLIC_ROUTES = new Set(["/welcome", "/registerpage", "/authcallback"]);
 
 let mePromise = null;
+// Последние известные данные пользователя. Держим отдельно от промиса, потому
+// что карточку нужно уметь перерисовать по месту — профиль меняет ник и
+// аватарку, а рельс показывает их же и живёт дольше экрана профиля.
+let meCache = null;
 let userRendered = false;
 let navWired = false;
 
@@ -35,7 +39,9 @@ let navWired = false;
  */
 export function loadMe() {
     if (!mePromise) {
-        const attempt = ensureAccessToken().then(() => api.get("/api/me").then(r => r.data));
+        const attempt = ensureAccessToken()
+            .then(() => api.get("/api/me").then(r => r.data))
+            .then((me) => { meCache = me; return me; });
         mePromise = attempt;
         // Неудачу не кэшируем: иначе один сетевой сбой оставил бы вкладку без
         // данных пользователя до перезагрузки. Своего обработчика отказа вешать
@@ -58,41 +64,63 @@ function wireNav() {
     // документ, и второй раз не создаются (защита флагом выше).
 }
 
-function renderUser() {
-    if (userRendered) return;
-    userRendered = true;
-
+/** Рисует карточку по уже имеющимся данным. Идемпотентна: зовётся и при первом
+ *  показе, и после каждой правки профиля. */
+function paintUser(me) {
     const box = document.getElementById("rail-user");
     if (!box) return;
-
-    loadMe().then((me) => {
-        box.innerHTML = policy.createHTML(`
+    box.innerHTML = policy.createHTML(`
             <div class="rail-user-avatar">${imageTag(me.imageUrl, "chat-avatar", "моя аватарка", me.userId, me.username)}</div>
             <span class="rail-user-name"></span>
             <span class="rail-user-chevron" aria-hidden="true">›</span>
         `);
-        box.querySelector(".rail-user-name").textContent = me.username || "";
-        box.setAttribute("role", "button");
-        box.setAttribute("tabindex", "0");
-        box.setAttribute("aria-label", "Мой профиль");
-        hydrateImages(box);
-        // Аватарка рельса живёт дольше любой вью, а releaseImages() в unmount
-        // вью отзывает blob-URL'ы всего кэша разом. Без закрепления первый же
-        // переход со списка в чат оставлял бы в рельсе битую картинку.
-        pinImage(me.imageUrl);
+    box.querySelector(".rail-user-name").textContent = me.username || "";
+    box.setAttribute("role", "button");
+    box.setAttribute("tabindex", "0");
+    box.setAttribute("aria-label", "Мой профиль");
+    hydrateImages(box);
+    // Аватарка рельса живёт дольше любой вью, а releaseImages() в unmount
+    // вью отзывает blob-URL'ы всего кэша разом. Без закрепления первый же
+    // переход со списка в чат оставлял бы в рельсе битую картинку.
+    pinImage(me.imageUrl);
 
-        box.onclick = () => navigate("/reactive/profile");
-        box.onkeydown = (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                navigate("/reactive/profile");
-            }
-        };
-    }).catch((e) => {
+    box.onclick = () => navigate("/reactive/profile");
+    box.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            navigate("/reactive/profile");
+        }
+    };
+}
+
+function renderUser() {
+    if (userRendered) return;
+    userRendered = true;
+    loadMe().then(paintUser).catch((e) => {
         // Нет сессии — рельс всё равно вот-вот уедет вместе с уходом на /welcome.
         console.warn("[shell] карточка пользователя не нарисована:", e);
         userRendered = false;
     });
+}
+
+/**
+ * Правка данных пользователя, пришедшая не от нас (экран профиля сменил ник или
+ * аватарку).
+ *
+ * Без этого рельс показывал СТАРОЕ значение до перезагрузки страницы: /api/me
+ * кэшируется на вкладку, а карточка рисовалась ровно один раз. Выглядело так,
+ * будто смена ника не прошла — на экране профиля новый, в навигации рядом
+ * старый, и какой из них настоящий, пользователю неоткуда узнать.
+ *
+ * Перезапрашивать /api/me здесь не нужно: сервер уже подтвердил правку, а
+ * лишний круг вернул бы ровно то, что мы и так знаем.
+ */
+export function updateShellUser(patch) {
+    if (!meCache) return;
+    meCache = { ...meCache, ...patch };
+    const fresh = meCache;
+    mePromise = Promise.resolve(fresh);
+    paintUser(fresh);
 }
 
 /** Состояние рельса под текущий маршрут. Зовётся роутером на каждом переходе. */
@@ -123,6 +151,7 @@ export function syncShell(pathname) {
 /** Сброс при выходе из аккаунта: следующий вход рисует карточку заново. */
 export function resetShell() {
     mePromise = null;
+    meCache = null;
     userRendered = false;
     const box = document.getElementById("rail-user");
     if (box) box.replaceChildren();

@@ -69,11 +69,17 @@ body {
 .screen-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+    gap: 14px;
 }
 
+/* Заголовок забирает свободное место сам, а не разгоняется space-between'ом:
+   на экране с кнопкой «назад» слева тот растаскивал два элемента по краям, и
+   заголовок уезжал к правому краю вместо того, чтобы стоять рядом с кнопкой.
+   С flex: 1 действие справа (например «+ Новый чат») всё так же прижато к
+   правому краю, а заголовок всегда следует за кнопкой. */
 .screen-title {
+    flex: 1;
+    min-width: 0;
     margin: 0;
     font-size: 25px;
     font-weight: 700;
@@ -264,7 +270,7 @@ body {
 #chats { display: flex; flex-direction: column; gap: 10px; }
 
 .no-message { color: var(--faint); font-style: italic; }
-.user-id { font-weight: 600; color: var(--accent-600); white-space: nowrap; }
+.preview-author { font-weight: 600; color: var(--muted); white-space: nowrap; }
 
 #no-chats-message {
     text-align: center;
@@ -336,8 +342,8 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    flex: 1;
     min-width: 0;
+    max-width: 420px;
     padding: 4px 8px;
     margin: -4px -8px;      /* компенсируем padding, чтобы шапка не подросла */
     border: none;
@@ -611,18 +617,6 @@ body {
 /* Правило описывает кнопки-действия справа от названия чата (своих у шапки сейчас нет,
    но геометрия рассчитана на них). Кнопка возврата исключена: она стоит первой в строке,
    а margin-left: auto отжал бы её в противоположный край. */
-.chat-header button:not(.back-button) {
-    margin-left: auto;
-    padding: 9px 14px;
-    background: var(--surface-2);
-    color: var(--accent-600);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    font: 600 13px/1 var(--sans);
-    cursor: pointer;
-    transition: background .18s ease, border-color .18s ease;
-}
-.chat-header button:not(.back-button):hover { background: var(--accent-soft); border-color: var(--accent); }
 
 #typing-indicator {
     font-size: 12px;
@@ -679,6 +673,25 @@ body {
    Раньше время висело на float: right внутри сжатого по контенту пузыря и склеивалось
    с ID. margin-left: auto прижимает его вправо в пределах реальной ширины пузыря. */
 .message-header { display: flex; align-items: baseline; gap: 8px; }
+
+/* «ID: 29» внутри каждого пузыря — отладочная подпись: в переписке идентификатор
+   не нужен, а место занимает столько же, сколько сам текст короткого сообщения.
+   Узел остаётся в разметке (его заполняет тот же код, что и ник) и по-прежнему
+   доступен скринридеру — скрыт только визуально. Идентификаторы участников
+   показывает список состава, где они и уместны. */
+.message-senderid {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* На СВОИХ сообщениях ник тоже лишний: сторона пузыря и цвет уже говорят, кто
+   автор. У входящих он остаётся — в чате на несколько человек без него не понять,
+   кто написал. */
+.message.user .message-username { display: none; }
 .message-header .message-time {
     margin-left: auto;
     font-size: 12px;
@@ -1177,12 +1190,22 @@ body {
 /* ============================================================
    RESPONSIVE
    ============================================================ */
+/* Ниже 760px рельс становится ФИКСИРОВАННОЙ нижней полосой (shell.css), а экран
+   чата держит высоту в 100vh. Без вычета высоты полосы строка ввода оказывалась
+   ровно под ней: сообщения видно, отправить нечем. Обычные экраны спасает
+   padding-bottom у #app, но чат — сетка в полную высоту, ему нужен свой вычет. */
+@media (max-width: 760px) {
+    /* .screen.chat-screen, а не просто .chat-screen: базовое правило выше задано
+       как `.screen.screen-wide` (два класса), и односоставный селектор проигрывал
+       ему по специфичности — высота оставалась 100vh, а вычет не применялся. */
+    .screen.chat-screen {
+        height: calc(100vh - 68px);
+        height: calc(100dvh - 68px);
+    }
+}
+
 @media (max-width: 600px) {
     
-    .chat-screen {
-        height: 100vh;
-        height: 100dvh;
-    }
     .screen { padding: 20px 14px 30px; }
     .post-content { padding-left: 0; }
     .chat-avatar,
