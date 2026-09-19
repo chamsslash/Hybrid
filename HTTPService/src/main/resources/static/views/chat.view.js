@@ -137,6 +137,18 @@ const channelState = {
 let stomp = null;
 let ac = null;
 
+// Номер поколения монтирования. Между `await` внутри mount() и работой с DOM/STOMP
+// вью может быть уже снята: роутер чистит #app и зовёт unmount(), не дожидаясь, пока
+// доедет бутстрап предыдущего экрана. Продолжать после этого нельзя по двум причинам.
+//
+// Видимая: рендер берёт узлы, которых в DOM уже нет.
+//
+// Скрытая и худшая: сразу за рендером идёт подключение STOMP. Он ставит подписки уже ПОСЛЕ
+// того, как unmount() разорвал соединение, — то есть заводит живого подписчика, которого
+// больше некому снять. Ровно так и получаются две подписки на один адрес и по копии
+// каждого сообщения; в роутере против этого уже стоит такой же счётчик поколений.
+let mountGeneration = 0;
+
 // key — MinIO objectKey (напр. userimage/42/uuid.png). Разметка отдаёт заглушку с меткой
 // data-image-key, байты подставляет hydrateImages через axios (beads gs2): тег <img> не умеет
 // послать Authorization, и такой запрос отбивался 401 ещё на ingress.
@@ -640,6 +652,7 @@ function connectStomp(token) {
 
 // --- mount/unmount ---
 export async function mount(params) {
+    const myGeneration = ++mountGeneration;
     chat_id = params.id;
     chat_title = params.title || '';
 
@@ -722,10 +735,15 @@ export async function mount(params) {
             return;
         }
 
+        // Экран уже не наш — ни рисовать, ни подписываться нельзя.
+        if (myGeneration !== mountGeneration) return;
+
         const [me, data] = await Promise.all([
             api.get('/api/me').then(r => r.data),
             api.get('/api/chat', { params: { id: chat_id, title: chat_title } }).then(r => r.data),
         ]);
+        if (myGeneration !== mountGeneration) return;
+
         user_id = String(me.userId);
         user_name = me.username;
         user_image = me.imageUrl;
@@ -755,6 +773,9 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // Бутстрап, который всё ещё висит на await, обязан остановиться: счётчик двигаем
+    // первым делом, до того как разорвём соединение и снимем таймеры.
+    mountGeneration++;
     // blob-URL живут до отзыва (beads gs2) — без этого вкладка копила бы их при каждом
     // переходе между чатами.
     releaseImages();

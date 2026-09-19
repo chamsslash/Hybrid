@@ -47,6 +47,20 @@ let originalPreviews = {};
 let typingUsers = new Map();
 let stomp = null;
 
+// Номер поколения монтирования. Между `await` внутри mount() и работой с DOM/STOMP
+// вью может быть уже снята: роутер чистит #app и зовёт unmount(), не дожидаясь, пока
+// доедет бутстрап предыдущего экрана. Продолжать после этого нельзя по двум причинам.
+//
+// Видимая: renderInitialChats берёт #chats, которого в DOM уже нет, и падает на
+// appendChild — список остаётся пустым, в консоли "chatlist bootstrap failed". Ловится
+// двойным кликом по пункту рельса.
+//
+// Скрытая и худшая: сразу за рендером идёт connectStomp(). Он ставит подписки уже ПОСЛЕ
+// того, как unmount() разорвал соединение, — то есть заводит живого подписчика, которого
+// больше некому снять. Ровно так и получаются две подписки на один адрес и по копии
+// каждого сообщения; в роутере против этого уже стоит такой же счётчик поколений.
+let mountGeneration = 0;
+
 function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, chat_preview_username, image_url }) {
     const chatPart = document.createElement('div');
     chatPart.className = 'chat-row';
@@ -62,7 +76,7 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     const hasPreview = chat_preview && chat_preview.trim() !== '';
     const previewBlock = hasPreview
         ? `<div class="chat-row-preview">
-                ${chat_preview_username ? `<span class="user-id" id="username-${chat_id}"></span>` : ''}
+                ${chat_preview_username ? `<span class="preview-author" id="username-${chat_id}"></span>` : ''}
                 <p id="preview-${chat_id}"></p>
            </div>`
         : `<div class="chat-row-preview">
@@ -295,6 +309,7 @@ function connectStomp(token) {
 
 // --- SPA-контракт: mount сбрасывает состояние вью, unmount гасит STOMP ---
 export async function mount(params) {
+    const myGeneration = ++mountGeneration;
     user_id = null;
     originalPreviews = {};
     typingUsers = new Map();
@@ -344,10 +359,15 @@ export async function mount(params) {
         // их на вкладку. Раньше список запрашивал их сам, то есть на каждом
         // возврате к нему. Внутри loadMe() тоже стоит ensureAccessToken, но выше
         // токен уже добыт и лежит в памяти, так что второго обмена не будет.
+        // Экран уже не наш — ни рисовать, ни подписываться нельзя.
+        if (myGeneration !== mountGeneration) return;
+
         const [me, chats] = await Promise.all([
             loadMe(),
             api.get('/api/chatlist').then(r => r.data),
         ]);
+        if (myGeneration !== mountGeneration) return;
+
         user_id = String(me.userId);
         renderInitialChats(chats);
 
@@ -363,6 +383,9 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // Бутстрап, который всё ещё висит на await, обязан остановиться: счётчик двигаем
+    // первым делом, до того как снимем таймеры и разорвём соединение.
+    mountGeneration++;
     // Таймер догона снимаем раньше остального: иначе уже отмонтированная вью сходила бы
     // в /api/chatlist и полезла бы в узлы, которых в DOM больше нет.
     if (pendingRetryTimer) {
