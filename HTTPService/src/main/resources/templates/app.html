@@ -4,11 +4,55 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TEBEGRAM</title>
+    <!-- tokens.css ОБЯЗАН идти первым: остальные файлы написаны через var(...),
+         и если палитра приедет второй, переменные разрешатся в пустоту. -->
+    <link rel="stylesheet" href="/css/tokens.css">
+    <link rel="stylesheet" href="/css/shell.css">
     <link rel="stylesheet" href="/css/style2.css">
     <link rel="stylesheet" href="/css/style_welcome.css">
 </head>
-<body>
-<div id="app"></div>
+<body class="shell-off">
+<div id="shell">
+    <!--
+        Рельс живёт в шаблоне, а не рисуется из JS, по двум причинам. Первая:
+        роутер на каждом переходе делает replaceChildren() над #app, и всё, что
+        нарисовано внутри, умирает — рельс обязан быть СНАРУЖИ. Вторая: статическая
+        разметка не проходит через DOMPurify, поэтому под Trusted Types здесь нечему
+        ломаться; из JS пишется только карточка пользователя (#rail-user).
+    -->
+    <aside id="rail">
+        <div class="rail-brand">
+            <span class="rail-logo" aria-hidden="true"></span>
+            <span class="rail-wordmark">TEBEGRAM</span>
+        </div>
+
+        <nav class="rail-nav" aria-label="Основная навигация">
+            <button type="button" class="rail-item" data-route="/reactive/chatlist">
+                <span class="rail-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/>
+                    </svg>
+                </span>
+                <span class="rail-label">Чаты</span>
+            </button>
+            <button type="button" class="rail-item" data-route="/reactive/profile">
+                <span class="rail-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="8" r="3.6"/>
+                        <path d="M4.6 20a7.4 7.4 0 0 1 14.8 0"/>
+                    </svg>
+                </span>
+                <span class="rail-label">Профиль</span>
+            </button>
+        </nav>
+
+        <div id="rail-user" class="rail-user"></div>
+    </aside>
+
+    <main id="app"></main>
+</div>
 <div id="toastContainer" class="toast-container"></div>
 <div id="global-spinner" class="global-spinner-overlay" style="display: none;">
     <div class="big-spinner"></div>
