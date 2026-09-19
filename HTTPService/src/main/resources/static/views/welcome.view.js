@@ -67,6 +67,11 @@ const WELCOME_HTML = `
             <button type="submit" class="btn btn-primary">Войти</button>
         </form>
 
+        <!-- Сообщение об ошибке стоит вплотную к форме, к которой относится: в
+             конце карточки, под ссылкой регистрации, оно читалось как замечание
+             к ней, а не к неудачному входу. -->
+        <div id="response-div" class="response-message" style="opacity: 0;"></div>
+
         <div class="auth-sep">или</div>
 
         <a href="#" id="google-login-btn" class="btn btn-google">
@@ -81,7 +86,6 @@ const WELCOME_HTML = `
 
         <p class="auth-switch">Нет аккаунта? <a href="/registerpage" id="register-link-inline">Зарегистрироваться</a></p>
 
-        <div id="response-div" class="response-message" style="opacity: 0;"></div>
     </div>
 </div>
 `;

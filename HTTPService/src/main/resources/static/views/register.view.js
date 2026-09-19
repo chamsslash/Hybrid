@@ -75,9 +75,11 @@ const REGISTER_HTML = `
             <button type="submit" class="btn btn-primary">Создать аккаунт</button>
         </form>
 
+        <!-- См. комментарий в welcome.view.js: ошибка живёт рядом с формой. -->
+        <div id="register-response" class="response-message" style="opacity: 0;"></div>
+
         <p class="auth-switch">Уже есть аккаунт? <a href="/welcome" id="login-link-inline">Войти</a></p>
 
-        <div id="register-response" class="response-message" style="opacity: 0;"></div>
     </div>
 </div>
 `;
