@@ -96,6 +96,14 @@ body {
 
 /* ---------- Пустое состояние ---------- */
 
+/* Показ/скрытие — через атрибут hidden, а не инлайновый style.display. Инлайновый
+   бил бы это правило по приоритету: экран показывали как display:block, колонка
+   flex не собиралась вовсе, и ни align-items, ни gap не работали. Пока иконка была
+   строчной, её центрировал text-align, и перекос не бросался в глаза. */
+.empty-state[hidden] {
+    display: none;
+}
+
 .empty-state {
     display: flex;
     flex-direction: column;
