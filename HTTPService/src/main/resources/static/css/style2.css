@@ -105,7 +105,13 @@ body {
     text-align: center;
 }
 
+/* display обязателен: .empty-icon — <span>, а к строчному элементу width/height не
+   применяются вовсе, поэтому заданные ниже 58px игнорировались. Правило для svg при
+   этом стояло на месте, но 100% считались от несуществующей ширины родителя, и <svg>
+   (у него есть viewBox, но нет собственных размеров) разворачивался на всю колонку —
+   иконка выходила размером в пол-экрана. Видно это только при нуле чатов. */
 .empty-icon {
+    display: block;
     width: 58px;
     height: 58px;
     color: var(--line-2);
@@ -154,11 +160,10 @@ body {
 .chat-row-avatar { flex-shrink: 0; display: flex; }
 
 .chat-row-avatar .chat-avatar,
-.chat-row-avatar .letter-avatar {
+.chat-row-avatar .avatar-ph {
     width: 46px;
     height: 46px;
     border-radius: 15px;
-    font-size: 17px;
 }
 
 /* min-width: 0 обязателен: без него длинное название растягивает строку вместо
@@ -294,30 +299,67 @@ body {
     height: 52px;
     object-fit: cover;
     border-radius: 16px;      /* squircle — signature over the usual circle */
-    background: var(--surface-2);
+    background-color: var(--surface-2);
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
 }
 
-/* Буквенная аватарка — фолбэк, когда картинки нет. Повторяет геометрию .chat-avatar,
-   потому что встаёт ровно на её место; размер переопределяют те же места, что и для
-   картинки (.chip-avatar, .member-avatar, .rail-user-avatar и т.д.).
-   Цвет подложки проставляется инлайном из image_loader.js: он вычисляется из id, а
-   держать в CSS шесть классов-модификаторов ради этого незачем. */
-.letter-avatar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+/* Плейсхолдер аватарки — то, что стоит на месте картинки, пока её нет.
+   Повторяет геометрию .chat-avatar, потому что встаёт ровно на её место; размер
+   переопределяют те же селекторы, что и для картинки (.chip-avatar, .member-avatar,
+   .rail-user-avatar и т.д.). Оба состояния живут на одном элементе, так что смена
+   состояния не трогает вёрстку — только заливку. */
+.avatar-ph {
+    position: relative;
+    display: inline-block;
     width: 52px;
     height: 52px;
     border-radius: 16px;
-    color: #fff;
-    font-weight: 700;
-    font-size: 19px;
-    line-height: 1;
-    letter-spacing: -.01em;
-    user-select: none;
     flex-shrink: 0;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
+    background-color: var(--surface-2);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+
+/* Загрузка — блик по подложке, а не спиннер: в списке из двадцати чатов двадцать
+   крутилок спорят и друг с другом, и с самим списком, и перетягивают внимание с
+   содержимого на ожидание. Глобальное правило prefers-reduced-motion в конце файла
+   гасит анимацию вместе со всеми остальными. */
+.avatar-ph-loading {
+    background-image: linear-gradient(100deg,
+        rgba(255,255,255,0) 32%,
+        rgba(255,255,255,.075) 50%,
+        rgba(255,255,255,0) 68%);
+    background-size: 240% 100%;
+    background-repeat: no-repeat;
+    animation: avatar-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes avatar-shimmer {
+    from { background-position: 130% 0; }
+    to   { background-position: -130% 0; }
+}
+
+/* Аватарки нет или она не доехала. Силуэт вписан data-URI, а не отдельным файлом:
+   это на один запрос меньше в каждой вью и никакой гонки «заглушка грузится дольше
+   картинки, которую она замещает». Рисуем его маской на ::after, а не фоном самого
+   элемента: фоном пришлось бы выбирать между подложкой и силуэтом, а маска на
+   элементе срезала бы и подложку тоже. Цвет тогда задаёт background-color маски —
+   то есть силуэт следует палитре, а не зашит в сам SVG. */
+.avatar-ph-empty {
+    background-image: none;
+    animation: none;
+}
+
+.avatar-ph-empty::after {
+    /* Переменная объявлена прямо здесь, а не в tokens.css: это не цвет палитры, а
+       единственная форма, и нужна она ровно в двух строках ниже — префиксной и
+       обычной. Второй :root ради неё заводить незачем. */
+    --avatar-silhouette: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 12.4a4.3 4.3 0 1 0 0-8.6 4.3 4.3 0 0 0 0 8.6Zm0 1.9c-4.1 0-7.4 2.4-7.4 5.3 0 .6.5 1.1 1.1 1.1h12.6c.6 0 1.1-.5 1.1-1.1 0-2.9-3.3-5.3-7.4-5.3Z'/%3E%3C/svg%3E");
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: var(--faint);
+    -webkit-mask: var(--avatar-silhouette) center / 58% 58% no-repeat;
+    mask: var(--avatar-silhouette) center / 58% 58% no-repeat;
 }
 
 /* Аватарка внутри чипса выбранного участника. Отдельный размер, а не .chat-avatar:
@@ -327,9 +369,8 @@ body {
     height: 22px;
     object-fit: cover;
     border-radius: 7px;
-    background: var(--surface-2);
+    background-color: var(--surface-2);
     flex-shrink: 0;
-    font-size: 10px;
 }
 
 /* ============================================================
@@ -435,9 +476,8 @@ body {
     height: 40px;
     object-fit: cover;
     border-radius: 12px;
-    background: var(--surface-2);
+    background-color: var(--surface-2);
     flex-shrink: 0;
-    font-size: 15px;
 }
 .member-info {
     display: flex;
@@ -559,11 +599,10 @@ body {
 }
 
 .chat-side-head .chat-avatar,
-.chat-side-head .letter-avatar {
+.chat-side-head .avatar-ph {
     width: 76px;
     height: 76px;
     border-radius: 24px;
-    font-size: 28px;
 }
 
 .chat-side-title {
@@ -601,7 +640,7 @@ body {
     flex-wrap: wrap;
 }
 .chat-header .chat-avatar,
-.chat-header .letter-avatar { width: 44px; height: 44px; border-radius: 13px; font-size: 16px; }
+.chat-header .avatar-ph { width: 44px; height: 44px; border-radius: 13px; }
 .chat-header > span,
 .chat-header #chat-title {
     font-weight: 700;
@@ -941,11 +980,10 @@ body {
 }
 
 .profile-avatar .chat-avatar,
-.profile-avatar .letter-avatar {
+.profile-avatar .avatar-ph {
     width: 88px;
     height: 88px;
     border-radius: 28px;
-    font-size: 32px;
 }
 
 .profile-ident { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -1207,9 +1245,8 @@ body {
 @media (max-width: 600px) {
     
     .screen { padding: 20px 14px 30px; }
-    .post-content { padding-left: 0; }
     .chat-avatar,
-    .letter-avatar { width: 46px; height: 46px; font-size: 17px; }
+    .avatar-ph { width: 46px; height: 46px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

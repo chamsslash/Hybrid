@@ -12,8 +12,6 @@ import api from "/axios.js";
 // Поэтому байты тянет axios (он приложит Bearer и сделает refresh+retry на 401), а в src
 // подставляется blob-URL. Кеш по objectKey обязателен: одна и та же аватарка автора
 // встречается в каждом его сообщении, без кеша это был бы запрос на каждое сообщение.
-export const IMAGE_PLACEHOLDER = "/images/rofl-cat.jpg";
-
 const objectUrls = new Map(); // objectKey -> Promise<string|null>
 const pinned = new Set();     // ключи, которые releaseImages() не трогает
 
@@ -22,53 +20,30 @@ function isUsableKey(key) {
     return Boolean(key) && key !== "pending";
 }
 
-// Подложки буквенных аватарок. Выбор детерминированный по seed (id чата или
-// пользователя), а не случайный и не по порядку в списке: один и тот же объект
-// обязан быть одного цвета в списке, в чате и в рельсе, иначе цвет читается как
-// значащий признак, которым он не является.
-const LETTER_GRADIENTS = [
-    "linear-gradient(135deg,#7b61ff,#b14bf4)",
-    "linear-gradient(135deg,#ff7b54,#fd5a48)",
-    "linear-gradient(135deg,#2bb8a3,#35d07f)",
-    "linear-gradient(135deg,#4a7bff,#6bb8ff)",
-    "linear-gradient(135deg,#e0518f,#ff6b9d)",
-    "linear-gradient(135deg,#f2a341,#f4c45e)",
-];
-
-function gradientFor(seed) {
-    const s = String(seed ?? "");
-    let h = 0;
-    for (let i = 0; i < s.length; i++) {
-        h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    }
-    return LETTER_GRADIENTS[h % LETTER_GRADIENTS.length];
-}
-
-function firstLetter(text) {
-    const t = String(text ?? "").trim();
-    return t ? t[0].toUpperCase() : "?";
-}
-
 /**
- * Разметка картинки. Сразу отдаёт заглушку и помечает узел ключом: реальные байты
- * подставит hydrateImages после вставки узла в DOM. Так разметка остаётся синхронной
- * (её собирают через policy.createHTML в шаблонных строках), а сеть — асинхронной.
- * data-* атрибуты DOMPurify пропускает, поэтому ключ переживает санитайзер.
+ * Разметка аватарки. Возвращает не <img>, а плейсхолдер-<span>: реальные байты
+ * подставит hydrateImages после вставки узла в DOM, заменив span на <img>. Так
+ * разметка остаётся синхронной (её собирают через policy.createHTML в шаблонных
+ * строках), а сеть — асинхронной. data-* атрибуты DOMPurify пропускает, поэтому
+ * метка переживает санитайзер.
  *
- * Когда пригодного ключа нет, отдаётся не заглушка-картинка, а буква на цветной
- * подложке: пустой кружок ничего не сообщал, а одинаковая для всех заглушка
- * делала список чатов неразличимым.
+ * У плейсхолдера два состояния, и оба — на одном и том же элементе:
+ *   avatar-ph-loading — байты в пути, по подложке идёт блик;
+ *   avatar-ph-empty   — аватарки нет или она не доехала, нейтральный силуэт.
  *
- * @param seed  чем солить выбор цвета (id чата/пользователя)
- * @param label откуда брать букву (название чата, ник)
+ * Раньше на месте обоих стояла картинка /images/rofl-cat.jpg. Она не только
+ * висела в каждой ячейке, пока шла загрузка (на публичном стенде это около
+ * секунды на аватарку), но и ОСТАВАЛАСЬ НАВСЕГДА, если байты не приходили:
+ * 403 на чужой объект, 404, обрыв сети — всё это выглядело как «у пользователя
+ * такая аватарка». Теперь неудача попадает в то же состояние, что и её
+ * отсутствие, и ничем не притворяется.
  */
-export function imageTag(key, className = "chat-avatar", alt = "avatar", seed = null, label = "") {
-    if (isUsableKey(key)) {
-        return `<img src="${IMAGE_PLACEHOLDER}" data-image-key="${key}" alt="${alt}" class="${className}">`;
+export function imageTag(key, className = "chat-avatar", alt = "avatar") {
+    if (!isUsableKey(key)) {
+        return `<span class="avatar-ph avatar-ph-empty ${className}" role="img" aria-label="${alt}"></span>`;
     }
-    const seedValue = seed ?? label ?? alt;
-    return `<span class="letter-avatar ${className}" role="img" aria-label="${alt}"`
-        + ` style="background:${gradientFor(seedValue)}">${firstLetter(label)}</span>`;
+    return `<span class="avatar-ph avatar-ph-loading ${className}" role="img" aria-label="${alt}"`
+        + ` data-image-key="${key}" data-image-class="${className}" data-image-alt="${alt}"></span>`;
 }
 
 function objectUrlFor(key) {
@@ -85,16 +60,29 @@ function objectUrlFor(key) {
 /** Подставляет байты во все помеченные узлы поддерева. Вызывать после вставки в DOM. */
 export function hydrateImages(root) {
     const scope = root || document;
-    scope.querySelectorAll("img[data-image-key]").forEach((node) => {
+    scope.querySelectorAll("[data-image-key]").forEach((node) => {
         const key = node.getAttribute("data-image-key");
+        const className = node.getAttribute("data-image-class") || "chat-avatar";
+        const alt = node.getAttribute("data-image-alt") || "";
         // Снимаем метку сразу: повторный hydrateImages по тому же поддереву не должен
         // ставить второй обработчик на тот же узел.
         node.removeAttribute("data-image-key");
         objectUrlFor(key).then((url) => {
             // Узел мог уехать из DOM, пока шёл запрос (перерисовка списка, смена вью).
-            if (url && node.isConnected) {
-                node.src = url;
+            if (!node.isConnected) {
+                return;
             }
+            if (!url) {
+                // Байты не пришли. Показываем ровно то же, что при отсутствующей
+                // аватарке: пульсация навсегда означала бы «вот-вот загрузится».
+                node.classList.replace("avatar-ph-loading", "avatar-ph-empty");
+                return;
+            }
+            const img = document.createElement("img");
+            img.className = className;
+            img.alt = alt;
+            img.src = url;
+            node.replaceWith(img);
         });
     });
 }

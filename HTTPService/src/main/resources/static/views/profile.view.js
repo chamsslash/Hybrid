@@ -126,7 +126,7 @@ function renderAvatar(objectKey) {
         return;
     }
     container.innerHTML = policy.createHTML(
-        imageTag(objectKey, "chat-avatar", "аватарка", user_id, current_username));
+        imageTag(objectKey, "chat-avatar", "аватарка"));
     hydrateImages(container);
 }
 

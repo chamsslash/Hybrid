@@ -146,11 +146,10 @@ body.shell-off #rail {
 }
 
 .rail-user-avatar .chat-avatar,
-.rail-user-avatar .letter-avatar {
+.rail-user-avatar .avatar-ph {
     width: 36px;
     height: 36px;
     border-radius: 11px;
-    font-size: 14px;
 }
 
 .rail-user-name {

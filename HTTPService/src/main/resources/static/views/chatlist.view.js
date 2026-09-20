@@ -86,7 +86,7 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     // image_url — MinIO objectKey. Разметка отдаёт заглушку с меткой data-image-key, байты
     // подставляет hydrateImages через axios (beads gs2): тег <img> не умеет послать
     // Authorization, и такой запрос отбивался 401 ещё на ingress.
-    const avatarImg = imageTag(image_url, 'chat-avatar', 'chat avatar', chat_id, chat_title);
+    const avatarImg = imageTag(image_url, 'chat-avatar', 'chat avatar');
 
     chatPart.innerHTML = policy.createHTML(`
         <div class="chat-row-avatar" id="chat-img-${chat_id}" data-chat-id="${chat_id}">

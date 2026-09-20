@@ -152,8 +152,8 @@ let mountGeneration = 0;
 // key — MinIO objectKey (напр. userimage/42/uuid.png). Разметка отдаёт заглушку с меткой
 // data-image-key, байты подставляет hydrateImages через axios (beads gs2): тег <img> не умеет
 // послать Authorization, и такой запрос отбивался 401 ещё на ingress.
-function avatarHtml(key, seed, label) {
-    return imageTag(key, 'chat-avatar', 'chat avatar', seed, label);
+function avatarHtml(key) {
+    return imageTag(key, 'chat-avatar', 'chat avatar');
 }
 
 function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url }) {
@@ -204,7 +204,7 @@ function renderHeader(data) {
 
     const avatarHtmlString = data.chatImageUrl === 'pending'
         ? `<div class="spinner-avatar"></div>`
-        : avatarHtml(data.chatImageUrl, chat_id, title);
+        : avatarHtml(data.chatImageUrl);
 
     for (const id of ['chat-header-avatar', 'side-avatar']) {
         const box = document.getElementById(id);
@@ -240,7 +240,7 @@ function memberItem(member) {
     const item = document.createElement('li');
     item.className = 'member-row';
     item.innerHTML = policy.createHTML(`
-        ${imageTag(member.imageUrl, 'member-avatar', 'аватарка участника', member.userId, member.username)}
+        ${imageTag(member.imageUrl, 'member-avatar', 'аватарка участника')}
         <div class="member-info">
             <span class="member-name"></span>
             <span class="member-id"></span>
@@ -459,7 +459,7 @@ function updateChatHeaderAvatar(msg) {
         const target = document.getElementById(id);
         if (!target) continue;
         target.innerHTML = policy.createHTML(
-            avatarHtml(message.objectKey, chat_id, chat_title));
+            avatarHtml(message.objectKey));
         hydrateImages(target);
     }
 }
