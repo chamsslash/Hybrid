@@ -1,0 +1,233 @@
+/* ============================================================
+   Каркас приложения: навигационный рельс + область вью.
+   Палитра — tokens.css, он обязан быть подключён раньше.
+   ============================================================ */
+
+#shell {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    min-height: 100vh;
+}
+
+/* Экраны без рельса (вход, регистрация, OAuth-callback). Класс стоит в разметке
+   по умолчанию и снимается из shell.js на авторизованных маршрутах — так экран
+   входа не мигает навигацией, пока грузится JS. */
+body.shell-off #shell {
+    display: block;
+    min-height: auto;
+    /* width обязателен. body.shell-off — это flex-контейнер (центрирует карточку
+       входа), а значит #shell в нём flex-элемент и по умолчанию ужимается до
+       ширины содержимого. Без явных 100% ширина карточки min(980px, 100%)
+       резолвилась против этой ужатой ширины и схлопывалась до min-content —
+       две панели вставали друг под друга даже на широком экране. */
+    width: 100%;
+}
+
+body.shell-off #rail {
+    display: none;
+}
+
+/* ---------- Рельс ---------- */
+
+#rail {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 22px 14px;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
+
+.rail-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 0;
+}
+
+.rail-logo {
+    width: 26px;
+    height: 26px;
+    border-radius: 9px;
+    background: var(--accent-grad);
+    box-shadow: var(--glow);
+    flex-shrink: 0;
+}
+
+.rail-wordmark {
+    font-weight: 700;
+    letter-spacing: -.02em;
+    font-size: 15px;
+    color: var(--ink);
+}
+
+.rail-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rail-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 14px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+    transition: background .15s ease, color .15s ease;
+}
+
+.rail-item:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+}
+
+.rail-item.active {
+    background: var(--accent-grad);
+    color: #fff;
+    box-shadow: var(--glow);
+}
+
+.rail-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.rail-icon {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.rail-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* ---------- Карточка пользователя ---------- */
+
+.rail-user {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    cursor: pointer;
+    min-height: 56px;
+    transition: background .15s ease;
+}
+
+.rail-user:empty {
+    background: transparent;
+    cursor: default;
+}
+
+.rail-user:hover {
+    background: var(--surface-3);
+}
+
+.rail-user:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.rail-user-avatar .chat-avatar,
+.rail-user-avatar .avatar-ph {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+}
+
+.rail-user-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-user-chevron {
+    color: var(--faint);
+    font-size: 18px;
+    line-height: 1;
+}
+
+/* ---------- Узкие экраны: рельс становится нижней полосой ---------- */
+
+@media (max-width: 760px) {
+    #shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #rail {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: auto;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-right: 0;
+        border-top: 1px solid var(--line);
+        z-index: 40;
+    }
+
+    .rail-brand {
+        display: none;
+    }
+
+    .rail-nav {
+        flex: 1;
+        flex-direction: row;
+        gap: 8px;
+    }
+
+    .rail-item {
+        justify-content: center;
+        padding: 9px 10px;
+    }
+
+    /* Подпись рядом с иконкой в полосе не помещается у двух пунктов сразу,
+       а обрезанное слово читается хуже, чем его отсутствие: пунктов всего два,
+       и иконки различимы. */
+    .rail-label {
+        display: none;
+    }
+
+    .rail-user {
+        margin-top: 0;
+        padding: 4px;
+        background: transparent;
+    }
+
+    .rail-user-name,
+    .rail-user-chevron {
+        display: none;
+    }
+
+    /* Место под полосу, чтобы она не накрывала последнюю карточку списка
+       и строку ввода в чате. */
+    #app {
+        padding-bottom: 68px;
+    }
+}

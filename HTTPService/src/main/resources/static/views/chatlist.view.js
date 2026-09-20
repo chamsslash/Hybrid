@@ -1,6 +1,7 @@
 import api from "/axios.js";
 import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 import { ensureAccessToken } from "/auth.js";
+import { loadMe } from "/shell.js";
 import { navigate } from "/router.js";
 import { createStompRegistry } from "/stomp-lifecycle.js";
 import { formatMessageTimestamp } from "/timestamp_format.js";
@@ -16,19 +17,28 @@ import { formatMessageTimestamp } from "/timestamp_format.js";
 // таким же образом не создать, поэтому кнопка нужна в обоих состояниях списка, а не только
 // рядом с «У вас пока нет чатов».
 const CHATLIST_HTML = `
-    <div class="post-feed">
-        <div id="profile-header" class="post-header" style="cursor: pointer; align-items: center; gap: 10px;"
-             role="button" tabindex="0" aria-label="Мой профиль">
-            <div class="chat-avatar-container" id="me-avatar"></div>
-            <div class="user-info">
-                <span class="user-name" id="me-username"></span>
-            </div>
+    <div class="screen">
+        <header class="screen-head">
+            <h1 class="screen-title">Чаты</h1>
+            <button type="button" id="create-chat-btn" class="pill-action">
+                <span aria-hidden="true">+</span> Новый чат
+            </button>
+        </header>
+
+        <div id="chatlist-spinner" class="list-hint">Загрузка…</div>
+
+        <div id="no-chats-message" class="empty-state" hidden>
+            <span class="empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/>
+                </svg>
+            </span>
+            <p class="empty-title">У вас пока нет чатов</p>
+            <p class="empty-text">Создайте первый — и начните переписку.</p>
         </div>
-        <h2 style="text-align: center;">Ваши чаты</h2>
-        <button type="button" id="create-chat-btn" class="btn btn-regular">+ Новый чат</button>
-        <p id="no-chats-message" style="text-align: center; color: #888; display: none;">У вас пока нет чатов</p>
-        <div id="chatlist-spinner" style="text-align: center; color: #888;">Загрузка…</div>
-        <div class="chat-messages" id="chats"></div>
+
+        <div class="chat-list" id="chats"></div>
     </div>
 `;
 
@@ -37,9 +47,23 @@ let originalPreviews = {};
 let typingUsers = new Map();
 let stomp = null;
 
+// Номер поколения монтирования. Между `await` внутри mount() и работой с DOM/STOMP
+// вью может быть уже снята: роутер чистит #app и зовёт unmount(), не дожидаясь, пока
+// доедет бутстрап предыдущего экрана. Продолжать после этого нельзя по двум причинам.
+//
+// Видимая: renderInitialChats берёт #chats, которого в DOM уже нет, и падает на
+// appendChild — список остаётся пустым, в консоли "chatlist bootstrap failed". Ловится
+// двойным кликом по пункту рельса.
+//
+// Скрытая и худшая: сразу за рендером идёт connectStomp(). Он ставит подписки уже ПОСЛЕ
+// того, как unmount() разорвал соединение, — то есть заводит живого подписчика, которого
+// больше некому снять. Ровно так и получаются две подписки на один адрес и по копии
+// каждого сообщения; в роутере против этого уже стоит такой же счётчик поколений.
+let mountGeneration = 0;
+
 function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, chat_preview_username, image_url }) {
     const chatPart = document.createElement('div');
-    chatPart.className = 'post';
+    chatPart.className = 'chat-row';
     chatPart.style.cursor = 'pointer';
     chatPart.dataset.chatId = chat_id;
     chatPart.dataset.chatTitle = chat_title;
@@ -51,11 +75,11 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     // того, пришла она с загрузкой списка или обновлением на лету.
     const hasPreview = chat_preview && chat_preview.trim() !== '';
     const previewBlock = hasPreview
-        ? `<div class="post-content" style="display: flex; align-items: center; gap: 8px;">
-                ${chat_preview_username ? `<span class="user-id" id="username-${chat_id}"></span>` : ''}
+        ? `<div class="chat-row-preview">
+                ${chat_preview_username ? `<span class="preview-author" id="username-${chat_id}"></span>` : ''}
                 <p id="preview-${chat_id}"></p>
            </div>`
-        : `<div class="post-content" style="display: flex; align-items: center; gap: 8px;">
+        : `<div class="chat-row-preview">
                  <p class="no-message" id="preview-${chat_id}">Нет сообщений</p>
            </div>`;
 
@@ -65,17 +89,16 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     const avatarImg = imageTag(image_url, 'chat-avatar', 'chat avatar');
 
     chatPart.innerHTML = policy.createHTML(`
-        <div class="post-header">
-            <div class="chat-avatar-container" id="chat-img-${chat_id}" data-chat-id="${chat_id}">
-                ${image_url === 'pending' ? `<div class="spinner-avatar"></div>` : avatarImg}
-            </div>
-            <div class="user-info">
-                <span class="user-name chat-title"></span>
-                <span class="user-name">Чат №<span>${chat_id}</span></span>
-            </div>
-            <span class="post-time" id="timestamp-${chat_id}">${formatMessageTimestamp(chat_lastmessagetime)}</span>
+        <div class="chat-row-avatar" id="chat-img-${chat_id}" data-chat-id="${chat_id}">
+            ${image_url === 'pending' ? `<div class="spinner-avatar"></div>` : avatarImg}
         </div>
-        ${previewBlock}
+        <div class="chat-row-body">
+            <div class="chat-row-top">
+                <span class="chat-row-title chat-title"></span>
+                <span class="chat-row-time" id="timestamp-${chat_id}">${formatMessageTimestamp(chat_lastmessagetime)}</span>
+            </div>
+            ${previewBlock}
+        </div>
     `);
 
     chatPart.querySelector('.chat-title').textContent = chat_title || '';
@@ -87,40 +110,10 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
     return chatPart;
 }
 
-// Компактная шапка-вход в профиль (beads ehe). До неё во фронте не было ни одного места,
-// где пользователь видит свои данные: /api/me отдаёт username и imageUrl с самого начала,
-// но UI их не показывал.
-function renderProfileHeader(me) {
-    const header = document.getElementById('profile-header');
-    if (!header) return;
-
-    const nameSpan = document.getElementById('me-username');
-    if (nameSpan) nameSpan.textContent = me.username || '';
-
-    const avatar = document.getElementById('me-avatar');
-    if (avatar) {
-        avatar.innerHTML = me.imageUrl === 'pending'
-            ? policy.createHTML(`<div class="spinner-avatar"></div>`)
-            : policy.createHTML(imageTag(me.imageUrl, 'chat-avatar', 'моя аватарка'));
-        hydrateImages(avatar);
-    }
-
-    // Слушатели не снимаются в unmount намеренно: узел живёт внутри #app и целиком
-    // заменяется следующим innerHTML — тот же приём, что у кнопки создания чата.
-    header.onclick = () => navigate('/reactive/profile');
-    header.onkeydown = (e) => {
-        // Шапка — div с role="button", клавиатурная активация ей не достаётся сама.
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            navigate('/reactive/profile');
-        }
-    };
-}
-
 function appendChat(chat) {
     const chatsDiv = document.getElementById('chats');
     const noChatsMessage = document.getElementById('no-chats-message');
-    if (noChatsMessage) noChatsMessage.style.display = 'none';
+    if (noChatsMessage) noChatsMessage.hidden = true;
     const card = chatCard(chat);
     chatsDiv.prepend(card);
     hydrateImages(card);
@@ -132,7 +125,7 @@ function renderInitialChats(chats) {
     document.getElementById('chatlist-spinner')?.remove();
 
     if (!chats || chats.length === 0) {
-        if (noChatsMessage) noChatsMessage.style.display = 'block';
+        if (noChatsMessage) noChatsMessage.hidden = false;
         return;
     }
     for (const chat of chats) {
@@ -316,6 +309,7 @@ function connectStomp(token) {
 
 // --- SPA-контракт: mount сбрасывает состояние вью, unmount гасит STOMP ---
 export async function mount(params) {
+    const myGeneration = ++mountGeneration;
     user_id = null;
     originalPreviews = {};
     typingUsers = new Map();
@@ -361,12 +355,20 @@ export async function mount(params) {
             return;
         }
 
+        // /api/me берётся у шелла: рельс уже показывает эти данные и кэширует
+        // их на вкладку. Раньше список запрашивал их сам, то есть на каждом
+        // возврате к нему. Внутри loadMe() тоже стоит ensureAccessToken, но выше
+        // токен уже добыт и лежит в памяти, так что второго обмена не будет.
+        // Экран уже не наш — ни рисовать, ни подписываться нельзя.
+        if (myGeneration !== mountGeneration) return;
+
         const [me, chats] = await Promise.all([
-            api.get('/api/me').then(r => r.data),
+            loadMe(),
             api.get('/api/chatlist').then(r => r.data),
         ]);
+        if (myGeneration !== mountGeneration) return;
+
         user_id = String(me.userId);
-        renderProfileHeader(me);
         renderInitialChats(chats);
 
         connectStomp(token);
@@ -381,6 +383,9 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // Бутстрап, который всё ещё висит на await, обязан остановиться: счётчик двигаем
+    // первым делом, до того как снимем таймеры и разорвём соединение.
+    mountGeneration++;
     // Таймер догона снимаем раньше остального: иначе уже отмонтированная вью сходила бы
     // в /api/chatlist и полезла бы в узлы, которых в DOM больше нет.
     if (pendingRetryTimer) {

@@ -12,41 +12,45 @@ import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
 // выдачи, и это и есть гарантия, что в чат попадают существующие пользователи.
 
 const CREATECHAT_HTML = `
-    <div class="post-feed">
-        <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
+    <div class="screen">
+        <header class="screen-head">
+            <!-- Кнопка остаётся, в отличие от профиля: создание чата — подэкран списка,
+                 а не раздел навигации, и в рельсе пункта под него нет. -->
+            <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
+            <h1 class="screen-title">Новый чат</h1>
+        </header>
 
-        <h2 style="text-align: center;">Отправка ChatData</h2>
-
-        <form id="chatForm" class="add-comment" enctype="multipart/form-data">
+        <form id="chatForm" class="form-card" enctype="multipart/form-data">
 
             <!-- name НЕ "title": DOMPurify (см. policy.createHTML/trusted_policy.js) по
                  умолчанию защищается от DOM clobbering и молча вырезает name="title" —
                  совпадение с document.title. Реальный ключ "title", который ждёт сервер
                  (WEBFLUX_Service.handleCreateChat), подставляется вручную при сабмите. -->
-            <input type="text" name="chatTitle" placeholder="Название чата" required>
+            <label class="field">
+                <span class="field-label">Название</span>
+                <input type="text" name="chatTitle" placeholder="Название чата" required>
+            </label>
 
-            <!-- Поле для выбора файла -->
-            <label for="imageUpload">Загрузить изображение:</label>
-            <input type="file" name="file" id="imageUpload" accept="image/*" />
+            <label class="field">
+                <span class="field-label">Картинка чата</span>
+                <input type="file" name="file" id="imageUpload" accept="image/*">
+            </label>
 
-            <label for="userSearch">Участники:</label>
-            <div id="user-picker" style="position: relative;">
-                <input type="text" id="userSearch" placeholder="Начните вводить ник"
-                       autocomplete="off" role="combobox" aria-expanded="false"
-                       aria-controls="user-suggestions" aria-autocomplete="list">
-                <ul id="user-suggestions" role="listbox" style="display: none; position: absolute;
-                    z-index: 10; left: 0; right: 0; margin: 0; padding: 0; list-style: none;
-                    max-height: 220px; overflow-y: auto; background: var(--surface);
-                    color: var(--ink); border: 1px solid var(--line-2); border-radius: 12px;
-                    box-shadow: var(--shadow-2);"></ul>
+            <div class="field">
+                <span class="field-label">Участники</span>
+                <div id="user-picker" class="user-picker">
+                    <input type="text" id="userSearch" placeholder="Начните вводить ник"
+                           autocomplete="off" role="combobox" aria-expanded="false"
+                           aria-controls="user-suggestions" aria-autocomplete="list">
+                    <ul id="user-suggestions" class="user-suggestions" role="listbox" style="display: none;"></ul>
+                </div>
+                <div id="user-chips" class="user-chips"></div>
             </div>
-            <div id="user-chips" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;"></div>
 
-            <br>
-            <button type="submit">Отправить</button>
+            <button type="submit" class="btn-submit">Создать чат</button>
         </form>
 
-        <p id="result" style="margin-top: 10px; font-weight: bold;"></p>
+        <p id="result" class="form-result"></p>
     </div>
 `;
 
@@ -84,7 +88,7 @@ function highlight(index) {
     const items = list.querySelectorAll("li[data-user-id]");
     items.forEach((node, i) => {
         const on = i === index;
-        node.style.background = on ? "var(--iris-050)" : "transparent";
+        node.classList.toggle("active", on);
         node.setAttribute("aria-selected", on ? "true" : "false");
     });
     activeIndex = index;
@@ -100,16 +104,14 @@ function renderSuggestions(users) {
         // Пустая панель без объяснений выглядит как сломавшийся запрос — говорим прямо.
         const empty = document.createElement("li");
         empty.textContent = "Никого не найдено";
-        empty.style.padding = "8px";
-        empty.style.color = "var(--muted)";
+        empty.className = "suggestion-empty";
         list.appendChild(empty);
     } else {
         users.forEach((user, index) => {
             const item = document.createElement("li");
             item.dataset.userId = user.userId;
             item.textContent = user.username;
-            item.style.padding = "8px";
-            item.style.cursor = "pointer";
+            item.className = "suggestion-item";
             item.setAttribute("role", "option");
             item.setAttribute("aria-selected", "false");
             // mousedown, а не click: click приходит уже после blur поля ввода, и к этому
@@ -135,12 +137,8 @@ function renderChips() {
 
     for (const [userId, user] of selected) {
         const chip = document.createElement("span");
-        chip.className = "comment";
+        chip.className = "user-chip";
         chip.dataset.userId = userId;
-        chip.style.display = "inline-flex";
-        chip.style.alignItems = "center";
-        chip.style.gap = "6px";
-        chip.style.padding = "4px 8px";
 
         // Аватарки только у выбранных: в выпадашке их нет намеренно. Ключ приехал вместе с
         // подсказкой, поэтому дополнительного запроса за ним нет — а вот БАЙТЫ каждой

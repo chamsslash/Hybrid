@@ -1,30 +1,21 @@
 /* ============================================================
-   TEBEGRAM — auth entry (welcome / login)
-   Shares the "Iris & Ember" system used across the app.
+   TEBEGRAM — экраны входа и регистрации
+   Палитра — общая, из tokens.css. Своего :root здесь нет и быть не должно.
    ============================================================ */
 
-:root {
-    --ink:        #1b1a2e;
-    --muted:      #6b6a83;
-    --faint:      #9997ad;
-    --paper:      #eceef6;
-    --surface:    #ffffff;
-    --surface-2:  #f3f4fb;
-    --line:       #e3e5f0;
-    --line-2:     #d5d7e6;
-    --iris:       #5a4be3;
-    --iris-600:   #4a3ccb;
-    --iris-050:   #eeecfd;
-    --ember-grad: linear-gradient(135deg, #ff6a5b 0%, #ff9166 100%);
-    --iris-grad:  linear-gradient(135deg, #5a4be3 0%, #7b6bf0 100%);
-    --err:        #e5484d;
-    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-}
+/*
+ * Здесь был ВТОРОЙ :root с полным набором светлых токенов. Файл подключается
+ * после style2.css, поэтому он переопределял палитру не только для экрана
+ * входа, а глобально — на всех маршрутах. Пока обе палитры были светлыми, это
+ * не проявлялось никак; на тёмной теме каждый экран возвращался бы в белый.
+ *
+ * По той же причине правила body ограничены классом .shell-off (экраны без
+ * навигационного рельса): раньше `display: flex` с центрированием из этого
+ * файла доставался и списку чатов, и самому чату, хотя писался под одну
+ * центрированную карточку входа.
+ */
 
-* { box-sizing: border-box; }
-
-body {
+body.shell-off {
     margin: 0;
     font-family: var(--sans);
     display: flex;
@@ -33,149 +24,375 @@ body {
     min-height: 100vh;
     padding: 24px;
     color: var(--ink);
-    background:
-        radial-gradient(120% 90% at 100% 0%, #f4f0ff 0%, rgba(244,240,255,0) 45%),
-        radial-gradient(120% 90% at 0% 100%, #fff1ec 0%, rgba(255,241,236,0) 45%),
-        var(--paper);
     -webkit-font-smoothing: antialiased;
 }
 
-.login-container {
-    text-align: center;
+/* ---------- Двухпанельная карточка ---------- */
+
+.auth-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: min(980px, 100%);
+    min-height: 540px;
     background: var(--surface);
-    padding: 40px clamp(24px, 6vw, 44px) 34px;
     border: 1px solid var(--line);
-    border-radius: 22px;
-    box-shadow: 0 12px 40px rgba(27,26,46,.14);
-    width: 100%;
-    max-width: 400px;
+    border-radius: 24px;
+    box-shadow: var(--shadow-2);
+    overflow: hidden;
+    margin: 0 auto;
 }
 
-/* Brand wordmark — the signature carried from the chat UI */
-.wordmark {
-    font-weight: 800;
-    font-size: 15px;
-    letter-spacing: .22em;
-    background: var(--iris-grad);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    margin-bottom: 22px;
+/* ---------- Левая панель: слоган поверх абстрактных пятен ---------- */
+
+.auth-art {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 34px;
+    background: #10141e;
+    overflow: hidden;
 }
 
-h1 {
-    margin: 0 0 6px;
-    color: var(--ink);
-    font-size: 27px;
-    font-weight: 800;
+/*
+ * Иллюстрации нет намеренно: растровый файл — это бинарник в репозитории и ещё
+ * один запрос, а нарисованный вручную SVG-персонаж редко выглядит лучше, чем
+ * чистая абстракция. Две мягкие «волны» собираются из радиальных градиентов и
+ * размытия, то есть масштабируются на любой экран без потери качества.
+ */
+.auth-art::before,
+.auth-art::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(40px);
+    pointer-events: none;
+}
+
+.auth-art::before {
+    width: 420px;
+    height: 420px;
+    left: -140px;
+    bottom: -150px;
+    background: radial-gradient(circle at 40% 40%, rgba(178, 72, 190, .55) 0%, rgba(120, 50, 160, .22) 45%, rgba(0, 0, 0, 0) 70%);
+}
+
+.auth-art::after {
+    width: 360px;
+    height: 360px;
+    right: -120px;
+    top: -110px;
+    background: radial-gradient(circle at 60% 60%, rgba(253, 90, 72, .42) 0%, rgba(253, 90, 72, .14) 48%, rgba(0, 0, 0, 0) 72%);
+}
+
+.auth-brand {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.auth-logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    background: var(--accent-grad);
+    box-shadow: var(--glow);
+}
+
+.auth-wordmark {
+    font-size: 17px;
+    font-weight: 700;
     letter-spacing: -.02em;
-}
-.subtitle {
-    margin: 0 0 28px;
-    color: var(--muted);
-    font-size: 14px;
+    color: var(--ink);
 }
 
-/* Buttons & button-links */
-.btn {
-    display: block;
-    width: 100%;
-    padding: 14px;
-    margin-bottom: 12px;
-    border: 1px solid transparent;
-    border-radius: 12px;
+.auth-slogan {
+    position: relative;
+    margin: 0;
+    font-size: 25px;
+    line-height: 1.35;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    color: var(--ink);
+    max-width: 15ch;
+}
+
+.auth-footnote {
+    position: relative;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--muted);
+}
+
+/* ---------- Правая панель: форма ---------- */
+
+.auth-pane {
+    display: flex;
+    flex-direction: column;
+    padding: 34px 38px;
+    background: var(--surface);
+}
+
+.auth-tabs {
+    display: flex;
+    gap: 26px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 26px;
+}
+
+/*
+ * Таб — ссылка на соседний маршрут, а не переключатель внутри экрана: вход и
+ * регистрация остаются разными адресами, за которые держатся серверные
+ * редиректы и тесты шелла.
+ */
+.auth-tab {
+    padding: 0 2px 12px;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font: inherit;
     font-size: 15px;
     font-weight: 600;
+    color: var(--faint);
     cursor: pointer;
     text-decoration: none;
-    color: #fff;
-    transition: transform .16s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease, filter .2s ease;
-    -webkit-font-smoothing: antialiased;
+    transition: color .15s ease;
 }
-.btn:active { transform: scale(.985); }
 
-/* Primary CTA — Google sign-in rides the ember accent */
-.btn-google {
-    background: var(--ember-grad);
-    box-shadow: 0 8px 20px rgba(255,106,91,.3);
+.auth-tab:hover { color: var(--muted); }
+
+.auth-tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
 }
-.btn-google:hover { filter: brightness(1.03); transform: translateY(-1px); }
-.btn-google:disabled { filter: grayscale(.4) brightness(.98); cursor: default; transform: none; }
 
-/* Password sign-in submit — iris */
-.btn-regular {
-    background: var(--iris);
-    box-shadow: 0 8px 20px rgba(90,75,227,.26);
+.auth-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 4px;
 }
-.btn-regular:hover { background: var(--iris-600); transform: translateY(-1px); }
 
-/* "No account yet?" — quiet ghost link */
-#register-link.btn-regular {
-    background: transparent;
-    color: var(--iris-600);
-    border-color: var(--line);
-    box-shadow: none;
+.auth-title {
+    margin: 0 0 4px;
+    font-size: 23px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--ink);
 }
-#register-link.btn-regular:hover { background: var(--iris-050); border-color: var(--iris); transform: none; }
 
-/* Divider before the password form */
-#regular-login-form {
-    margin-top: 20px;
-    padding-top: 22px;
-    border-top: 1px solid var(--line);
+.auth-subtitle {
+    margin: 0 0 22px;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Поле с иконкой слева и (у пароля) кнопкой справа. */
+.auth-field {
     position: relative;
+    display: flex;
+    align-items: center;
 }
-#regular-login-form::before {
-    content: "или войдите по паролю";
+
+.auth-field .auth-field-icon {
     position: absolute;
-    top: -8px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--surface);
-    padding: 0 12px;
-    font-size: 12px;
+    left: 14px;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
     color: var(--faint);
-    white-space: nowrap;
+    pointer-events: none;
 }
+
+.auth-field-icon svg { width: 100%; height: 100%; }
 
 .input-field {
     width: 100%;
-    padding: 14px;
-    margin-bottom: 12px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
+    padding: 14px 14px 14px 44px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line-2);
     background: var(--surface-2);
-    font-size: 15px;
     color: var(--ink);
-    transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
-}
-.input-field::placeholder { color: var(--faint); }
-.input-field:focus {
-    outline: none;
-    background: var(--surface);
-    border-color: var(--iris);
-    box-shadow: 0 0 0 3px var(--iris-050);
+    font: inherit;
+    font-size: 14px;
+    transition: border-color .15s ease, box-shadow .15s ease;
 }
 
-/* Error / status banner — calm and legible */
-.response-message {
-    padding: 12px 14px;
-    margin-top: 14px;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--err);
-    background: #fdecec;
-    border: 1px solid #f6cccd;
-    opacity: 0;
-    transition: opacity .35s ease;
+.input-field::placeholder { color: var(--faint); }
+
+.input-field:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+/* У поля пароля справа кнопка-глаз, текст не должен под неё заезжать. */
+.auth-field.with-action .input-field { padding-right: 46px; }
+
+.auth-eye {
+    position: absolute;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--faint);
+    cursor: pointer;
+}
+
+.auth-eye:hover { color: var(--ink); background: var(--surface-3); }
+.auth-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.auth-eye svg { width: 18px; height: 18px; }
+
+/* Файл выбирается системным диалогом; нативный контрол в тёмной теме выглядит
+   инородно, поэтому сам input скрыт, а роль кнопки играет подпись. */
+.auth-file {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px dashed var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 13.5px;
+    cursor: pointer;
+}
+
+.auth-file:hover { border-color: var(--accent); color: var(--ink); }
+.auth-file input[type="file"] { display: none; }
+.auth-file .auth-file-name { color: var(--ink); font-weight: 600; }
+.auth-file-icon { display: inline-flex; flex-shrink: 0; color: var(--faint); }
+
+.btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: transform .12s ease, filter .15s ease, background .15s ease;
+}
+
+.btn:active { transform: scale(.99); }
+
+.btn-primary {
+    background: var(--accent-grad);
+    color: #fff;
+    box-shadow: var(--glow);
+}
+
+.btn-primary:hover { filter: brightness(1.05); }
+.btn-primary:disabled { filter: grayscale(.4) brightness(.8); cursor: default; }
+
+.btn-google {
+    background: var(--surface-2);
+    border-color: var(--line-2);
+    color: var(--ink);
+}
+
+.btn-google:hover { border-color: var(--accent); }
+.btn-google:disabled { color: var(--faint); cursor: default; }
+.btn-google .g-mark { width: 18px; height: 18px; }
+
+.auth-sep {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 18px 0;
+    color: var(--faint);
+    font-size: 12.5px;
+}
+
+.auth-sep::before,
+.auth-sep::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+}
+
+.auth-switch {
+    margin: 18px 0 0;
+    text-align: center;
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+.auth-switch a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.auth-switch a:hover { text-decoration: underline; }
+
+.response-message {
+    margin-top: 16px;
+    padding: 11px 14px;
+    border-radius: var(--r-sm);
+    background: rgba(255, 90, 90, .12);
+    border: 1px solid rgba(255, 90, 90, .34);
+    color: var(--err);
+    font-size: 13.5px;
+    text-align: center;
+    transition: opacity .3s ease;
+}
+
 .response-message.success {
-    color: #14794f;
-    background: #e7f7ef;
-    border-color: #bfe8d5;
+    background: rgba(53, 208, 127, .12);
+    border-color: rgba(53, 208, 127, .34);
+    color: var(--ok);
+}
+
+/* ---------- Узкий экран: панели складываются в колонку ---------- */
+
+@media (max-width: 900px) {
+    body.shell-off { padding: 0; align-items: stretch; }
+
+    .auth-card {
+        grid-template-columns: 1fr;
+        min-height: 100vh;
+        border-radius: 0;
+        border: 0;
+    }
+
+    /* Арт сжимается до полосы с логотипом: слоган на телефоне съедает экран,
+       ради которого форма и открыта. */
+    .auth-art {
+        padding: 20px 24px;
+        min-height: 128px;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .auth-slogan { font-size: 19px; max-width: none; }
+    .auth-footnote { display: none; }
+    .auth-pane { padding: 26px 22px 34px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    * { transition-duration: .01ms !important; }
+    .btn, .input-field, .auth-tab { transition: none; }
+    .btn:active { transform: none; }
 }

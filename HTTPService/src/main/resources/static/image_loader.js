@@ -12,9 +12,8 @@ import api from "/axios.js";
 // Поэтому байты тянет axios (он приложит Bearer и сделает refresh+retry на 401), а в src
 // подставляется blob-URL. Кеш по objectKey обязателен: одна и та же аватарка автора
 // встречается в каждом его сообщении, без кеша это был бы запрос на каждое сообщение.
-export const IMAGE_PLACEHOLDER = "/images/rofl-cat.jpg";
-
 const objectUrls = new Map(); // objectKey -> Promise<string|null>
+const pinned = new Set();     // ключи, которые releaseImages() не трогает
 
 function isUsableKey(key) {
     // "pending" — маркер «картинка ещё грузится в MinIO», который кладёт бэкенд.
@@ -22,15 +21,29 @@ function isUsableKey(key) {
 }
 
 /**
- * Разметка картинки. Сразу отдаёт заглушку и помечает узел ключом: реальные байты
- * подставит hydrateImages после вставки узла в DOM. Так разметка остаётся синхронной
- * (её собирают через policy.createHTML в шаблонных строках), а сеть — асинхронной.
- * data-* атрибуты DOMPurify пропускает, поэтому ключ переживает санитайзер.
+ * Разметка аватарки. Возвращает не <img>, а плейсхолдер-<span>: реальные байты
+ * подставит hydrateImages после вставки узла в DOM, заменив span на <img>. Так
+ * разметка остаётся синхронной (её собирают через policy.createHTML в шаблонных
+ * строках), а сеть — асинхронной. data-* атрибуты DOMPurify пропускает, поэтому
+ * метка переживает санитайзер.
+ *
+ * У плейсхолдера два состояния, и оба — на одном и том же элементе:
+ *   avatar-ph-loading — байты в пути, по подложке идёт блик;
+ *   avatar-ph-empty   — аватарки нет или она не доехала, нейтральный силуэт.
+ *
+ * Раньше на месте обоих стояла картинка /images/rofl-cat.jpg. Она не только
+ * висела в каждой ячейке, пока шла загрузка (на публичном стенде это около
+ * секунды на аватарку), но и ОСТАВАЛАСЬ НАВСЕГДА, если байты не приходили:
+ * 403 на чужой объект, 404, обрыв сети — всё это выглядело как «у пользователя
+ * такая аватарка». Теперь неудача попадает в то же состояние, что и её
+ * отсутствие, и ничем не притворяется.
  */
 export function imageTag(key, className = "chat-avatar", alt = "avatar") {
-    return isUsableKey(key)
-        ? `<img src="${IMAGE_PLACEHOLDER}" data-image-key="${key}" alt="${alt}" class="${className}">`
-        : `<img src="${IMAGE_PLACEHOLDER}" alt="${alt}" class="${className}">`;
+    if (!isUsableKey(key)) {
+        return `<span class="avatar-ph avatar-ph-empty ${className}" role="img" aria-label="${alt}"></span>`;
+    }
+    return `<span class="avatar-ph avatar-ph-loading ${className}" role="img" aria-label="${alt}"`
+        + ` data-image-key="${key}" data-image-class="${className}" data-image-alt="${alt}"></span>`;
 }
 
 function objectUrlFor(key) {
@@ -47,16 +60,29 @@ function objectUrlFor(key) {
 /** Подставляет байты во все помеченные узлы поддерева. Вызывать после вставки в DOM. */
 export function hydrateImages(root) {
     const scope = root || document;
-    scope.querySelectorAll("img[data-image-key]").forEach((node) => {
+    scope.querySelectorAll("[data-image-key]").forEach((node) => {
         const key = node.getAttribute("data-image-key");
+        const className = node.getAttribute("data-image-class") || "chat-avatar";
+        const alt = node.getAttribute("data-image-alt") || "";
         // Снимаем метку сразу: повторный hydrateImages по тому же поддереву не должен
         // ставить второй обработчик на тот же узел.
         node.removeAttribute("data-image-key");
         objectUrlFor(key).then((url) => {
             // Узел мог уехать из DOM, пока шёл запрос (перерисовка списка, смена вью).
-            if (url && node.isConnected) {
-                node.src = url;
+            if (!node.isConnected) {
+                return;
             }
+            if (!url) {
+                // Байты не пришли. Показываем ровно то же, что при отсутствующей
+                // аватарке: пульсация навсегда означала бы «вот-вот загрузится».
+                node.classList.replace("avatar-ph-loading", "avatar-ph-empty");
+                return;
+            }
+            const img = document.createElement("img");
+            img.className = className;
+            img.alt = alt;
+            img.src = url;
+            node.replaceWith(img);
         });
     });
 }
@@ -67,12 +93,25 @@ export function hydrateImages(root) {
  * Вызывается из unmount вью.
  */
 export function releaseImages() {
-    for (const pending of objectUrls.values()) {
+    for (const [key, pending] of objectUrls.entries()) {
+        // Закреплённые картинки живут дольше вью. Аватарка в навигационном рельсе
+        // рисуется один раз на вкладку и не перерисовывается при переходах, а
+        // releaseImages() зовут из unmount ЧЕТЫРЕ вью из четырёх — без этой
+        // проверки первый же переход отзывал бы её blob-URL, и в рельсе
+        // оставалась битая картинка до перезагрузки страницы.
+        if (pinned.has(key)) continue;
         pending.then((url) => {
             if (url) {
                 URL.revokeObjectURL(url);
             }
         });
+        objectUrls.delete(key);
     }
-    objectUrls.clear();
+}
+
+/** Пометить ключ как переживающий releaseImages(). */
+export function pinImage(key) {
+    if (isUsableKey(key)) {
+        pinned.add(key);
+    }
 }

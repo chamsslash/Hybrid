@@ -12,53 +12,78 @@ import { formatMessageTimestamp } from "/timestamp_format.js";
 const TYPING_TIMER = 1000;
 
 const CHAT_HTML = `
-<div class="chat-container">
+<div class="screen screen-wide chat-screen">
+    <section class="chat-main">
+        <div class="chat-header">
+            <!-- Кнопка «назад» нужна на узких экранах: там рельс превращается в
+                 нижнюю полосу и ведёт в разделы, а не на шаг назад к списку. -->
+            <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
 
-    <div class="chat-header">
-        <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
-        <!-- Аватарка и название обёрнуты в кнопку: состав чата открывается кликом по шапке,
-             как в привычных мессенджерах. Кнопка, а не div с onclick, — чтобы работали
-             Tab и Enter и чтобы скринридер назвал элемент действием, а не текстом. -->
-        <button type="button" id="chat-info-btn" class="chat-info-button"
-                aria-haspopup="dialog" aria-label="Показать участников чата">
-            <div class="chat-avatar-container" id="chat-header-avatar"></div>
-            <span id="chat-title"></span>
-        </button>
-        <div id="typing-indicator"></div>
-    </div>
+            <!-- Аватарка и название обёрнуты в кнопку: состав чата открывается кликом по шапке,
+                 как в привычных мессенджерах. Кнопка, а не div с onclick, — чтобы работали
+                 Tab и Enter и чтобы скринридер назвал элемент действием, а не текстом.
+                 На широком экране состав и так виден в правой колонке, но кнопка остаётся:
+                 колонку прячет media-query, а не отдельная ветка в JS. -->
+            <button type="button" id="chat-info-btn" class="chat-info-button"
+                    aria-haspopup="dialog" aria-label="Показать участников чата">
+                <div class="chat-avatar-container" id="chat-header-avatar"></div>
+                <span id="chat-title"></span>
+            </button>
 
-    <!-- Модалка состава. Лежит в разметке сразу, а не создаётся по клику: содержимое
-         заполняется один раз при загрузке чата, открытие — это только снятие hidden. -->
-    <div id="members-overlay" class="modal-overlay" hidden>
-        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="members-title">
-            <div class="modal-head">
-                <h3 id="members-title">Участники</h3>
-                <button type="button" id="members-close" class="modal-close" aria-label="Закрыть">✕</button>
-            </div>
-            <ul id="members-list" class="members-list"></ul>
+            <div id="typing-indicator"></div>
+
+            <select id="aiUserSelect" aria-label="Пользователь для AI-ответа">
+                <option value="">AI-ответ за…</option>
+            </select>
         </div>
-    </div>
 
-    <div class="chat-messages" id="chatMessages"></div>
+        <!-- Модалка состава. Лежит в разметке сразу, а не создаётся по клику: содержимое
+             заполняется один раз при загрузке чата, открытие — это только снятие hidden.
+             На узких экранах она единственный способ увидеть состав. -->
+        <div id="members-overlay" class="modal-overlay" hidden>
+            <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="members-title">
+                <div class="modal-head">
+                    <h3 id="members-title">Участники</h3>
+                    <button type="button" id="members-close" class="modal-close" aria-label="Закрыть">✕</button>
+                </div>
+                <ul id="members-list" class="members-list"></ul>
+            </div>
+        </div>
 
-    <div class="chat-input">
-        <input type="text" id="messageInput" placeholder="Type your message...">
-        <button id="sendBtn" type="button">Send</button>
-        <button id="aiBtn" type="button">Помощь AI</button>
-        <!-- Панель подсказки живёт ВНУТРИ .chat-input, а не рядом с ним. Её CSS —
-             position: absolute; bottom: calc(100% + 8px) — рассчитан на то, что
-             содержащим блоком будет строка ввода: «8px над полем ввода». .chat-input
-             для этого уже объявлен position: relative. Пока панель была соседом,
-             ближайшего позиционированного предка у неё не было, отсчёт шёл от body,
-             и 100% превращались в высоту документа: панель уезжала за верхний край
-             экрана (замерено вживую: top: -145px при высоте вьюпорта 551px).
-             Ответ AI при этом приходил нормально (200 и осмысленный текст) и честно
-             отрисовывался в DOM — пользователь просто никогда его не видел. -->
-        <div id="aiSuggestionPanel" class="ai-suggestion-panel" style="display: none;"></div>
-    </div>
-    <select id="aiUserSelect">
-        <option value="">Выберите пользователя для AI-ответа</option>
-    </select>
+        <div class="chat-messages" id="chatMessages"></div>
+
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="Напишите сообщение…">
+            <button id="aiBtn" type="button" class="ghost">Помощь AI</button>
+            <button id="sendBtn" type="button" class="send-btn" aria-label="Отправить">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4.5 12.5 20 5l-7 15-2.2-6.3z"/>
+                </svg>
+            </button>
+            <!-- Панель подсказки живёт ВНУТРИ .chat-input, а не рядом с ним. Её CSS —
+                 position: absolute; bottom: calc(100% + 8px) — рассчитан на то, что
+                 содержащим блоком будет строка ввода: «8px над полем ввода». .chat-input
+                 для этого уже объявлен position: relative. Пока панель была соседом,
+                 ближайшего позиционированного предка у неё не было, отсчёт шёл от body,
+                 и 100% превращались в высоту документа: панель уезжала за верхний край
+                 экрана (замерено вживую: top: -145px при высоте вьюпорта 551px).
+                 Ответ AI при этом приходил нормально (200 и осмысленный текст) и честно
+                 отрисовывался в DOM — пользователь просто никогда его не видел. -->
+            <div id="aiSuggestionPanel" class="ai-suggestion-panel" style="display: none;"></div>
+        </div>
+    </section>
+
+    <!-- Правая колонка — тот же состав, что в модалке, но постоянно на виду.
+         Прячется media-query ниже 1100px. -->
+    <aside class="chat-side">
+        <div class="chat-side-head">
+            <div class="chat-avatar-container" id="side-avatar"></div>
+            <span class="chat-side-title" id="side-title"></span>
+        </div>
+        <h3 class="chat-side-caption" id="members-panel-title">Участники</h3>
+        <ul id="members-panel-list" class="members-list"></ul>
+    </aside>
 </div>
 `;
 
@@ -112,6 +137,18 @@ const channelState = {
 let stomp = null;
 let ac = null;
 
+// Номер поколения монтирования. Между `await` внутри mount() и работой с DOM/STOMP
+// вью может быть уже снята: роутер чистит #app и зовёт unmount(), не дожидаясь, пока
+// доедет бутстрап предыдущего экрана. Продолжать после этого нельзя по двум причинам.
+//
+// Видимая: рендер берёт узлы, которых в DOM уже нет.
+//
+// Скрытая и худшая: сразу за рендером идёт подключение STOMP. Он ставит подписки уже ПОСЛЕ
+// того, как unmount() разорвал соединение, — то есть заводит живого подписчика, которого
+// больше некому снять. Ровно так и получаются две подписки на один адрес и по копии
+// каждого сообщения; в роутере против этого уже стоит такой же счётчик поколений.
+let mountGeneration = 0;
+
 // key — MinIO objectKey (напр. userimage/42/uuid.png). Разметка отдаёт заглушку с меткой
 // data-image-key, байты подставляет hydrateImages через axios (beads gs2): тег <img> не умеет
 // послать Authorization, и такой запрос отбивался 401 ещё на ingress.
@@ -157,14 +194,24 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
 }
 
 function renderHeader(data) {
-    document.getElementById('chat-title').textContent = data.title || chat_title;
-    const headerAvatar = document.getElementById('chat-header-avatar');
-    headerAvatar.innerHTML = policy.createHTML(
-        data.chatImageUrl === 'pending'
-            ? `<div class="spinner-avatar"></div>`
-            : avatarHtml(data.chatImageUrl)
-    );
-    hydrateImages(headerAvatar);
+    const title = data.title || chat_title;
+    // Название и аватарка стоят в двух местах: шапка чата и правая колонка. Оба
+    // заполняются одинаково — какая из них видна, решает media-query.
+    for (const id of ['chat-title', 'side-title']) {
+        const node = document.getElementById(id);
+        if (node) node.textContent = title;
+    }
+
+    const avatarHtmlString = data.chatImageUrl === 'pending'
+        ? `<div class="spinner-avatar"></div>`
+        : avatarHtml(data.chatImageUrl);
+
+    for (const id of ['chat-header-avatar', 'side-avatar']) {
+        const box = document.getElementById(id);
+        if (!box) continue;
+        box.innerHTML = policy.createHTML(avatarHtmlString);
+        hydrateImages(box);
+    }
 }
 
 // Состав чата приезжает вместе с остальными данными экрана (/api/chat, поле members) —
@@ -189,39 +236,55 @@ function renderAiRecipients(members) {
     }
 }
 
-function renderMembersList(members) {
-    const list = document.getElementById('members-list');
-    if (!list) return;
-    list.replaceChildren();
-
-    document.getElementById('members-title').textContent = `Участники (${members.length})`;
-
-    for (const member of members) {
-        const item = document.createElement('li');
-        item.className = 'member-row';
-        item.innerHTML = policy.createHTML(`
-            ${imageTag(member.imageUrl, 'member-avatar', 'аватарка участника')}
-            <div class="member-info">
-                <span class="member-name"></span>
-                <span class="member-id"></span>
-            </div>
-        `);
-        item.querySelector('.member-name').textContent = member.username;
-        item.querySelector('.member-id').textContent = `ID: ${member.userId}`;
-        // Себя помечаем — в чате на несколько человек с похожими никами иначе непонятно,
-        // где ты. textContent, а не разметкой: ник приходит с сервера.
-        if (String(member.userId) === String(user_id)) {
-            const badge = document.createElement('span');
-            badge.className = 'member-badge';
-            badge.textContent = 'вы';
-            // Ставим МЕЖДУ ником и id, а не в конец: у .member-id стоит flex-basis:100%,
-            // он занимает строку целиком, и добавленная после него метка уезжала бы на
-            // третью строку вместо того, чтобы стоять рядом с ником.
-            item.querySelector('.member-id').before(badge);
-        }
-        list.appendChild(item);
+function memberItem(member) {
+    const item = document.createElement('li');
+    item.className = 'member-row';
+    item.innerHTML = policy.createHTML(`
+        ${imageTag(member.imageUrl, 'member-avatar', 'аватарка участника')}
+        <div class="member-info">
+            <span class="member-name"></span>
+            <span class="member-id"></span>
+        </div>
+    `);
+    item.querySelector('.member-name').textContent = member.username;
+    item.querySelector('.member-id').textContent = `ID: ${member.userId}`;
+    // Себя помечаем — в чате на несколько человек с похожими никами иначе непонятно,
+    // где ты. textContent, а не разметкой: ник приходит с сервера.
+    if (String(member.userId) === String(user_id)) {
+        const badge = document.createElement('span');
+        badge.className = 'member-badge';
+        badge.textContent = 'вы';
+        // Ставим МЕЖДУ ником и id, а не в конец: у .member-id стоит flex-basis:100%,
+        // он занимает строку целиком, и добавленная после него метка уезжала бы на
+        // третью строку вместо того, чтобы стоять рядом с ником.
+        item.querySelector('.member-id').before(badge);
     }
-    hydrateImages(list);
+    return item;
+}
+
+// Состав рисуется в ДВА контейнера: постоянную правую колонку и модалку. Какой из
+// них видно, решает media-query, а не JS, — иначе смена ширины окна требовала бы
+// перерисовки, а список пришлось бы держать в состоянии модуля.
+function renderMembersList(members) {
+    const count = members.length;
+    const containers = [
+        document.getElementById('members-list'),
+        document.getElementById('members-panel-list'),
+    ];
+
+    for (const title of [document.getElementById('members-title'),
+                         document.getElementById('members-panel-title')]) {
+        if (title) title.textContent = `Участники (${count})`;
+    }
+
+    for (const list of containers) {
+        if (!list) continue;
+        list.replaceChildren();
+        for (const member of members) {
+            list.appendChild(memberItem(member));
+        }
+        hydrateImages(list);
+    }
 }
 
 // --- модалка состава ---
@@ -388,10 +451,15 @@ function handleChatError(msg) {
 // было бы хуже, чем починить: он выглядел бы рабочим подписчиком нового адреса.
 function updateChatHeaderAvatar(msg) {
     const message = JSON.parse(msg.body);
-    const target = document.getElementById('chat-header-avatar');
     // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
-    if (target && message.objectKey && message.objectKey !== 'pending') {
-        target.innerHTML = policy.createHTML(avatarHtml(message.objectKey));
+    if (!message.objectKey || message.objectKey === 'pending') return;
+    // Аватарка чата стоит в двух местах — шапка и правая колонка; обновлять надо обе,
+    // иначе после загрузки картинки одна из них осталась бы с буквенной заглушкой.
+    for (const id of ['chat-header-avatar', 'side-avatar']) {
+        const target = document.getElementById(id);
+        if (!target) continue;
+        target.innerHTML = policy.createHTML(
+            avatarHtml(message.objectKey));
         hydrateImages(target);
     }
 }
@@ -584,6 +652,7 @@ function connectStomp(token) {
 
 // --- mount/unmount ---
 export async function mount(params) {
+    const myGeneration = ++mountGeneration;
     chat_id = params.id;
     chat_title = params.title || '';
 
@@ -666,10 +735,15 @@ export async function mount(params) {
             return;
         }
 
+        // Экран уже не наш — ни рисовать, ни подписываться нельзя.
+        if (myGeneration !== mountGeneration) return;
+
         const [me, data] = await Promise.all([
             api.get('/api/me').then(r => r.data),
             api.get('/api/chat', { params: { id: chat_id, title: chat_title } }).then(r => r.data),
         ]);
+        if (myGeneration !== mountGeneration) return;
+
         user_id = String(me.userId);
         user_name = me.username;
         user_image = me.imageUrl;
@@ -699,6 +773,9 @@ export async function mount(params) {
 }
 
 export function unmount() {
+    // Бутстрап, который всё ещё висит на await, обязан остановиться: счётчик двигаем
+    // первым делом, до того как разорвём соединение и снимем таймеры.
+    mountGeneration++;
     // blob-URL живут до отзыва (beads gs2) — без этого вкладка копила бы их при каждом
     // переходе между чатами.
     releaseImages();
