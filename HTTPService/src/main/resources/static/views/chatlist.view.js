@@ -27,7 +27,7 @@ const CHATLIST_HTML = `
 
         <div id="chatlist-spinner" class="list-hint">Загрузка…</div>
 
-        <div id="no-chats-message" class="empty-state" style="display: none;">
+        <div id="no-chats-message" class="empty-state" hidden>
             <span class="empty-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
                      stroke-linecap="round" stroke-linejoin="round">
@@ -113,7 +113,7 @@ function chatCard({ chat_id, chat_title, chat_lastmessagetime, chat_preview, cha
 function appendChat(chat) {
     const chatsDiv = document.getElementById('chats');
     const noChatsMessage = document.getElementById('no-chats-message');
-    if (noChatsMessage) noChatsMessage.style.display = 'none';
+    if (noChatsMessage) noChatsMessage.hidden = true;
     const card = chatCard(chat);
     chatsDiv.prepend(card);
     hydrateImages(card);
@@ -125,7 +125,7 @@ function renderInitialChats(chats) {
     document.getElementById('chatlist-spinner')?.remove();
 
     if (!chats || chats.length === 0) {
-        if (noChatsMessage) noChatsMessage.style.display = 'block';
+        if (noChatsMessage) noChatsMessage.hidden = false;
         return;
     }
     for (const chat of chats) {
