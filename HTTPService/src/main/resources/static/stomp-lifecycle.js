@@ -71,10 +71,34 @@ function closeClient(client) {
     }
 }
 
+/**
+ * Логгер кадров STOMP без секрета в нём.
+ *
+ * stompjs 2.3.3 по умолчанию печатает каждый кадр через console.log, а кадр CONNECT
+ * несёт заголовок Authorization целиком — то есть access-токен оказывался в консоли
+ * браузера при каждом подключении, на всех трёх экранах со STOMP. Консоль читают
+ * расширения, она попадает в скриншоты и в запись экрана, так что токену там не место.
+ *
+ * Гасить debug целиком (client.debug = () => {}) заманчиво, но именно эти кадры в этом
+ * проекте показывали двойные SUBSCRIBE на один адрес — тот самый дефект, из-за которого
+ * сообщение рисовалось дважды. Поэтому кадры остаются, вырезается только значение
+ * Authorization: заголовок целиком, вместе со схемой, чтобы правило не зависело от того,
+ * Bearer там или что-то ещё.
+ */
+function debugWithoutSecrets(message) {
+    console.log(String(message).replace(/^(Authorization:).*$/gim, "$1 <скрыт>"));
+}
+
 export function createStompRegistry() {
     const clients = [];
     return {
-        add(client) { clients.push(client); return client; },
+        add(client) {
+            // Подменяем здесь, а не в каждой вью: add() — единственная дверь, через которую
+            // клиенты попадают в реестр, и новый экран со STOMP не сможет пройти мимо.
+            client.debug = debugWithoutSecrets;
+            clients.push(client);
+            return client;
+        },
         disconnectAll() {
             for (const c of clients) {
                 // Отдельного try здесь нет намеренно: closeClient не бросает сам, а глотать
