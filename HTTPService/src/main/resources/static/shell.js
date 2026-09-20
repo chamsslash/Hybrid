@@ -70,7 +70,7 @@ function paintUser(me) {
     const box = document.getElementById("rail-user");
     if (!box) return;
     box.innerHTML = policy.createHTML(`
-            <div class="rail-user-avatar">${imageTag(me.imageUrl, "chat-avatar", "моя аватарка", me.userId, me.username)}</div>
+            <div class="rail-user-avatar">${imageTag(me.imageUrl, "chat-avatar", "моя аватарка")}</div>
             <span class="rail-user-name"></span>
             <span class="rail-user-chevron" aria-hidden="true">›</span>
         `);
