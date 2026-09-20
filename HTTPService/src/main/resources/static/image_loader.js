@@ -15,10 +15,38 @@ import api from "/axios.js";
 export const IMAGE_PLACEHOLDER = "/images/rofl-cat.jpg";
 
 const objectUrls = new Map(); // objectKey -> Promise<string|null>
+const pinned = new Set();     // ключи, которые releaseImages() не трогает
 
 function isUsableKey(key) {
     // "pending" — маркер «картинка ещё грузится в MinIO», который кладёт бэкенд.
     return Boolean(key) && key !== "pending";
+}
+
+// Подложки буквенных аватарок. Выбор детерминированный по seed (id чата или
+// пользователя), а не случайный и не по порядку в списке: один и тот же объект
+// обязан быть одного цвета в списке, в чате и в рельсе, иначе цвет читается как
+// значащий признак, которым он не является.
+const LETTER_GRADIENTS = [
+    "linear-gradient(135deg,#7b61ff,#b14bf4)",
+    "linear-gradient(135deg,#ff7b54,#fd5a48)",
+    "linear-gradient(135deg,#2bb8a3,#35d07f)",
+    "linear-gradient(135deg,#4a7bff,#6bb8ff)",
+    "linear-gradient(135deg,#e0518f,#ff6b9d)",
+    "linear-gradient(135deg,#f2a341,#f4c45e)",
+];
+
+function gradientFor(seed) {
+    const s = String(seed ?? "");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+        h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    return LETTER_GRADIENTS[h % LETTER_GRADIENTS.length];
+}
+
+function firstLetter(text) {
+    const t = String(text ?? "").trim();
+    return t ? t[0].toUpperCase() : "?";
 }
 
 /**
@@ -26,11 +54,21 @@ function isUsableKey(key) {
  * подставит hydrateImages после вставки узла в DOM. Так разметка остаётся синхронной
  * (её собирают через policy.createHTML в шаблонных строках), а сеть — асинхронной.
  * data-* атрибуты DOMPurify пропускает, поэтому ключ переживает санитайзер.
+ *
+ * Когда пригодного ключа нет, отдаётся не заглушка-картинка, а буква на цветной
+ * подложке: пустой кружок ничего не сообщал, а одинаковая для всех заглушка
+ * делала список чатов неразличимым.
+ *
+ * @param seed  чем солить выбор цвета (id чата/пользователя)
+ * @param label откуда брать букву (название чата, ник)
  */
-export function imageTag(key, className = "chat-avatar", alt = "avatar") {
-    return isUsableKey(key)
-        ? `<img src="${IMAGE_PLACEHOLDER}" data-image-key="${key}" alt="${alt}" class="${className}">`
-        : `<img src="${IMAGE_PLACEHOLDER}" alt="${alt}" class="${className}">`;
+export function imageTag(key, className = "chat-avatar", alt = "avatar", seed = null, label = "") {
+    if (isUsableKey(key)) {
+        return `<img src="${IMAGE_PLACEHOLDER}" data-image-key="${key}" alt="${alt}" class="${className}">`;
+    }
+    const seedValue = seed ?? label ?? alt;
+    return `<span class="letter-avatar ${className}" role="img" aria-label="${alt}"`
+        + ` style="background:${gradientFor(seedValue)}">${firstLetter(label)}</span>`;
 }
 
 function objectUrlFor(key) {
@@ -67,12 +105,25 @@ export function hydrateImages(root) {
  * Вызывается из unmount вью.
  */
 export function releaseImages() {
-    for (const pending of objectUrls.values()) {
+    for (const [key, pending] of objectUrls.entries()) {
+        // Закреплённые картинки живут дольше вью. Аватарка в навигационном рельсе
+        // рисуется один раз на вкладку и не перерисовывается при переходах, а
+        // releaseImages() зовут из unmount ЧЕТЫРЕ вью из четырёх — без этой
+        // проверки первый же переход отзывал бы её blob-URL, и в рельсе
+        // оставалась битая картинка до перезагрузки страницы.
+        if (pinned.has(key)) continue;
         pending.then((url) => {
             if (url) {
                 URL.revokeObjectURL(url);
             }
         });
+        objectUrls.delete(key);
     }
-    objectUrls.clear();
+}
+
+/** Пометить ключ как переживающий releaseImages(). */
+export function pinImage(key) {
+    if (isUsableKey(key)) {
+        pinned.add(key);
+    }
 }

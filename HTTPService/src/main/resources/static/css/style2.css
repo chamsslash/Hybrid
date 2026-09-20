@@ -1,54 +1,17 @@
 /* ============================================================
-   TEBEGRAM — "Iris & Ember" design system
-   Cool paper · electric-iris brand · warm ember accent
-   Shared by: index (chat), chats_list, chatcreatepage, register
+   TEBEGRAM — тёмная тема
+   Глубокий сине-чёрный фон · карточки-поверхности · коралловый акцент
+   Палитра живёт в tokens.css и подключается ДО этого файла.
    ============================================================ */
-
-:root {
-    /* Color */
-    --ink:        #1b1a2e;   /* plum-tinted near-black text */
-    --ink-soft:   #3a3852;
-    --muted:      #6b6a83;   /* secondary text */
-    --faint:      #9997ad;
-    --paper:      #eceef6;   /* cool soft background (not cream) */
-    --surface:    #ffffff;   /* cards */
-    --surface-2:  #f3f4fb;   /* inset / incoming bubble */
-    --line:       #e3e5f0;   /* hairlines */
-    --line-2:     #d5d7e6;
-
-    --iris:       #5a4be3;   /* primary brand */
-    --iris-600:   #4a3ccb;
-    --iris-050:   #eeecfd;
-
-    --ember:      #ff6a5b;
-    --ember-2:    #ff9166;
-    --ember-grad: linear-gradient(135deg, #ff6a5b 0%, #ff9166 100%);
-    --iris-grad:  linear-gradient(135deg, #5a4be3 0%, #7b6bf0 100%);
-
-    --ok:   #1f9d6b;
-    --warn: #e08a00;
-    --err:  #e5484d;
-
-    /* Shape & depth */
-    --r-sm: 10px;
-    --r-md: 14px;
-    --r-lg: 20px;
-    --shadow-1: 0 1px 2px rgba(27,26,46,.06), 0 4px 14px rgba(27,26,46,.06);
-    --shadow-2: 0 10px 34px rgba(27,26,46,.14);
-
-    /* Type */
-    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-}
 
 * { box-sizing: border-box; }
 
 body {
     font-family: var(--sans);
     background:
-        radial-gradient(120% 90% at 100% 0%, #f4f0ff 0%, rgba(244,240,255,0) 45%),
-        radial-gradient(120% 90% at 0% 100%, #fff1ec 0%, rgba(255,241,236,0) 45%),
-        var(--paper);
+        radial-gradient(120% 90% at 100% 0%, rgba(122, 86, 255, .16) 0%, rgba(122, 86, 255, 0) 48%),
+        radial-gradient(110% 80% at 0% 100%, rgba(253, 90, 72, .14) 0%, rgba(253, 90, 72, 0) 46%),
+        var(--bg);
     background-attachment: fixed;
     margin: 0;
     padding: 0;
@@ -80,17 +43,170 @@ body {
     max-width: 100%;
 }
 
-::selection { background: var(--iris-050); color: var(--iris-600); }
+/* ============================================================
+   Общая оболочка экрана внутри рельса
+   ============================================================ */
 
-/* Shared brand wordmark */
-.brand-mark {
-    font-weight: 800;
-    letter-spacing: -.03em;
-    background: var(--iris-grad);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+.screen {
+    width: min(760px, 100%);
+    margin: 0 auto;
+    padding: 30px 26px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
 }
+
+/* Чат занимает всю доступную высоту и ширину: у него своя трёхколоночная
+   сетка, поля .screen ему только мешают. */
+.screen.screen-wide {
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    gap: 0;
+    height: 100vh;
+}
+
+.screen-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+/* Заголовок забирает свободное место сам, а не разгоняется space-between'ом:
+   на экране с кнопкой «назад» слева тот растаскивал два элемента по краям, и
+   заголовок уезжал к правому краю вместо того, чтобы стоять рядом с кнопкой.
+   С flex: 1 действие справа (например «+ Новый чат») всё так же прижато к
+   правому краю, а заголовок всегда следует за кнопкой. */
+.screen-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 25px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--ink);
+}
+
+.list-hint {
+    text-align: center;
+    color: var(--faint);
+    font-size: 13.5px;
+    padding: 14px 0;
+}
+
+/* ---------- Пустое состояние ---------- */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 56px 20px;
+    text-align: center;
+}
+
+.empty-icon {
+    width: 58px;
+    height: 58px;
+    color: var(--line-2);
+    margin-bottom: 6px;
+}
+
+.empty-icon svg { width: 100%; height: 100%; }
+
+.empty-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.empty-text {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--muted);
+}
+
+/* ---------- Строка списка чатов ---------- */
+
+.chat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.chat-row {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    background: transparent;
+    border: 1px solid transparent;
+    transition: background .14s ease, border-color .14s ease;
+}
+
+.chat-row:hover {
+    background: var(--surface-2);
+    border-color: var(--line);
+}
+
+.chat-row-avatar { flex-shrink: 0; display: flex; }
+
+.chat-row-avatar .chat-avatar,
+.chat-row-avatar .letter-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 15px;
+    font-size: 17px;
+}
+
+/* min-width: 0 обязателен: без него длинное название растягивает строку вместо
+   того, чтобы обрезаться многоточием — flex-элемент по умолчанию не ужимается
+   меньше своего содержимого. */
+.chat-row-body { flex: 1; min-width: 0; }
+
+.chat-row-top {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.chat-row-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-row-time {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--faint);
+}
+
+.chat-row-preview {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    min-width: 0;
+}
+
+.chat-row-preview p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+::selection { background: var(--accent-soft); color: var(--accent-600); }
 
 /* ============================================================
    BACK BUTTON (generic)
@@ -98,9 +214,9 @@ body {
 /* Класс объявлен давно, но до появления кнопок возврата им не пользовалась ни одна
    вьюха — position: fixed/top/left убраны без риска, ломать было нечего.
    Причина убрать: на шапке чата плавающая кнопка ложится поверх аватарки. Замерено
-   при вьюпорте 390px, где .chat-container разворачивается во весь экран: кнопка в
+   при вьюпорте 390px, где .chat-screen разворачивается во весь экран: кнопка в
    точке 18/18 занимает прямоугольник 18,18 51x36, аватарка — 40,38 52x52, то есть
-   они пересекаются. На карточных экранах (.post-feed) наложения нет — карточку
+   они пересекаются. На карточных экранах (.screen) наложения нет — карточку
    центрирует по вертикали body из style_welcome.css, и заголовок оказывается сильно
    ниже кнопки, — но там fixed отрывает кнопку от карточки, к которой она относится:
    она висит в углу вьюпорта, пока карточка стоит посреди экрана. Поток решает оба
@@ -109,173 +225,52 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 10px 18px;
-    background: var(--surface);
-    color: var(--iris-600);
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    padding: 0;
+    background: var(--surface-2);
+    color: var(--muted);
     border: 1px solid var(--line);
-    border-radius: 999px;
-    font: 600 14px/1 var(--sans);
+    border-radius: 50%;
+    font: 600 16px/1 var(--sans);
     cursor: pointer;
-    box-shadow: var(--shadow-1);
-    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    transition: background .16s ease, color .16s ease, border-color .16s ease;
 }
-.back-button:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); border-color: var(--line-2); }
+.back-button:hover { background: var(--surface-3); color: var(--ink); border-color: var(--line-2); }
 
 /* На карточных экранах кнопка стоит отдельной строкой над заголовком. Отступ задаём
    здесь, а не в базовом правиле: в шапке чата кнопка — элемент одной флекс-строки с
    названием, и нижний отступ сбивал бы там вертикальное выравнивание. */
-.post-feed > .back-button { margin-bottom: 14px; }
 
 /* ============================================================
    FEED / LIST PAGE  (chats_list, chatcreatepage, register)
    ============================================================ */
-.post-feed {
-    max-width: 720px;
-    margin: 40px auto;
-    padding: 26px clamp(16px, 4vw, 30px) 30px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-1);
-}
 
-/* The default centered <h2> heading these pages ship with */
-.post-feed > h2 {
-    margin: 4px 0 22px;
-    font-size: clamp(22px, 4.5vw, 30px);
-    font-weight: 800;
-    letter-spacing: -.02em;
-    color: var(--ink);
-    text-align: center;
-}
-
-/* Optional page eyebrow / toolbar the markup can add */
-.list-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    margin-bottom: 22px;
-    flex-wrap: wrap;
-}
-.list-head .title {
-    margin: 0;
-    font-size: clamp(22px, 4.5vw, 30px);
-    font-weight: 800;
-    letter-spacing: -.02em;
-}
-.list-head .title small {
-    display: block;
-    font: 500 12px/1 var(--mono);
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: var(--faint);
-    margin-bottom: 6px;
-}
 .pill-action {
     display: inline-flex;
     align-items: center;
     gap: 8px;
     padding: 11px 18px;
     border-radius: 999px;
-    background: var(--iris);
+    background: var(--accent);
     color: #fff;
     font-weight: 600;
     font-size: 14px;
     text-decoration: none;
     border: none;
     cursor: pointer;
-    box-shadow: 0 6px 16px rgba(90,75,227,.28);
+    box-shadow: var(--glow);
     transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
 }
-.pill-action:hover { background: var(--iris-600); transform: translateY(-1px); box-shadow: 0 10px 22px rgba(90,75,227,.34); }
+.pill-action:hover { background: var(--accent-600); transform: translateY(-1px); box-shadow: var(--glow); }
 .pill-action:active { transform: translateY(0); }
 
 /* --- Chat rows --- */
 #chats { display: flex; flex-direction: column; gap: 10px; }
 
-.post {
-    padding: 14px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-1);
-    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-}
-.post:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-2);
-    border-color: var(--line-2);
-}
-
-.post-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.user-info {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-width: 0;
-    flex: 1;
-    gap: 2px;
-}
-.user-info .chat-title,
-.user-info .user-name:first-child {
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: -.01em;
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-/* the "Чат №N" secondary line the JS appends */
-.user-info .user-name + .user-name,
-.user-info .user-name:nth-child(2) {
-    font: 500 11px/1 var(--mono);
-    letter-spacing: .04em;
-    color: var(--faint);
-    text-transform: uppercase;
-}
-
-.post-time {
-    margin-left: auto;
-    align-self: flex-start;
-    font: 500 12px/1 var(--mono);
-    color: var(--faint);
-    white-space: nowrap;
-}
-
-.post-content {
-    margin-top: 8px;
-    padding-left: 64px;   /* align under the title, past the 52px avatar + gap */
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: 14px;
-    color: var(--ink-soft);
-    min-width: 0;
-}
-.post-content p {
-    margin: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-    flex: 1;
-}
-.message-preview {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    flex: 1;
-    min-width: 0;
-}
 .no-message { color: var(--faint); font-style: italic; }
-.user-id { font-weight: 600; color: var(--iris-600); white-space: nowrap; }
+.preview-author { font-weight: 600; color: var(--muted); white-space: nowrap; }
 
 #no-chats-message {
     text-align: center;
@@ -300,7 +295,29 @@ body {
     object-fit: cover;
     border-radius: 16px;      /* squircle — signature over the usual circle */
     background: var(--surface-2);
-    box-shadow: inset 0 0 0 1px rgba(27,26,46,.06);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+
+/* Буквенная аватарка — фолбэк, когда картинки нет. Повторяет геометрию .chat-avatar,
+   потому что встаёт ровно на её место; размер переопределяют те же места, что и для
+   картинки (.chip-avatar, .member-avatar, .rail-user-avatar и т.д.).
+   Цвет подложки проставляется инлайном из image_loader.js: он вычисляется из id, а
+   держать в CSS шесть классов-модификаторов ради этого незачем. */
+.letter-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    color: #fff;
+    font-weight: 700;
+    font-size: 19px;
+    line-height: 1;
+    letter-spacing: -.01em;
+    user-select: none;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
 }
 
 /* Аватарка внутри чипса выбранного участника. Отдельный размер, а не .chat-avatar:
@@ -312,6 +329,7 @@ body {
     border-radius: 7px;
     background: var(--surface-2);
     flex-shrink: 0;
+    font-size: 10px;
 }
 
 /* ============================================================
@@ -324,8 +342,8 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    flex: 1;
     min-width: 0;
+    max-width: 420px;
     padding: 4px 8px;
     margin: -4px -8px;      /* компенсируем padding, чтобы шапка не подросла */
     border: none;
@@ -338,7 +356,7 @@ body {
     transition: background .15s ease;
 }
 .chat-info-button:hover { background: var(--surface-2); }
-.chat-info-button:focus-visible { outline: 2px solid var(--iris); outline-offset: 2px; }
+.chat-info-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .modal-overlay {
     position: fixed;
@@ -348,7 +366,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(27, 26, 46, .45);
+    background: rgba(5, 7, 12, .66);
     backdrop-filter: blur(2px);
 }
 /* Правило обязательно: у .modal-overlay стоит display:flex, а он перебивает
@@ -419,6 +437,7 @@ body {
     border-radius: 12px;
     background: var(--surface-2);
     flex-shrink: 0;
+    font-size: 15px;
 }
 .member-info {
     display: flex;
@@ -442,8 +461,8 @@ body {
 .member-badge {
     font-size: 11px;
     font-weight: 600;
-    color: var(--iris-600);
-    background: var(--iris-050);
+    color: var(--accent-600);
+    background: var(--accent-soft);
     padding: 2px 8px;
     border-radius: 999px;
 }
@@ -460,16 +479,16 @@ body {
 .danger-button {
     align-self: flex-start;
     padding: 10px 18px;
-    border: 1px solid var(--ember);
+    border: 1px solid var(--err);
     border-radius: 999px;
     background: transparent;
-    color: var(--ember);
+    color: var(--err);
     font: 600 14px/1 var(--sans);
     cursor: pointer;
     transition: background .18s ease, color .18s ease;
 }
-.danger-button:hover { background: var(--ember); color: #fff; }
-.danger-button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+.danger-button:hover { background: var(--err); color: #fff; }
+.danger-button:focus-visible { outline: 2px solid var(--err); outline-offset: 2px; }
 
 /* Spinners */
 .spinner-avatar {
@@ -477,7 +496,7 @@ body {
     height: 52px;
     border-radius: 16px;
     border: 3px solid var(--line);
-    border-top-color: var(--iris);
+    border-top-color: var(--accent);
     animation: spin 1s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -485,7 +504,7 @@ body {
 .global-spinner-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(236,238,246,.72);
+    background: rgba(8, 10, 16, .78);
     backdrop-filter: blur(2px);
     display: flex;
     justify-content: center;
@@ -496,7 +515,7 @@ body {
     width: 74px;
     height: 74px;
     border: 7px solid var(--line);
-    border-top-color: var(--iris);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
@@ -504,17 +523,69 @@ body {
 /* ============================================================
    CHAT PAGE  (index.html)
    ============================================================ */
-.chat-container {
-    width: min(520px, 100%);
-    height: min(760px, calc(100vh - 48px));
-    margin: 24px auto;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-    box-shadow: var(--shadow-2);
+/* Экран чата: переписка + колонка состава. Колонку показываем от 1100px —
+   ниже она съедает ширину у самих сообщений, ради которых экран и открыт. */
+.chat-screen {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 288px;
+    height: 100vh;
+}
+
+.chat-main {
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+}
+
+.chat-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px 16px;
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+}
+
+.chat-side-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0 16px;
+    border-bottom: 1px solid var(--line);
+    text-align: center;
+}
+
+.chat-side-head .chat-avatar,
+.chat-side-head .letter-avatar {
+    width: 76px;
+    height: 76px;
+    border-radius: 24px;
+    font-size: 28px;
+}
+
+.chat-side-title {
+    font-size: 15.5px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    color: var(--ink);
+    word-break: break-word;
+}
+
+.chat-side-caption {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--faint);
+}
+
+@media (max-width: 1100px) {
+    .chat-screen { grid-template-columns: minmax(0, 1fr); }
+    .chat-side { display: none; }
 }
 
 .chat-header {
@@ -526,10 +597,11 @@ body {
     background: var(--surface);
     color: var(--ink);
     border-bottom: 1px solid var(--line);
-    box-shadow: 0 1px 0 rgba(27,26,46,.02);
+    box-shadow: 0 1px 0 rgba(0,0,0,.25);
     flex-wrap: wrap;
 }
-.chat-header .chat-avatar { width: 44px; height: 44px; border-radius: 13px; }
+.chat-header .chat-avatar,
+.chat-header .letter-avatar { width: 44px; height: 44px; border-radius: 13px; font-size: 16px; }
 .chat-header > span,
 .chat-header #chat-title {
     font-weight: 700;
@@ -545,22 +617,10 @@ body {
 /* Правило описывает кнопки-действия справа от названия чата (своих у шапки сейчас нет,
    но геометрия рассчитана на них). Кнопка возврата исключена: она стоит первой в строке,
    а margin-left: auto отжал бы её в противоположный край. */
-.chat-header button:not(.back-button) {
-    margin-left: auto;
-    padding: 9px 14px;
-    background: var(--surface-2);
-    color: var(--iris-600);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    font: 600 13px/1 var(--sans);
-    cursor: pointer;
-    transition: background .18s ease, border-color .18s ease;
-}
-.chat-header button:not(.back-button):hover { background: var(--iris-050); border-color: var(--iris); }
 
 #typing-indicator {
     font-size: 12px;
-    color: var(--iris-600);
+    color: var(--accent-600);
     font-weight: 600;
     min-height: 14px;
     order: 3;
@@ -584,8 +644,8 @@ body {
     flex-direction: column;
     gap: 10px;
     background:
-        radial-gradient(80% 40% at 50% 0%, rgba(90,75,227,.04), transparent 70%),
-        var(--surface-2);
+        radial-gradient(80% 40% at 50% 0%, rgba(122, 86, 255, .07), transparent 70%),
+        var(--surface);
     scrollbar-width: thin;
     scrollbar-color: var(--line-2) transparent;
 }
@@ -613,29 +673,48 @@ body {
    Раньше время висело на float: right внутри сжатого по контенту пузыря и склеивалось
    с ID. margin-left: auto прижимает его вправо в пределах реальной ширины пузыря. */
 .message-header { display: flex; align-items: baseline; gap: 8px; }
+
+/* «ID: 29» внутри каждого пузыря — отладочная подпись: в переписке идентификатор
+   не нужен, а место занимает столько же, сколько сам текст короткого сообщения.
+   Узел остаётся в разметке (его заполняет тот же код, что и ник) и по-прежнему
+   доступен скринридеру — скрыт только визуально. Идентификаторы участников
+   показывает список состава, где они и уместны. */
+.message-senderid {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* На СВОИХ сообщениях ник тоже лишний: сторона пузыря и цвет уже говорят, кто
+   автор. У входящих он остаётся — в чате на несколько человек без него не понять,
+   кто написал. */
+.message.user .message-username { display: none; }
 .message-header .message-time {
     margin-left: auto;
     font-size: 12px;
-    color: #999;
+    color: var(--faint);
     white-space: nowrap;
 }
 .message.user .message-header .message-time { color: rgba(255,255,255,.75) !important; }
 
 .message.bot {
     align-self: flex-start;
-    background: var(--surface);
+    background: var(--surface-2);
     color: var(--ink);
     border-bottom-left-radius: 5px;   /* left tail */
     border: 1px solid var(--line);
 }
-.message.bot strong { color: var(--iris-600); }
+.message.bot strong { color: var(--accent-600); }
 
 .message.user {
     align-self: flex-end;
-    background: var(--ember-grad);
+    background: var(--accent-grad);
     color: #fff;
     border-bottom-right-radius: 5px;  /* right tail */
-    box-shadow: 0 6px 16px rgba(255,106,91,.28);
+    box-shadow: var(--glow);
 }
 .message.user strong { color: rgba(255,255,255,.92); }
 .message.user span { color: rgba(255,255,255,.92) !important; }
@@ -643,9 +722,9 @@ body {
 .message.error-message {
     align-self: center;
     max-width: 92%;
-    background: #fdecec;
+    background: rgba(255, 90, 90, .12);
     color: var(--err);
-    border: 1px solid #f6cccd;
+    border: 1px solid rgba(255, 90, 90, .34);
     box-shadow: none;
     text-align: center;
 }
@@ -656,17 +735,20 @@ body {
 }
 
 /* Reply-as selector */
+/* Живёт в шапке чата, а не отдельной строкой под полем ввода: там он выглядел
+   инородным блоком во всю ширину и отбирал место у переписки. */
 #aiUserSelect {
-    margin: 0 16px 10px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
+    margin-left: auto;
+    max-width: 190px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-2);
     border-radius: var(--r-sm);
-    background: var(--surface);
-    color: var(--ink);
-    font: 500 13px/1 var(--sans);
+    background: var(--surface-2);
+    color: var(--muted);
+    font: 500 12.5px/1 var(--sans);
     cursor: pointer;
 }
-#aiUserSelect:focus { outline: none; border-color: var(--iris); box-shadow: 0 0 0 3px var(--iris-050); }
+#aiUserSelect:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* --- Composer --- */
 .chat-input {
@@ -694,29 +776,43 @@ body {
 .chat-input input#messageInput:focus {
     outline: none;
     background: var(--surface);
-    border-color: var(--iris);
-    box-shadow: 0 0 0 3px var(--iris-050);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .chat-input button {
     flex-shrink: 0;
     padding: 11px 16px;
     border: none;
     border-radius: 999px;
-    background: var(--iris);
+    background: var(--accent);
     color: #fff;
     font: 600 13.5px/1 var(--sans);
     cursor: pointer;
     transition: background .18s ease, transform .12s ease;
 }
-.chat-input button:hover { background: var(--iris-600); }
+
+.chat-input button.send-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    background: var(--accent-grad);
+    box-shadow: var(--glow);
+}
+
+.chat-input button.send-btn svg { width: 19px; height: 19px; }
+.chat-input button.send-btn:hover { filter: brightness(1.06); background: var(--accent-grad); }
+.chat-input button:hover { background: var(--accent-600); }
 .chat-input button:active { transform: scale(.97); }
 /* the secondary "AI help" button reads as ghost */
 .chat-input button.ghost {
     background: var(--surface-2);
-    color: var(--iris-600);
+    color: var(--accent-600);
     border: 1px solid var(--line);
 }
-.chat-input button.ghost:hover { background: var(--iris-050); border-color: var(--iris); }
+.chat-input button.ghost:hover { background: var(--accent-soft); border-color: var(--accent); }
 
 /* --- AI suggestion panel --- */
 .ai-suggestion-panel {
@@ -742,7 +838,7 @@ body {
     font: 700 10px/1 var(--mono);
     letter-spacing: .1em;
     color: #fff;
-    background: var(--iris-grad);
+    background: var(--accent-grad);
     padding: 4px 8px;
     border-radius: 999px;
 }
@@ -757,115 +853,16 @@ body {
     background: var(--surface-2);
     transition: background .16s ease, border-color .16s ease;
 }
-.ai-suggestion-panel button.insert-btn { background: var(--iris); color: #fff; border-color: var(--iris); }
-.ai-suggestion-panel button.insert-btn:hover { background: var(--iris-600); }
+.ai-suggestion-panel button.insert-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ai-suggestion-panel button.insert-btn:hover { background: var(--accent-600); }
 .ai-suggestion-panel button.close-btn:hover { background: var(--line); }
 
-/* ============================================================
-   FORMS  (chatcreatepage, register)  — .add-comment
-   ============================================================ */
-.add-comment {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-.add-comment label {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-}
-.add-comment input[type="text"],
-.add-comment input[type="password"],
-.add-comment textarea {
-    width: 100%;
-    padding: 12px 14px;
-    font: 400 15px/1.4 var(--sans);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    background: var(--surface-2);
-    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
-}
-.add-comment textarea { resize: vertical; min-height: 90px; }
-.add-comment input::placeholder { color: var(--faint); }
-.add-comment input:focus,
-.add-comment textarea:focus {
-    outline: none;
-    background: var(--surface);
-    border-color: var(--iris);
-    box-shadow: 0 0 0 3px var(--iris-050);
-}
-
-/* File input */
-.add-comment input[type="file"] {
-    font: 500 13px/1.4 var(--sans);
-    color: var(--muted);
-}
-.add-comment input[type="file"]::file-selector-button {
-    margin-right: 12px;
-    padding: 9px 14px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--surface);
-    color: var(--iris-600);
-    font: 600 13px/1 var(--sans);
-    cursor: pointer;
-    transition: background .16s ease, border-color .16s ease;
-}
-.add-comment input[type="file"]::file-selector-button:hover { background: var(--iris-050); border-color: var(--iris); }
-
-/* Added-user rows on the create page */
-.add-comment .comment {
-    padding: 12px 14px;
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    animation: bubble-in .2s ease both;
-}
 #userFields { display: flex; flex-direction: column; gap: 10px; }
 #userFields:empty { display: none; }
-
-/* Buttons */
-.add-comment button {
-    align-self: flex-start;
-    padding: 12px 22px;
-    border: none;
-    border-radius: 999px;
-    background: var(--iris);
-    color: #fff;
-    font: 600 14px/1 var(--sans);
-    cursor: pointer;
-    box-shadow: 0 6px 16px rgba(90,75,227,.26);
-    transition: background .18s ease, transform .12s ease, box-shadow .18s ease;
-}
-.add-comment button:hover { background: var(--iris-600); transform: translateY(-1px); }
-.add-comment button:active { transform: translateY(0); }
-/* the "+ add user" button reads as a ghost / secondary action */
-.add-comment button[type="button"] {
-    background: transparent;
-    color: var(--iris-600);
-    border: 1px dashed var(--line-2);
-    box-shadow: none;
-}
-.add-comment button[type="button"]:hover { background: var(--iris-050); border-color: var(--iris); transform: none; }
-/* the primary submit button gets the ember accent */
-.add-comment button[type="submit"] { background: var(--ember-grad); box-shadow: 0 6px 16px rgba(255,106,91,.3); }
-.add-comment button[type="submit"]:hover { filter: brightness(1.03); }
 /* Выключенные контролы: экран профиля отдаёт формы disabled, пока mount не получил
    /api/me и не навесил обработчики submit. Без видимого отличия «выключено» неотличимо
    от «нажми меня», и человек упирается в кнопку, которая молча не реагирует — то есть
    ровно в тот симптом, ради которого disabled и ставится. */
-.add-comment button:disabled,
-.add-comment button[type="submit"]:disabled {
-    filter: grayscale(.5) opacity(.55);
-    box-shadow: none;
-    cursor: progress;
-}
-.add-comment button:disabled:hover { transform: none; filter: grayscale(.5) opacity(.55); }
-.add-comment input:disabled { opacity: .55; cursor: progress; }
 
 #result {
     margin-top: 4px;
@@ -882,8 +879,8 @@ body {
     font-weight: 600;
     font-size: 15px;
     color: var(--err);
-    background: #fdecec;
-    border: 1px solid #f6cccd;
+    background: rgba(255, 90, 90, .12);
+    border: 1px solid rgba(255, 90, 90, .34);
     border-radius: var(--r-sm);
     padding: 12px 14px;
     transition: opacity .4s ease;
@@ -917,13 +914,11 @@ body {
     animation: toast-in .3s ease both;
     transition: opacity .5s ease, transform .5s ease;
 }
-.toast-icon { font-size: 18px; line-height: 1; }
-.toast-text { flex: 1; }
 
 .toast-success, .toast.success { background: var(--ok); }
 .toast-error,   .toast.error   { background: var(--err); }
 .toast-warning, .toast.warning { background: var(--warn); }
-.toast-info,    .toast.info    { background: var(--iris); }
+.toast-info,    .toast.info    { background: var(--accent); }
 
 .toast.hide { opacity: 0; transform: translateX(110%); }
 @keyframes toast-in {
@@ -932,20 +927,289 @@ body {
 }
 
 /* ============================================================
+   Профиль и формы
+   ============================================================ */
+
+.profile-card {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+}
+
+.profile-avatar .chat-avatar,
+.profile-avatar .letter-avatar {
+    width: 88px;
+    height: 88px;
+    border-radius: 28px;
+    font-size: 32px;
+}
+
+.profile-ident { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.profile-name {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--ink);
+    word-break: break-word;
+}
+
+.profile-id { font-size: 13px; color: var(--faint); }
+
+/* Строка настройки: подпись слева, поля и действие справа — как блоки
+   Email/Password в референсе. */
+.setting-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+}
+
+.setting-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 122px;
+}
+
+.setting-icon {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    color: var(--faint);
+    flex-shrink: 0;
+}
+
+.setting-icon svg { width: 100%; height: 100%; }
+
+.setting-title { font-size: 13.5px; font-weight: 600; color: var(--muted); }
+
+/* min-width: 0 обязателен: без него input с длинным placeholder распирает строку
+   и кнопка уезжает за край карточки. */
+.setting-row input[type="text"],
+.setting-row input[type="password"],
+.setting-row input[type="file"] {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 13px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13.5px;
+}
+
+.setting-row input::placeholder { color: var(--faint); }
+
+.setting-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.setting-row input:disabled { opacity: .55; cursor: not-allowed; }
+
+.setting-row input[type="file"] { padding: 8px 10px; color: var(--muted); }
+.setting-row input[type="file"]::file-selector-button {
+    margin-right: 10px;
+    padding: 6px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-sm);
+    background: var(--surface-3);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+
+.setting-row button[type="submit"] {
+    flex-shrink: 0;
+    padding: 10px 18px;
+    border: none;
+    border-radius: var(--r-pill);
+    background: var(--accent);
+    color: #fff;
+    font: 600 13.5px/1 var(--sans);
+    cursor: pointer;
+    transition: background .16s ease;
+}
+
+.setting-row button[type="submit"]:hover:not(:disabled) { background: var(--accent-600); }
+.setting-row button[type="submit"]:disabled { opacity: .5; cursor: not-allowed; }
+
+.setting-note {
+    margin: 0;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    color: var(--muted);
+    font-size: 13.5px;
+}
+
+/* ---------- Форма создания чата ---------- */
+
+.form-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 22px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+}
+
+.field { display: flex; flex-direction: column; gap: 7px; }
+
+.field-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: var(--muted);
+}
+
+.field input[type="text"],
+.field input[type="file"] {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+}
+
+.field input::placeholder { color: var(--faint); }
+
+.field input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field input[type="file"] { color: var(--muted); font-size: 13px; }
+.field input[type="file"]::file-selector-button {
+    margin-right: 10px;
+    padding: 7px 13px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-sm);
+    background: var(--surface-3);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+
+.user-picker { position: relative; }
+
+/* Выпадашка подсказок. Была инлайновыми стилями прямо в разметке вью — там ей не
+   место: правил полтора десятка, и половина из них уже ссылалась на токены. */
+.user-suggestions {
+    position: absolute;
+    z-index: 10;
+    left: 0;
+    right: 0;
+    margin: 4px 0 0;
+    padding: 4px;
+    list-style: none;
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--surface-2);
+    color: var(--ink);
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-2);
+}
+
+.user-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+.suggestion-item,
+.suggestion-empty {
+    padding: 9px 10px;
+    border-radius: var(--r-sm);
+    font-size: 13.5px;
+    color: var(--ink);
+}
+
+.suggestion-empty { color: var(--muted); }
+.suggestion-item { cursor: pointer; }
+.suggestion-item.active { background: var(--accent-soft); color: var(--ink); }
+
+.user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 9px 5px 6px;
+    border-radius: var(--r-pill);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    font-size: 13px;
+    color: var(--ink);
+}
+
+.chip-name { font-weight: 600; }
+
+.chip-remove {
+    border: 0;
+    background: transparent;
+    color: var(--faint);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+
+.chip-remove:hover { color: var(--err); }
+
+.btn-submit {
+    align-self: flex-start;
+    padding: 12px 22px;
+    border: none;
+    border-radius: var(--r-pill);
+    background: var(--accent-grad);
+    color: #fff;
+    font: 600 14px/1 var(--sans);
+    cursor: pointer;
+    box-shadow: var(--glow);
+}
+
+.btn-submit:hover { filter: brightness(1.06); }
+
+.form-result { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
-@media (max-width: 600px) {
-    .post-feed { margin: 16px; padding: 20px 16px 24px; border-radius: var(--r-md); }
-    .chat-container {
-        width: 100%;
-        height: 100vh;
-        height: 100dvh;
-        margin: 0;
-        border: none;
-        border-radius: 0;
+/* Ниже 760px рельс становится ФИКСИРОВАННОЙ нижней полосой (shell.css), а экран
+   чата держит высоту в 100vh. Без вычета высоты полосы строка ввода оказывалась
+   ровно под ней: сообщения видно, отправить нечем. Обычные экраны спасает
+   padding-bottom у #app, но чат — сетка в полную высоту, ему нужен свой вычет. */
+@media (max-width: 760px) {
+    /* .screen.chat-screen, а не просто .chat-screen: базовое правило выше задано
+       как `.screen.screen-wide` (два класса), и односоставный селектор проигрывал
+       ему по специфичности — высота оставалась 100vh, а вычет не применялся. */
+    .screen.chat-screen {
+        height: calc(100vh - 68px);
+        height: calc(100dvh - 68px);
     }
+}
+
+@media (max-width: 600px) {
+    
+    .screen { padding: 20px 14px 30px; }
     .post-content { padding-left: 0; }
-    .chat-avatar { width: 46px; height: 46px; }
+    .chat-avatar,
+    .letter-avatar { width: 46px; height: 46px; font-size: 17px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

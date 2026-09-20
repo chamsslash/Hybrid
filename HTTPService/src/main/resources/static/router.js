@@ -1,6 +1,12 @@
 // Клиентский роутер SPA на History API.
 // mount(params) рисует экран в #app; unmount() гасит предыдущий (disconnect STOMP + очистка).
 import { getAccessToken } from "/inmemory.js";
+// Импорт кольцевой: shell.js в свою очередь импортирует navigate отсюда. Это
+// безопасно ровно потому, что обе стороны используют друг друга только внутри
+// функций — `export function` поднимается, и к моменту первого вызова привязка
+// уже разрешена. Вызвать syncShell на верхнем уровне этого модуля было бы
+// нельзя: shell.js на тот момент ещё не инициализирован.
+import { syncShell } from "/shell.js";
 
 const routes = [];      // { pathname, loader }
 let currentView = null;
@@ -41,6 +47,14 @@ async function renderRoute(path) {
         // решит, что мы уже там, и не отрисует ничего.
         currentPath = fallback;
     }
+    // Рельс переключается ДО загрузки модуля вью: он живёт снаружи #app и не
+    // зависит от неё, а ждать динамический import() значило бы оставить
+    // подсвеченным пункт, с которого уже ушли.
+    // location здесь уже указывает на фактический адрес: navigate() сделал
+    // pushState до вызова, popstate его сменил сам, а ветка фолбэка выше —
+    // replaceState. Отдельно вычислять путь незачем.
+    syncShell(location.pathname);
+
     // teardown предыдущей вью
     if (currentView && typeof currentView.unmount === "function") {
         try { currentView.unmount(); } catch (e) { console.error("[router] unmount failed", e); }

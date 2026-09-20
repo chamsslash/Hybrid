@@ -1,5 +1,6 @@
 import api from "/axios.js";
 import { navigate } from "/router.js";
+import { resetShell, updateShellUser } from "/shell.js";
 import { ensureAccessToken } from "/auth.js";
 import { clearAccessToken } from "/inmemory.js";
 import { imageTag, hydrateImages, releaseImages } from "/image_loader.js";
@@ -16,33 +17,46 @@ import { showToast } from "/toast.js";
 // независимы и имеют разные исходы.
 
 const PROFILE_HTML = `
-    <div class="post-feed" style="max-width: 480px;">
-        <button type="button" id="back-btn" class="back-button" aria-label="Назад к списку чатов">←</button>
+    <div class="screen">
+        <header class="screen-head">
+            <h1 class="screen-title">Профиль</h1>
+        </header>
 
-        <h2 style="text-align: center;">Профиль</h2>
-
-        <div class="post" style="display: flex; align-items: center; gap: 16px;">
-            <div id="profile-avatar" class="chat-avatar-container"></div>
-            <div class="user-info">
-                <span class="user-name" id="profile-username"></span>
-                <span class="user-id" id="profile-userid"></span>
+        <div class="profile-card">
+            <div id="profile-avatar" class="chat-avatar-container profile-avatar"></div>
+            <div class="profile-ident">
+                <span class="profile-name" id="profile-username"></span>
+                <span class="profile-id" id="profile-userid"></span>
             </div>
         </div>
 
-        <form id="username-form" class="add-comment">
-            <label>
-                Новый ник
-                <input type="text" id="username-input" name="username" placeholder="Новый ник" required disabled>
-            </label>
-            <button type="submit" disabled>Сменить ник</button>
+        <form id="username-form" class="setting-row">
+            <div class="setting-label">
+                <span class="setting-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="8" r="3.6"/><path d="M4.6 20a7.4 7.4 0 0 1 14.8 0"/>
+                    </svg>
+                </span>
+                <span class="setting-title">Ник</span>
+            </div>
+            <input type="text" id="username-input" name="username" placeholder="Новый ник" required disabled>
+            <button type="submit" disabled>Сменить</button>
         </form>
 
-        <form id="avatar-form" class="add-comment" enctype="multipart/form-data">
-            <label>
-                Новая аватарка
-                <input type="file" id="avatar-input" name="file" accept="image/*" required disabled>
-            </label>
-            <button type="submit" disabled>Загрузить аватарку</button>
+        <form id="avatar-form" class="setting-row" enctype="multipart/form-data">
+            <div class="setting-label">
+                <span class="setting-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="6" width="18" height="14" rx="2.5"/>
+                        <circle cx="12" cy="13" r="3.2"/><path d="M8.5 6l1.4-2h4.2l1.4 2"/>
+                    </svg>
+                </span>
+                <span class="setting-title">Аватарка</span>
+            </div>
+            <input type="file" id="avatar-input" name="file" accept="image/*" required disabled>
+            <button type="submit" disabled>Загрузить</button>
         </form>
 
         <div id="password-section"></div>
@@ -55,23 +69,29 @@ const PROFILE_HTML = `
 `;
 
 const PASSWORD_FORM_HTML = `
-    <form id="password-form" class="add-comment">
-        <label>
-            Текущий пароль
-            <input type="password" id="current-password" name="currentPassword" required>
-        </label>
-        <label>
-            Новый пароль
-            <input type="password" id="new-password" name="newPassword" required>
-        </label>
-        <button type="submit">Сменить пароль</button>
+    <form id="password-form" class="setting-row">
+        <div class="setting-label">
+            <span class="setting-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="10.5" width="16" height="10" rx="2.5"/>
+                    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>
+                </svg>
+            </span>
+            <span class="setting-title">Пароль</span>
+        </div>
+        <input type="password" id="current-password" name="currentPassword"
+               placeholder="Текущий" autocomplete="current-password" required>
+        <input type="password" id="new-password" name="newPassword"
+               placeholder="Новый" autocomplete="new-password" required>
+        <button type="submit">Сменить</button>
     </form>
 `;
 
 // Аккаунтам без пароля форма не показывается: подтверждать смену нечем, а ЗАДАТЬ пароль
 // Google-аккаунту — отдельный сценарий аутентификации, в эту фичу он не входит.
 const GOOGLE_NOTICE_HTML = `
-    <p class="post-content" style="color: #888;">Вход через Google — пароля у аккаунта нет.</p>
+    <p class="setting-note">Вход через Google — пароля у аккаунта нет.</p>
 `;
 
 // Человеческие сообщения на коды ошибок сервера. Ключи — ровно то, что кладёт в поле
@@ -88,6 +108,9 @@ const ERROR_MESSAGES = {
 let ac = null;
 let stomp = null;
 let user_id = null;
+// Ник держим в состоянии модуля: буквенный фолбэк аватарки берёт из него первую
+// букву, а renderAvatar зовут из пяти мест, включая STOMP-событие и таймер добора.
+let current_username = "";
 
 function messageFor(error, fallback) {
     const code = error?.response?.data?.error;
@@ -102,7 +125,8 @@ function renderAvatar(objectKey) {
         container.innerHTML = policy.createHTML(`<div class="spinner-avatar"></div>`);
         return;
     }
-    container.innerHTML = policy.createHTML(imageTag(objectKey, "chat-avatar", "аватарка"));
+    container.innerHTML = policy.createHTML(
+        imageTag(objectKey, "chat-avatar", "аватарка", user_id, current_username));
     hydrateImages(container);
 }
 
@@ -200,6 +224,8 @@ function connectStomp(token) {
         profileStomp.subscribe(`/mutual/user_image/${user_id}`, (msg) => {
             const event = JSON.parse(msg.body);
             renderAvatar(event.objectKey);
+            // Аватарка стоит и в рельсе — см. комментарий про ник выше.
+            updateShellUser({ imageUrl: event.objectKey });
             showToast("Аватарка обновлена", "success");
         });
     });
@@ -214,11 +240,8 @@ export async function mount(params) {
     const app = document.getElementById("app");
     app.innerHTML = policy.createHTML(PROFILE_HTML);
 
-    // Возврат явным маршрутом, а не history.back(): на профиль заходят и по прямой ссылке,
-    // и тогда в истории возвращаться некуда. Родитель у экрана один — список чатов.
-    document.getElementById("back-btn").addEventListener("click", () => {
-        navigate("/reactive/chatlist");
-    }, { signal: ac.signal });
+    // Кнопки «назад» на этом экране больше нет: её роль взял навигационный рельс,
+    // который виден всегда и ведёт в оба раздела напрямую.
 
     // Шелл /reactive/profile публичен на ingress — иначе обычная навигация (F5, закладка,
     // прямая ссылка) не несёт Authorization и nginx отдаёт голую страницу 401 вместо
@@ -242,7 +265,8 @@ export async function mount(params) {
     }
 
     user_id = String(me.userId);
-    document.getElementById("profile-username").textContent = me.username || "";
+    current_username = me.username || "";
+    document.getElementById("profile-username").textContent = current_username;
     document.getElementById("profile-userid").textContent = `ID: ${user_id}`;
     document.getElementById("username-input").value = me.username || "";
     renderAvatar(me.imageUrl);
@@ -256,6 +280,11 @@ export async function mount(params) {
             await api.post("/api/profile/username", { username: newUsername });
             // Отображаемый ник обновляем сами — перезагрузка не нужна.
             document.getElementById("profile-username").textContent = newUsername;
+            current_username = newUsername;
+            // Тот же ник стоит в карточке рельса, а она живёт дольше этого экрана
+            // и кэширует /api/me на вкладку. Без этой строки навигация показывала
+            // бы старый ник рядом с новым до перезагрузки страницы.
+            updateShellUser({ username: newUsername });
             showToast("Ник изменён", "success");
         } catch (error) {
             // Поле НЕ очищаем: человек поправит один символ, а не наберёт всё заново.
@@ -301,6 +330,10 @@ export async function mount(params) {
         // Access живёт в памяти вкладки и сервером не отзывается (он подписанный) —
         // стереть его может только клиент.
         clearAccessToken();
+        // Рельс кэширует /api/me на вкладку и живёт снаружи #app, то есть переживёт
+        // уход на /welcome. Без сброса следующий вход в другой аккаунт в той же
+        // вкладке показывал бы в навигации имя и аватарку предыдущего.
+        resetShell();
         await navigate("/welcome");
     }, { signal: ac.signal });
 
@@ -323,4 +356,5 @@ export function unmount() {
     if (stomp) stomp.disconnectAll();
     stomp = null;
     user_id = null;
+    current_username = "";
 }
