@@ -16,6 +16,7 @@ public class MessageMapper {
         message.setTimeStamp(row.get("time_stamp", java.time.Instant.class));
         message.setUserId(row.get("user_id", Long.class));
         message.setChatId(row.get("chat_id", Long.class));
+        message.setStickerKey(row.get("sticker_key", String.class));
         return message;
     }
 }

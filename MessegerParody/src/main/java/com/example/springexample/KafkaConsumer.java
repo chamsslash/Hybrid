@@ -69,7 +69,8 @@ public class KafkaConsumer {
                     Long.parseLong(dto.getUser_id()),
                     dto.getText(),
                     Instant.parse(dto.getTimestamp()),
-                    dto.getMessage_id()
+                    dto.getMessage_id(),
+                    dto.getSticker_key()
             ).block(java.time.Duration.ofSeconds(15));
             messagePersistenceMetric.recordSuccess();
         } catch (RuntimeException e) {

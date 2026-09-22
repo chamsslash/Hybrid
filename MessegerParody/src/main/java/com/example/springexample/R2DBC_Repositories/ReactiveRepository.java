@@ -182,26 +182,63 @@ public class ReactiveRepository {
      * раньше, с предупреждением в лог, чтобы легаси-формат был виден.
      */
     public Mono<Void> insertMessage(Long chatId, Long userId, String text,
-                                    java.time.Instant timestamp, String messageId) {
+                                    java.time.Instant timestamp, String messageId, String stickerKey) {
         if (messageId == null || messageId.isBlank()) {
             log.warn("Сообщение чата {} без message_id (легаси-формат из бэклога топика) — "
                     + "вставка без защиты от дублей", chatId);
-            String legacySql = "INSERT INTO message (chat_id, user_id, text, time_stamp) VALUES ($1, $2, $3, $4)";
+            String legacySql = "INSERT INTO message (chat_id, user_id, text, time_stamp, sticker_key) "
+                    + "VALUES ($1, $2, $3, $4, $5)";
             return reactiveDb.sql(legacySql)
                     .bind(0, chatId)
                     .bind(1, userId)
                     .bind(2, text)
                     .bind(3, timestamp)
+                    // Parameter.fromOrEmpty, а не bind(..., stickerKey): bind() отвергает null
+                    // (IllegalArgumentException), а sticker_key у обычного текстового сообщения
+                    // именно null. Явный bindNull здесь потребовал бы ветвления на каждый вызов.
+                    .bind(4, org.springframework.r2dbc.core.Parameter.fromOrEmpty(stickerKey, String.class))
                     .then();
         }
-        String sql = "INSERT INTO message (chat_id, user_id, text, time_stamp, message_id) "
-                + "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (message_id) DO NOTHING";
+        String sql = "INSERT INTO message (chat_id, user_id, text, time_stamp, message_id, sticker_key) "
+                + "VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (message_id) DO NOTHING";
         return reactiveDb.sql(sql)
                 .bind(0, chatId)
                 .bind(1, userId)
                 .bind(2, text)
                 .bind(3, timestamp)
                 .bind(4, messageId)
+                .bind(5, org.springframework.r2dbc.core.Parameter.fromOrEmpty(stickerKey, String.class))
                 .then();
+    }
+
+    /**
+     * Личный набор стикеров (beads a22): различные ключи, которые пользователь когда-либо
+     * отправлял, по убыванию ПОСЛЕДНЕГО использования.
+     *
+     * Отдельной таблицы под набор нет намеренно — набор является производной от истории
+     * сообщений, и вторая таблица была бы вторым источником правды, обязанным совпадать с
+     * message. Здесь эта производная и считается.
+     *
+     * GROUP BY схлопывает повторные отправки одного стикера в одну позицию, MAX(time_stamp)
+     * поднимает её на место последнего использования: пользователь ждёт, что стикер,
+     * которым он только что пошутил, лежит первым, даже если впервые отправил его год назад.
+     *
+     * LIMIT 60 — сколько влезает в панель на несколько экранов прокрутки; пагинации в MVP нет.
+     * Без лимита запрос вернул бы всю историю картинок активного пользователя одним ответом.
+     */
+    public Flux<String> findStickerKeysByUserId(Long userId) {
+        String sql = """
+            SELECT sticker_key, MAX(time_stamp) AS last_used
+            FROM message
+            WHERE user_id = $1 AND sticker_key IS NOT NULL
+            GROUP BY sticker_key
+            ORDER BY last_used DESC
+            LIMIT 60
+        """;
+
+        return reactiveDb.sql(sql)
+                .bind(0, userId)
+                .map((row, meta) -> row.get("sticker_key", String.class))
+                .all();
     }
 }

@@ -80,7 +80,7 @@ class KafkaConsumerTest {
      */
     @Test
     void serverMessageIdFromPayloadReachesRepository() {
-        when(reactiveRepository.insertMessage(any(), any(), any(), any(), any())).thenReturn(Mono.empty());
+        when(reactiveRepository.insertMessage(any(), any(), any(), any(), any(), any())).thenReturn(Mono.empty());
         String message = "{\"message_id\":\"11111111-1111-1111-1111-111111111111\",\"chat_id\":\"5\","
                 + "\"user_id\":\"9\",\"username\":\"Дима\",\"timestamp\":\"2026-08-21T10:00:00Z\","
                 + "\"text\":\"привет\"}";
@@ -88,7 +88,27 @@ class KafkaConsumerTest {
         kafkaConsumer.listenChatMessages(message);
 
         verify(reactiveRepository).insertMessage(5L, 9L, "привет",
-                Instant.parse("2026-08-21T10:00:00Z"), "11111111-1111-1111-1111-111111111111");
+                Instant.parse("2026-08-21T10:00:00Z"), "11111111-1111-1111-1111-111111111111", null);
+    }
+
+    /**
+     * Стикер (beads a22) — такое же сообщение топика "Messages", но вместо текста несёт
+     * ключ объекта MinIO. Имя поля sticker_key — единственная связь между копиями
+     * ChatMessageDTO у HTTPService и здесь: разъедься имена, ключ молча приехал бы как
+     * null, и стикер записался бы в историю пустым сообщением без единой ошибки.
+     */
+    @Test
+    void stickerKeyFromPayloadReachesRepository() {
+        when(reactiveRepository.insertMessage(any(), any(), any(), any(), any(), any())).thenReturn(Mono.empty());
+        String message = "{\"message_id\":\"44444444-4444-4444-4444-444444444444\",\"chat_id\":\"5\","
+                + "\"user_id\":\"9\",\"username\":\"Дима\",\"timestamp\":\"2026-08-21T10:00:00Z\","
+                + "\"text\":\"\",\"sticker_key\":\"sticker/9/abc.png\"}";
+
+        kafkaConsumer.listenChatMessages(message);
+
+        verify(reactiveRepository).insertMessage(5L, 9L, "",
+                Instant.parse("2026-08-21T10:00:00Z"), "44444444-4444-4444-4444-444444444444",
+                "sticker/9/abc.png");
     }
 
     /**
@@ -99,13 +119,13 @@ class KafkaConsumerTest {
      */
     @Test
     void legacyPayloadWithoutMessageIdPassesNullToRepository() {
-        when(reactiveRepository.insertMessage(any(), any(), any(), any(), any())).thenReturn(Mono.empty());
+        when(reactiveRepository.insertMessage(any(), any(), any(), any(), any(), any())).thenReturn(Mono.empty());
         String message = "{\"chat_id\":\"5\",\"user_id\":\"9\",\"username\":\"Дима\","
                 + "\"timestamp\":\"2026-08-21T10:00:00Z\",\"text\":\"привет\"}";
 
         kafkaConsumer.listenChatMessages(message);
 
         verify(reactiveRepository).insertMessage(5L, 9L, "привет",
-                Instant.parse("2026-08-21T10:00:00Z"), null);
+                Instant.parse("2026-08-21T10:00:00Z"), null, null);
     }
 }

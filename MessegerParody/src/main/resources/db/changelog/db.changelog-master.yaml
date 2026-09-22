@@ -24,3 +24,6 @@ databaseChangeLog:
   # Релиз v3. Правило то же: v1 и v2 — применённые релизы, их changeSet'ы менять нельзя.
   - include:
       file: db/changelog/changes/v3/001-users-unique-lower-name.yaml
+  # Релиз v4. Правило то же: v1–v3 — применённые релизы, их changeSet'ы менять нельзя.
+  - include:
+      file: db/changelog/changes/v4/001-message-sticker-key.yaml
