@@ -25,5 +25,11 @@ public class MessageEvent {
     String text;
     String timestamp;
     String image_url;
+    // Ключ стикера в MinIO (beads a22). Имя поля совпадает с ChatMessageDTO.sticker_key
+    // намеренно: история чата (этот класс) и живое эхо по STOMP приезжают на фронт в
+    // одну и ту же функцию рендера, и разные имена потребовали бы её ветвить.
+    //
+    // Не путать с соседним image_url — там ключ аватарки отправителя, а не вложение.
+    String sticker_key;
 
 }

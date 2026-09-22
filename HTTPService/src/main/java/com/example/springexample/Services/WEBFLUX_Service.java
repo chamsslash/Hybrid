@@ -647,30 +647,116 @@ public class WEBFLUX_Service {
             return Mono.empty();
         }
 
-        // Используем DataBufferUtils.join для безопасного объединения всех частей файла
-        Mono<DataBuffer> joinedBuffers = DataBufferUtils.join(file.content());
+        String filename = file.filename();
+        String extension = (filename != null && filename.contains(".")) ?
+                filename.substring(filename.lastIndexOf(".") + 1) : "jpg";
 
-        return joinedBuffers
+        return storeImageObject(file, targetId, targetType, extension)
+                .flatMap(objectKey -> Mono.fromRunnable(() -> {
+                    JsonObject buildObj = new JsonObject();
+                    buildObj.addProperty("targetType", targetType);
+                    buildObj.addProperty("targetId", targetId);
+                    buildObj.addProperty("objectKey", objectKey);
+                    kafkaProducer.sendImage(buildObj.toString());
+                }))
+                .then();
+    }
+
+    /**
+     * Общая часть обеих загрузок (beads a22): собрать байты, сложить их в MinIO по ключу
+     * &lt;targetType&gt;/&lt;targetId&gt;/&lt;uuid&gt;.&lt;ext&gt; и вернуть этот ключ.
+     *
+     * Вынесено, а не скопировано, потому что расходятся загрузки ровно в одном шаге —
+     * публикации события в Kafka. Аватарке и картинке чата она нужна
+     * ({@link #Upload_image}), стикеру вредна: топик "Images" существует, чтобы
+     * ImageUrlPersistenceService записал ключ в users.image_url / chat.image_url, а у
+     * стикера такой строки нет — он попадёт в БД обычным путём сообщения. Событие оттуда
+     * ушло бы в ветку неизвестного targetType и роняло бы консьюмер в ретраи и DLT.
+     */
+    private Mono<String> storeImageObject(FilePart file, String targetId, String targetType, String extension) {
+        // Используем DataBufferUtils.join для безопасного объединения всех частей файла
+        return DataBufferUtils.join(file.content())
                 .flatMap(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
 
-                    String filename = file.filename();
-                    String extension = (filename != null && filename.contains(".")) ?
-                            filename.substring(filename.lastIndexOf(".") + 1) : "jpg";
                     String contentType = Objects.toString(file.headers().getContentType(), "application/octet-stream");
                     String objectKey = targetType + "/" + targetId + "/" + UUID.randomUUID() + "." + extension;
 
                     return imageStorageService.putObject(objectKey, bytes, contentType)
-                            .then(Mono.fromRunnable(() -> {
-                                JsonObject buildObj = new JsonObject();
-                                buildObj.addProperty("targetType", targetType);
-                                buildObj.addProperty("targetId", targetId);
-                                buildObj.addProperty("objectKey", objectKey);
-                                kafkaProducer.sendImage(buildObj.toString());
-                            }));
+                            .thenReturn(objectKey);
+                });
+    }
+
+    /** Префикс ключа стикера: sticker/&lt;ownerUserId&gt;/&lt;uuid&gt;.&lt;ext&gt; (beads a22). */
+    private static final String STICKER_TARGET_TYPE = "sticker";
+
+    /**
+     * Что принимаем за стикер и какое расширение получает ключ.
+     *
+     * Расширение берётся отсюда, а не из имени файла: ключ потом проверяется на отправке
+     * (ChatBoxStompController.isOwnStickerKey) строгим шаблоном, и пусти мы в него
+     * произвольный хвост пользовательского имени файла — свой же корректный ключ мог бы
+     * не пройти собственную проверку. Плюс имя файла целиком контролируется клиентом.
+     *
+     * Сам Content-Type приходит от клиента и в MVP доверяется — это известная незакрытая
+     * претензия ревью по аватаркам; отдельным решением она здесь не чинится, но и не
+     * усугубляется.
+     */
+    private static final Map<String, String> STICKER_TYPES = Map.of(
+            "image/png", "png",
+            "image/jpeg", "jpg",
+            "image/gif", "gif",
+            "image/webp", "webp");
+
+    /**
+     * Загрузка стикера (beads a22). Снаружи это POST /reactive/api/sticker.
+     *
+     * Отличие от {@link #handleAvatarUpload} одно и важное: ответ синхронный и НЕСЁТ ключ.
+     * Аватарка отвечает 202 и ключ не отдаёт, потому что он едет в БД через Kafka и
+     * возвращается клиенту событием STOMP; стикеру этот путь не нужен и вреден (см.
+     * {@link #storeImageObject}), а ключ нужен немедленно — им клиент тут же отправляет
+     * STOMP-фрейм в чат.
+     *
+     * targetId берётся из ReactiveSecurityContextHolder, а не из формы: он попадает прямо
+     * в ключ объекта MinIO, и приём его снаружи означал бы запись в чужой префикс.
+     *
+     * Неподходящий тип файла — внятный 400, а не молчание: без этого в бакет попадали бы
+     * произвольные файлы, которые префикс sticker/ отдаёт любому аутентифицированному.
+     * Ограничения на размер — те же, что уже действуют (proxy-body-size: 10m на ingress,
+     * spring.servlet.multipart.max-file-size), новых не вводим.
+     */
+    public Mono<ServerResponse> handleStickerUpload(ServerRequest request) {
+        return request.multipartData()
+                .flatMap(parts -> {
+                    FilePart file = (FilePart) parts.getFirst("file");
+                    if (file == null) {
+                        return ServerResponse.badRequest()
+                                .contentType(MediaType.TEXT_PLAIN)
+                                .bodyValue("Missing required form part: file");
+                    }
+                    MediaType contentType = file.headers().getContentType();
+                    String extension = contentType == null
+                            ? null
+                            : STICKER_TYPES.get(contentType.toString().toLowerCase(java.util.Locale.ROOT));
+                    if (extension == null) {
+                        return ServerResponse.badRequest()
+                                .contentType(MediaType.TEXT_PLAIN)
+                                .bodyValue("Поддерживаются только PNG, JPEG, GIF и WEBP");
+                    }
+                    return ReactiveSecurityContextHolder.getContext()
+                            .map(ctx -> (String) ctx.getAuthentication().getPrincipal())
+                            .flatMap(userId -> storeImageObject(file, userId, STICKER_TARGET_TYPE, extension))
+                            .flatMap(objectKey -> ServerResponse.ok()
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .bodyValue(Map.of("objectKey", objectKey)));
                 })
-                .then();
+                .onErrorResume(e -> {
+                    log.error("Не удалось загрузить стикер", e);
+                    return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .contentType(MediaType.TEXT_PLAIN)
+                            .bodyValue("Sticker upload failed");
+                });
     }
 }

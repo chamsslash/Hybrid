@@ -21,4 +21,14 @@ public class ChatMessageDTO {
     private String timestamp;
     private String text;
     private String imageurl;
+    // Ключ стикера в MinIO (beads a22): sticker/<ownerUserId>/<uuid>.<ext>. null —
+    // обычное текстовое сообщение.
+    //
+    // Соседнее поле imageurl — это НЕ вложение, а ключ аватарки отправителя (chat.view.js
+    // -> avatarHtml); sticker_key стоит рядом и ничего не заменяет.
+    //
+    // Из тела фрейма значение принимается, но только своё: ChatBoxStompController сверяет
+    // владельца в ключе с принципалом и отвергает всё остальное (fail-closed). Это
+    // единственная проверка на пути — ACL на чтение разбирает владельца ИЗ КЛЮЧА.
+    private String sticker_key;
 }
