@@ -2,7 +2,13 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- interactive-widget=resizes-content: без него экранная клавиатура на Android
+         уменьшает ТОЛЬКО visual viewport, а layout viewport (и dvh, и position: fixed)
+         остаётся прежним — композер вместе с нижней полосой рельса оказывается под
+         клавиатурой, и доскроллить до них нечем: у чата высота ровно во вьюпорт, у
+         документа нет запаса прокрутки. С resizes-content клавиатура ужимает layout
+         viewport, dvh пересчитывается, и строка ввода встаёт над ней. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <title>TEBEGRAM</title>
     <!-- tokens.css ОБЯЗАН идти первым: остальные файлы написаны через var(...),
          и если палитра приедет второй, переменные разрешатся в пустоту. -->
