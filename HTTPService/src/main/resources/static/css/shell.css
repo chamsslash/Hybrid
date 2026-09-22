@@ -3,10 +3,21 @@
    Палитра — tokens.css, он обязан быть подключён раньше.
    ============================================================ */
 
+/* Высота нижней полосы на узких экранах. Объявлена ОДИН раз и здесь, потому что
+   её вычитает из высоты экрана не только #app, но и чат в style2.css. Раньше
+   полоса была height:auto, а чат вычитал зашитые 68px, снятые линейкой с
+   макбука; реальная высота определялась min-height карточки пользователя (56px)
+   плюс паддинги и давала 73px — строка ввода уезжала на 5px под полосу. Теперь
+   число одно и на обоих концах оно одно и то же. */
+:root {
+    --rail-h: 56px;
+}
+
 #shell {
     display: grid;
     grid-template-columns: 236px minmax(0, 1fr);
     min-height: 100vh;
+    min-height: 100dvh;
 }
 
 /* Экраны без рельса (вход, регистрация, OAuth-callback). Класс стоит в разметке
@@ -38,7 +49,12 @@ body.shell-off #rail {
     border-right: 1px solid var(--line);
     position: sticky;
     top: 0;
+    /* dvh, а не vh: боковой рельс достаётся в том числе телефону в ландшафте
+       (844px ширины — это уже не мобильный брейкпоинт), а там 100vh считается
+       по вьюпорту с убранной адресной строкой, и карточка пользователя внизу
+       рельса оказывается за краем экрана. */
     height: 100vh;
+    height: 100dvh;
 }
 
 .rail-brand {
@@ -182,7 +198,7 @@ body.shell-off #rail {
         right: 0;
         bottom: 0;
         top: auto;
-        height: auto;
+        height: var(--rail-h);
         flex-direction: row;
         align-items: center;
         gap: 8px;
@@ -214,8 +230,11 @@ body.shell-off #rail {
         display: none;
     }
 
+    /* min-height карточки (56px в базовом правиле) в полосе не нужен — там от неё
+       остаётся одна аватарка 36px, — и именно он раздувал полосу до 73px. */
     .rail-user {
         margin-top: 0;
+        min-height: 0;
         padding: 4px;
         background: transparent;
     }
@@ -228,6 +247,6 @@ body.shell-off #rail {
     /* Место под полосу, чтобы она не накрывала последнюю карточку списка
        и строку ввода в чате. */
     #app {
-        padding-bottom: 68px;
+        padding-bottom: var(--rail-h);
     }
 }
