@@ -22,6 +22,7 @@ body.shell-off {
     justify-content: center;
     align-items: center;
     min-height: 100vh;
+    min-height: 100dvh;
     padding: 24px;
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
@@ -371,9 +372,16 @@ body.shell-off {
 @media (max-width: 900px) {
     body.shell-off { padding: 0; align-items: stretch; }
 
+    /* grid-template-rows нужен из-за min-height. Ряды по умолчанию auto, а
+       auto-ряды в гриде выше своего содержимого растягиваются вместе с
+       контейнером: под полосу с логотипом уходило 293px вместо задуманных 128
+       (замер на 768x1024), остальное доставалось форме просто как пустота между
+       блоками. «Арт по содержимому, форма — весь остаток» это фиксирует. */
     .auth-card {
         grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
         min-height: 100vh;
+        min-height: 100dvh;
         border-radius: 0;
         border: 0;
     }
@@ -390,6 +398,35 @@ body.shell-off {
     .auth-slogan { font-size: 19px; max-width: none; }
     .auth-footnote { display: none; }
     .auth-pane { padding: 26px 22px 34px; }
+}
+
+/* ---------- Низкий экран: телефон в ландшафте ---------- */
+
+/* 390px высоты на всё, из которых 128px занимала полоса с логотипом, а поля и
+   кнопка входа уезжали под сгиб (замер: .btn-primary на y=424 при вьюпорте 390).
+   Запрос по высоте, а не по ориентации: низкое окно на десктопе — тот же случай.
+   Полосу оставляем — на ней логотип, — но ужимаем до неё самой, а слоган прячем:
+   он тут стоит ровно столько, сколько занимает. */
+@media (max-height: 480px) {
+    body.shell-off { padding: 0; align-items: stretch; }
+
+    .auth-card { min-height: 0; border-radius: 0; border: 0; }
+
+    .auth-art {
+        min-height: 0;
+        padding: 12px 24px;
+        justify-content: center;
+    }
+
+    .auth-slogan,
+    .auth-footnote { display: none; }
+
+    .auth-pane { padding: 16px 22px 22px; }
+    .auth-tabs { margin-bottom: 16px; }
+    .auth-title { font-size: 20px; }
+    .auth-subtitle { margin-bottom: 14px; }
+    .auth-sep { margin: 12px 0; }
+    .auth-switch { margin-top: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
