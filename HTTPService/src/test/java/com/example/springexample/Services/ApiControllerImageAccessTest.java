@@ -102,6 +102,28 @@ class ApiControllerImageAccessTest {
         assertEquals("userimage/4/avatar.png", key.getValue());
     }
 
+    /**
+     * Стикер (beads a22) отдаётся любому аутентифицированному — как аватарка, а не как
+     * картинка чата. Иначе нельзя: набор личный и переиспользуется в разных чатах, ключ
+     * несёт id ВЛАДЕЛЬЦА, а не чата, так что привязать его к участию не к чему. Цена —
+     * залогиненный, УГАДАВШИЙ UUID, скачает чужой стикер; это тот же осознанный размен,
+     * что уже принят для userimage/ (см. javadoc ApiController.image).
+     *
+     * verifyNoInteractions(stub) — вторая половина утверждения: решение принимается по
+     * префиксу, без похода в MessegerParody за членством. Ходить туда было бы и незачем,
+     * и дорого — картинка запрашивается на каждый стикер в ленте.
+     */
+    @Test
+    void stickerIsServedToAnyAuthenticatedUser() throws Exception {
+        minioHas("image/png", new byte[]{4, 2});
+
+        ResponseEntity<byte[]> response = controller.image(SUNNY, "/sticker/10/e3cfae8e.png").call();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertArrayEquals(new byte[]{4, 2}, response.getBody());
+        Mockito.verifyNoInteractions(stub);
+    }
+
     @Test
     void chatImageIsServedToChatMember() throws Exception {
         membersOfChatAre(Mono.just(membersResponse(4L, 7L)));
@@ -187,6 +209,9 @@ class ApiControllerImageAccessTest {
             "/userimage/4",
             "/userimage/4/nested/a.png",
             "/secret/1/x.png",
+            "/sticker/abc/x.png",
+            "/sticker/1/nested/x.png",
+            "/STICKER/1/x.png",
             "/chatimage/abc/x.png",
             "/chatimage/+3/x.png",
             "/chatimage/-3/x.png",

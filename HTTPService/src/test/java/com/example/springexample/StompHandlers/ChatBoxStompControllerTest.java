@@ -684,6 +684,169 @@ class ChatBoxStompControllerTest {
                 "имя поля в JSON и само значение обязаны совпасть с разосланным эхо");
     }
 
+    // --- стикеры (beads a22) ---
+
+    /**
+     * Центральный сторож стикеров. Ключ объекта приходит в теле фрейма, а тело фрейма
+     * подделывается свободно — тот же инвариант, что уже действует для user_id/chat_id
+     * (beads g9x). Сервер обязан принимать ТОЛЬКО ключ вида
+     * sticker/&lt;id отправителя&gt;/&lt;uuid&gt;.&lt;ext&gt;, где id берётся из принципала.
+     *
+     * Без этой проверки участник приложил бы к своему сообщению ЧУЖОЙ ключ, например
+     * chatimage/&lt;другой чат&gt;/..., и картинка закрытого чата доехала бы всем участникам
+     * этого: ACL на чтение (ApiController.authorizeObjectAccess) разбирает chatId ИЗ КЛЮЧА,
+     * а не из чата, в котором висит сообщение, — то есть проверка на отправке здесь
+     * единственная, кто вообще стоит на пути.
+     */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "sticker/7/11111111-1111-1111-1111-111111111111.png",   // чужой владелец
+            "chatimage/3/11111111-1111-1111-1111-111111111111.jpg", // картинка чужого чата
+            "userimage/9/11111111-1111-1111-1111-111111111111.png", // чужой префикс, свой id
+            "sticker/9/../11111111-1111-1111-1111-111111111111.png",// выход вверх
+            "sticker/9/nested/11111111-1111-1111-1111-111111111111.png", // лишний уровень
+            "sticker/09/11111111-1111-1111-1111-111111111111.png",  // неканоничный id
+            "sticker/9/..",
+            "sticker/9/",
+            "sticker//11111111-1111-1111-1111-111111111111.png",
+            "sticker/9/not-a-uuid.png",
+            "sticker/9/11111111-1111-1111-1111-111111111111.png/x",
+            "STICKER/9/11111111-1111-1111-1111-111111111111.png",
+            "sticker/9/11111111-1111-1111-1111-111111111111.p\\g",
+    })
+    void foreignOrMalformedStickerKeyIsRefusedBeforeAnySideEffect(String stickerKey) {
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setSticker_key(stickerKey);
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        // Fail-closed: отказ ДО обращения к списку участников, то есть вообще без gRPC.
+        Mockito.verify(membership, Mockito.never()).members(Mockito.anyLong());
+        Mockito.verify(template, Mockito.never())
+                .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        // Отбивка отправителю + счётчик: подделка ключа — ровно тот отказ, который клиент
+        // может повторять, и стоить он ему должен (beads isf).
+        Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
+                Mockito.eq("STICKER_NOT_OWNED"), Mockito.notNull(), Mockito.isNull());
+        Mockito.verify(denialCounter).recordDenial("sess-1");
+    }
+
+    /** Свой корректный ключ обязан дойти до эхо и до Kafka неизменным. */
+    @Test
+    void ownStickerKeyReachesBroadcastAndKafka() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("");
+        dto.setSticker_key("sticker/9/11111111-1111-1111-1111-111111111111.png");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        ArgumentCaptor<ChatMessageDTO> sent = ArgumentCaptor.forClass(ChatMessageDTO.class);
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), sent.capture());
+        assertEquals("sticker/9/11111111-1111-1111-1111-111111111111.png", sent.getValue().getSticker_key());
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(kafkaProducer).send(Mockito.anyString(), payload.capture());
+        Map<String, Object> json = new com.google.gson.Gson().fromJson(payload.getValue(), Map.class);
+        assertEquals("sticker/9/11111111-1111-1111-1111-111111111111.png", json.get("sticker_key"),
+                "имя поля в JSON обязано совпасть с копией ChatMessageDTO у MessegerParody");
+    }
+
+    /**
+     * Сообщение без текста И без стикера отвергается. До стикеров пустой текст проходил
+     * насквозь и оседал в истории пустым пузырём; теперь, когда у сообщения появилась
+     * вторая возможная нагрузка, «пусто в обоих полях» — единственный честный признак
+     * бессмысленного фрейма.
+     */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", "   "})
+    void messageWithNeitherTextNorStickerIsRefusedBeforeAnySideEffect(String text) {
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText(text);
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        Mockito.verify(membership, Mockito.never()).members(Mockito.anyLong());
+        Mockito.verify(template, Mockito.never())
+                .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
+        Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
+                Mockito.eq("EMPTY_MESSAGE"), Mockito.notNull(), Mockito.isNull());
+        // В счётчик отказов НЕ идёт: отказ выносится до единого gRPC-вызова и серверу
+        // ничего не стоит, а рвать сессию за баг клиента незачем (та же логика, что у
+        // MEMBERSHIP_UNAVAILABLE, beads isf).
+        Mockito.verify(denialCounter, Mockito.never()).recordDenial(Mockito.anyString());
+    }
+
+    /**
+     * Стикер не уезжает в Redis-контекст AI-ассистента. Текста у него нет, и попади он
+     * туда — в контекст легли бы пустые строки от имени участников: промпт AI собирается
+     * из пар «ник: сообщение», и пустые реплики его только портят.
+     */
+    @Test
+    void stickerDoesNotGoIntoAiContext() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("");
+        dto.setSticker_key("sticker/9/11111111-1111-1111-1111-111111111111.png");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        // Рассылка при этом состоялась — проверяем именно отсутствие записи в контекст,
+        // а не отказ целиком.
+        Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
+        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+    }
+
+    /** Обратная сторона: обычное текстовое сообщение в контекст AI по-прежнему попадает. */
+    @Test
+    void textMessageStillGoesIntoAiContext() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("привет");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        Mockito.verify(list).leftPush(Mockito.anyString(), Mockito.anyString());
+    }
+
+    /**
+     * Превью в списке чатов для стикера — текст-заглушка, а не пустая строка: иначе
+     * последняя строка чата выглядела бы так, будто собеседник ничего не писал.
+     */
+    @Test
+    void stickerPreviewIsPlaceholderInsteadOfEmptyText() {
+        Mockito.when(membership.members(5L))
+                .thenReturn(Mono.just(List.of(user(9L, "Дима"))));
+
+        ChatMessageDTO dto = new ChatMessageDTO();
+        dto.setText("");
+        dto.setSticker_key("sticker/9/11111111-1111-1111-1111-111111111111.png");
+        Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
+
+        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+
+        ArgumentCaptor<ChatListShortObjDTO> preview = ArgumentCaptor.forClass(ChatListShortObjDTO.class);
+        Mockito.verify(chatListController).ChangeChatPreview(Mockito.any(), preview.capture());
+        assertEquals(ChatListShortObjDTO.STICKER_PREVIEW, preview.getValue().getText());
+    }
+
     /**
      * StompErrorNotifier — отдельный владелец отправки отбивок (beads 8wh), вынесенный из
      * контроллера, потому что тот же механизм понадобился StompAuthChannelInterceptor.

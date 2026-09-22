@@ -82,11 +82,17 @@ public class ReactiveGrpcClient {
     public Mono<ShortChatObject> reactiveGetNewestMessage(DataTransferService.ChatData chatData) {
         return  grpcRequestsMetric.measure("getnewest", reactiveTransferServiceStub.getnewest(chatData)).map(message -> {
             log.info("got newest message from chat {}",message.getChatId());
+            // У стикера текста нет (beads a22), и пустая строка в списке чатов выглядела бы
+            // так, будто собеседник ничего не писал. Это ХОЛОДНЫЙ путь превью — при загрузке
+            // страницы; живой, по STOMP, подставляет ту же константу в ChatBoxStompController.
+            String preview = message.getStickerKey().isEmpty()
+                    ? message.getText()
+                    : ChatListShortObjDTO.STICKER_PREVIEW;
             return  new ShortChatObject(
                     message.getChatId(),
                     message.getUserName(), message.getChatName(),
                     message.getUserId(),
-                    message.getText(), message.getTimestamp(),
+                    preview, message.getTimestamp(),
                     chatData.getImageUrl());
         });
 
@@ -164,6 +170,9 @@ public class ReactiveGrpcClient {
             event.setTimestamp(message.getTimestamp());
             event.setUser_id(message.getUserId());
             event.setImage_url(message.getImageUrl());
+            // Без этого поля перезагрузка страницы превращала бы отправленные стикеры в
+            // пустые пузыри: живьём они видны, а из истории приезжают с пустым текстом.
+            event.setSticker_key(message.getStickerKey());
             return event;
         });
     }
@@ -178,6 +187,21 @@ public class ReactiveGrpcClient {
     }
     public  Mono<String> reactiveGetUserImageUrl(Long userId) {
         return grpcRequestsMetric.measure("getUserImageurl", reactiveTransferServiceStub.getUserImageurl(DataTransferService.UserDataRequest.newBuilder().setId(userId).build())).map(DataTransferService.DriveUrl::getUrl);
+    }
+
+    /**
+     * Личный набор стикеров пользователя (beads a22): ключи, которые он когда-либо
+     * отправлял, по убыванию последнего использования. Порядок и схлопывание дублей
+     * считает SQL на стороне MessegerParody — здесь только вызов.
+     *
+     * userId приходит из принципала вызывающего (ApiController), а не из параметра
+     * запроса: набор личный, и чужой id здесь означал бы чужой набор.
+     */
+    public Mono<List<String>> reactiveGetMyStickers(long userId) {
+        return grpcRequestsMetric.measure("GetMyStickers",
+                        reactiveTransferServiceStub.getMyStickers(
+                                DataTransferService.UserDataRequest.newBuilder().setId(userId).build()))
+                .map(DataTransferService.StickerListResponse::getObjectKeyList);
     }
 }
 

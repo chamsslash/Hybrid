@@ -53,6 +53,18 @@ const CHAT_HTML = `
         <div class="chat-messages" id="chatMessages"></div>
 
         <div class="chat-input">
+            <!-- Скрепка слева от поля ввода: открывает панель стикеров (beads a22).
+                 Скрытый file input живёт рядом, а не внутри панели, — панель
+                 перерисовывается при смене вкладки, и input вместе с ней терял бы
+                 выбранный файл. -->
+            <button id="stickerBtn" type="button" class="attach-btn" aria-label="Стикеры"
+                    aria-haspopup="true" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.5 3.5 0 0 1 5 5L10.5 18a2 2 0 0 1-3-3l8-8"/>
+                </svg>
+            </button>
+            <input type="file" id="stickerFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
             <input type="text" id="messageInput" placeholder="Напишите сообщение…">
             <button id="aiBtn" type="button" class="ghost">Помощь AI</button>
             <button id="sendBtn" type="button" class="send-btn" aria-label="Отправить">
@@ -71,6 +83,30 @@ const CHAT_HTML = `
                  Ответ AI при этом приходил нормально (200 и осмысленный текст) и честно
                  отрисовывался в DOM — пользователь просто никогда его не видел. -->
             <div id="aiSuggestionPanel" class="ai-suggestion-panel" style="display: none;"></div>
+
+            <!-- Панель стикеров лежит ВНУТРИ .chat-input по той же причине, что и
+                 #aiSuggestionPanel выше: её CSS — position: absolute; bottom: calc(100% + 8px) —
+                 отсчитывается от строки ввода, у которой уже есть position: relative.
+                 Соседом она отсчитывалась бы от body и уезжала за верхний край экрана. -->
+            <div id="stickerPanel" class="sticker-panel" hidden>
+                <div class="sticker-panel-head">
+                    <div class="sticker-tabs" role="tablist">
+                        <button type="button" class="sticker-tab is-active" data-tab="upload"
+                                role="tab" aria-selected="true">Загрузить</button>
+                        <button type="button" class="sticker-tab" data-tab="mine"
+                                role="tab" aria-selected="false">Мои стикеры</button>
+                    </div>
+                    <button type="button" id="stickerClose" class="modal-close" aria-label="Закрыть">✕</button>
+                </div>
+                <div class="sticker-pane" data-pane="upload">
+                    <button type="button" id="stickerPick" class="sticker-pick">Выбрать картинку</button>
+                    <p class="sticker-hint">PNG, JPEG, GIF или WEBP. Картинка сразу уйдёт в этот чат
+                        и попадёт в ваш набор.</p>
+                </div>
+                <div class="sticker-pane" data-pane="mine" hidden>
+                    <div id="stickerGrid" class="sticker-grid"></div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -156,11 +192,20 @@ function avatarHtml(key) {
     return imageTag(key, 'chat-avatar', 'chat avatar');
 }
 
-function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url }) {
+function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url, sticker_key }) {
     const container = document.getElementById('chatMessages');
     const msg = document.createElement('div');
     msg.classList.add('message');
     msg.classList.add(String(senderId) === String(user_id) ? 'user' : 'bot');
+
+    // Стикер рисуется без пузыря (beads a22): фон, рамку и тень снимает класс .sticker,
+    // а сама картинка едет тем же путём, что аватарки, — плейсхолдер + hydrateImages,
+    // потому что <img> не умеет послать Authorization, а /api/images закрыт auth_request.
+    // Пустой ключ приезжает из истории (protobuf-дефолт для string), поэтому проверка
+    // не на null, а на непустоту.
+    const stickerKey = sticker_key || '';
+    const isSticker = stickerKey !== '';
+    if (isSticker) msg.classList.add('sticker');
 
     const img = imageurl ?? image_url;
     // Шапка — flex-строка, а не float (beads 9kn): пузырь сообщения сжимается по контенту
@@ -182,11 +227,15 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
             <strong class="message-senderid"></strong>
             <span class="message-time">${formatMessageTimestamp(timestamp)}</span>
         </div>
-        <div><span class="message-text"></span></div>
+        ${isSticker
+            ? `<div class="sticker-body">${imageTag(stickerKey, 'sticker-image', 'стикер')}</div>`
+            : `<div><span class="message-text"></span></div>`}
     `);
     msg.querySelector('.message-username').textContent = username || 'anon';
     msg.querySelector('.message-senderid').textContent = `ID: ${senderId || 'anon'}`;
-    msg.querySelector('.message-text').textContent = text ?? '';
+    if (!isSticker) {
+        msg.querySelector('.message-text').textContent = text ?? '';
+    }
 
     container.appendChild(msg);
     hydrateImages(msg);
@@ -361,6 +410,115 @@ function sendChatMessage() {
     stompClient.send(`/app/chat/send/${chat_id}`, {}, JSON.stringify(message));
     pendingText = text;
     input.value = "";
+}
+
+// --- стикеры (beads a22) ---
+
+// Стикер — отдельное сообщение: текст в поле ввода не трогается вовсе. Сервер сам
+// проверит, что ключ принадлежит отправителю (ChatBoxStompController), и отобьётся на
+// /private/{user_id}, если нет, — отдельной обработки ошибки здесь не нужно, её делает
+// общий handleChatError.
+function sendSticker(objectKey) {
+    // Молча не теряем: картинка уже в MinIO, и пользователь вправе знать, что в чат она
+    // не ушла (тот же принцип, что у отбивок на SEND, beads isf).
+    if (!stompClient) {
+        showToast('Нет связи с чатом — стикер не отправлен', 'error');
+        return;
+    }
+    stompClient.send(`/app/chat/send/${chat_id}`, {}, JSON.stringify({
+        text: '',
+        sticker_key: objectKey,
+        imageurl: user_image,
+    }));
+    closeStickerPanel();
+}
+
+function toggleStickerPanel() {
+    const panel = document.getElementById('stickerPanel');
+    if (!panel) return;
+    if (panel.hidden) {
+        panel.hidden = false;
+        document.getElementById('stickerBtn')?.setAttribute('aria-expanded', 'true');
+    } else {
+        closeStickerPanel();
+    }
+}
+
+function closeStickerPanel() {
+    const panel = document.getElementById('stickerPanel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    document.getElementById('stickerBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function switchStickerTab(name) {
+    for (const tab of document.querySelectorAll('.sticker-tab')) {
+        const active = tab.dataset.tab === name;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-selected', String(active));
+    }
+    for (const pane of document.querySelectorAll('.sticker-pane')) {
+        pane.hidden = pane.dataset.pane !== name;
+    }
+    // Набор перечитывается на каждое открытие вкладки, а не кешируется: он меняется от
+    // собственных отправок (порядок — по последнему использованию), причём в том числе из
+    // другой вкладки браузера. Ответ — до 60 строк, это дешевле рассинхрона.
+    if (name === 'mine') loadMyStickers();
+}
+
+function loadMyStickers() {
+    const grid = document.getElementById('stickerGrid');
+    if (!grid) return;
+    grid.replaceChildren();
+    api.get('/api/stickers')
+        .then(response => {
+            const keys = response.data || [];
+            if (keys.length === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'sticker-hint';
+                empty.textContent = 'Пока пусто. Отправьте картинку — она попадёт сюда.';
+                grid.appendChild(empty);
+                return;
+            }
+            for (const key of keys) {
+                const cell = document.createElement('button');
+                cell.type = 'button';
+                cell.className = 'sticker-cell';
+                cell.setAttribute('aria-label', 'Отправить стикер');
+                // Ключ кладём в data-атрибут, а не в разметку обработчика: он приезжает с
+                // сервера, и интерполировать его в HTML незачем.
+                cell.dataset.stickerKey = key;
+                cell.innerHTML = policy.createHTML(imageTag(key, 'sticker-thumb', 'стикер'));
+                grid.appendChild(cell);
+            }
+            hydrateImages(grid);
+        })
+        .catch(err => {
+            console.error('[chat] не удалось загрузить набор стикеров', err);
+            showToast('Не удалось загрузить стикеры', 'error');
+        });
+}
+
+// Загрузка и отправка одним движением: вкладка «Загрузить» — это и есть «отправить
+// картинку». Ответ синхронный и несёт ключ (POST /reactive/api/sticker), поэтому ждать
+// события, как это делает аватарка, нечего.
+async function uploadAndSendSticker(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const response = await api.post('/reactive/api/sticker', formData);
+        const objectKey = response.data?.objectKey;
+        if (!objectKey) {
+            showToast('Не удалось загрузить картинку', 'error');
+            return;
+        }
+        sendSticker(objectKey);
+    } catch (err) {
+        console.error('[chat] загрузка стикера не удалась', err);
+        showToast(err?.response?.status === 400
+            ? 'Такой формат не поддерживается'
+            : 'Не удалось загрузить картинку', 'error');
+    }
 }
 
 // Отбивка отказа с /private/{user_id} (beads isf). Раньше отказ на SEND был одним log.warn
@@ -699,6 +857,31 @@ export async function mount(params) {
     }, { signal: ac.signal });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeMembers();
+    }, { signal: ac.signal });
+
+    // Стикеры (beads a22). Все слушатели вешаются с ac.signal, как и остальные на экране,
+    // — снимать их вручную в unmount() не нужно.
+    document.getElementById('stickerBtn').addEventListener('click', toggleStickerPanel, { signal: ac.signal });
+    document.getElementById('stickerClose').addEventListener('click', closeStickerPanel, { signal: ac.signal });
+    for (const tab of document.querySelectorAll('.sticker-tab')) {
+        tab.addEventListener('click', () => switchStickerTab(tab.dataset.tab), { signal: ac.signal });
+    }
+    document.getElementById('stickerPick').addEventListener('click', () => {
+        document.getElementById('stickerFile').click();
+    }, { signal: ac.signal });
+    document.getElementById('stickerFile').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        // value чистится сразу: без этого выбор ТОГО ЖЕ файла второй раз не поднимает
+        // событие change, и повторная отправка той же картинки молча не работала бы.
+        e.target.value = '';
+        if (file) uploadAndSendSticker(file);
+    }, { signal: ac.signal });
+    // Клик по миниатюре — делегированием на сетку: ячейки создаются асинхронно, после
+    // ответа /api/stickers, и вешать слушатель на каждую значило бы плодить их на каждое
+    // открытие вкладки.
+    document.getElementById('stickerGrid').addEventListener('click', (e) => {
+        const cell = e.target.closest('.sticker-cell');
+        if (cell) sendSticker(cell.dataset.stickerKey);
     }, { signal: ac.signal });
 
     document.getElementById('sendBtn').addEventListener('click', sendChatMessage, { signal: ac.signal });

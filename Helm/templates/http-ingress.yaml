@@ -138,4 +138,14 @@ spec:
                 name: httpservice
                 port:
                   number: 8080
+          # Загрузка стикера (beads a22). Та же схема, что у avatar выше: мутация закрыта
+          # auth_request -> /jwtcheck, разведена путём, а не методом. Отдельный путь нужен
+          # и потому, что шелл чата /reactive/chat публичен и ловится правилом "/".
+          - path: /reactive/api/sticker
+            pathType: Prefix
+            backend:
+              service:
+                name: httpservice
+                port:
+                  number: 8080
 {{- end }}

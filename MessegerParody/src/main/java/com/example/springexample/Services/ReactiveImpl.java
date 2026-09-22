@@ -166,6 +166,13 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .setChatId(chat.getId())
                                         .setUserId(user.getId())
                                         .setImageUrl(orEmpty(user.getImageUrl()))
+                                        // Превью списка чатов должно отличать стикер от
+                                        // пустого сообщения (beads a22): текста у стикера нет,
+                                        // и без этого поля последняя строка чата была бы пустой.
+                                        // Сам текст-заглушку подставляет HTTPService — он же
+                                        // делает это для живого превью по STOMP, и две разные
+                                        // формулировки для одного и того же события не нужны.
+                                        .setStickerKey(orEmpty(message.getStickerKey()))
                                         .build()))
                         .switchIfEmpty(Mono.just(DataTransferService.Message.newBuilder()
                                 .setChatId(chat.getId())
@@ -229,6 +236,11 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                                         .setChatName(orEmpty(chat.getTitle())) // если надо
                                         .setTimestamp(isoOrEmpty(msg.getTimeStamp()))
                                         .setImageUrl(orEmpty(user.getImageUrl()))
+                                        // Стикер в истории чата (beads a22). Без этого поля
+                                        // перезагрузка страницы превращала бы отправленные
+                                        // стикеры в пустые пузыри — живьём они видны, а из
+                                        // БД приезжают с пустым текстом и без ключа.
+                                        .setStickerKey(orEmpty(msg.getStickerKey()))
                                         .build();
                             })
                             // Битые данные одного сообщения (например user_id ссылается на
@@ -251,6 +263,29 @@ public class ReactiveImpl extends ReactorReactiveTransferServiceGrpc.ReactiveTra
                 });
     }
 
+
+    /**
+     * Личный набор стикеров пользователя (beads a22). Владелец берётся из
+     * UserDataRequest.id, который HTTPService заполняет из принципала, а не из параметра
+     * запроса — набор личный, и чужой id здесь означал бы чужой набор.
+     *
+     * Порядок и схлопывание дублей — забота SQL (см. findStickerKeysByUserId), здесь
+     * только упаковка в ответ. Сбой отдаётся пустым набором, а не ошибкой: панель
+     * стикеров — вспомогательный экран, и уронить её целиком из-за недоступности БД
+     * значило бы заблокировать вкладку «Загрузить», которая от набора не зависит вовсе.
+     */
+    @Override
+    public Mono<DataTransferService.StickerListResponse> getMyStickers(DataTransferService.UserDataRequest request) {
+        return customReactiveRepository.findStickerKeysByUserId(request.getId())
+                .collectList()
+                .map(keys -> DataTransferService.StickerListResponse.newBuilder()
+                        .addAllObjectKey(keys)
+                        .build())
+                .onErrorResume(e -> {
+                    log.error("getMyStickers failed for user {}", request.getId(), e);
+                    return Mono.just(DataTransferService.StickerListResponse.getDefaultInstance());
+                });
+    }
 
     @Override
     public Mono<DataTransferService.User> getUsernameById(DataTransferService.User request) {

@@ -13,6 +13,10 @@ service ReactiveTransferService {
   rpc GetUsernameById(com.example.grpc.User) returns(com.example.grpc.User);
   rpc getimageurl(com.example.grpc.ChatData) returns(com.example.grpc.DriveUrl) ;///Chat data only with id
   rpc getUserImageurl(com.example.grpc.UserDataRequest) returns(com.example.grpc.DriveUrl);
+  // Личный набор стикеров (beads a22). Владелец — UserDataRequest.id; имя rpc и типы
+  // обязаны буквально совпадать с копией этого файла у MessegerParody, иначе вызов
+  // отобьётся UNIMPLEMENTED (тот же класс отказа, что и beads 5l4).
+  rpc GetMyStickers(com.example.grpc.UserDataRequest) returns (com.example.grpc.StickerListResponse);
 }
 
 

@@ -81,6 +81,23 @@ class WebFluxRouteSecurityBoundaryTest {
     }
 
     @Test
+    void stickerUploadIsRoutedUnderProtectedApiPrefix() {
+        RouterFunction<ServerResponse> router = config.stickerHandle(new WEBFLUX_Service());
+
+        // снаружи это POST /reactive/api/sticker — путь покрыт ingress http-protected
+        assertThat(matches(router, org.springframework.http.HttpMethod.POST, "/api/sticker")).isTrue();
+    }
+
+    @Test
+    void stickerUploadIsNotRoutedUnderPublicChatShellPath() {
+        RouterFunction<ServerResponse> router = config.stickerHandle(new WEBFLUX_Service());
+
+        // /chat = публичный шелл; POST здесь означал бы загрузку в MinIO без auth_request,
+        // то есть запись в бакет от имени анонима (beads a22).
+        assertThat(matches(router, org.springframework.http.HttpMethod.POST, "/chat")).isFalse();
+    }
+
+    @Test
     void profileShellStaysGetOnlyOnPublicPath() {
         RouterFunction<ServerResponse> shell = config.profilePageRouter(new WEBFLUX_Service(), null);
 

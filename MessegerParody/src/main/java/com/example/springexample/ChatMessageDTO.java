@@ -26,4 +26,10 @@ public class ChatMessageDTO {
     private String timestamp;
     private String text;
     private String imageurl;
+    // Ключ стикера в MinIO (beads a22): sticker/<ownerUserId>/<uuid>.<ext>. null —
+    // обычное текстовое сообщение.
+    //
+    // Соседнее поле imageurl — это НЕ вложение, а ключ аватарки отправителя; sticker_key
+    // стоит рядом и ничего не заменяет.
+    private String sticker_key;
 }

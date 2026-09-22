@@ -44,6 +44,39 @@ public class ChatBoxStompController {
         this.kafkaProducer = kafkaProducer;
     }
 
+    /** Префикс ключа стикера: sticker/&lt;ownerUserId&gt;/&lt;uuid&gt;.&lt;ext&gt; (beads a22). */
+    private static final String STICKER_PREFIX = "sticker";
+    /**
+     * Имя объекта внутри префикса. Ровно то, что генерирует сервер при загрузке:
+     * UUID плюс расширение из букв и цифр. Требование именно UUID — это fail-closed:
+     * сегмент, который не является им, отвергается, а не «разбирается как-нибудь».
+     * Заодно тут невозможны "..", "/" и "\", то есть выход за свой префикс.
+     */
+    private static final java.util.regex.Pattern STICKER_OBJECT_NAME = java.util.regex.Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[A-Za-z0-9]{1,8}");
+
+    /**
+     * Свой ли это ключ стикера (beads a22).
+     *
+     * Владелец берётся из принципала и сверяется с сегментом ключа — тот же инвариант,
+     * что уже действует для user_id/chat_id (beads g9x): тело фрейма подделывается
+     * свободно. Без этой проверки участник приложил бы к своему сообщению чужой ключ,
+     * например chatimage/&lt;другой чат&gt;/..., и картинка закрытого чата доехала бы всем
+     * участникам этого. ACL на чтение (ApiController.authorizeObjectAccess) разбирает
+     * принадлежность ИЗ КЛЮЧА, а не из чата, где висит сообщение, — то есть эта проверка
+     * единственная, кто вообще стоит на пути.
+     *
+     * Сравнение id строковое и точное: "09" пройдёт любую числовую проверку как 9, но
+     * ключом другого объекта в MinIO (тот же сценарий 007, что и в beads g9x).
+     */
+    private static boolean isOwnStickerKey(String stickerKey, String senderId) {
+        String[] segments = stickerKey.split("/", -1);
+        return segments.length == 3
+                && STICKER_PREFIX.equals(segments[0])
+                && segments[1].equals(senderId)
+                && STICKER_OBJECT_NAME.matcher(segments[2]).matches();
+    }
+
     /**
      * Личность отправителя и чат берутся из принципала и адреса, а не из тела фрейма (beads g9x).
      * Клиентские chat_id/user_id/username игнорируются: раньше их можно было подделать,
@@ -105,6 +138,30 @@ public class ChatBoxStompController {
                     chatMessageDTO.getUser_id(), senderId);
         }
 
+        final String stickerKey = chatMessageDTO.getSticker_key();
+        final boolean hasSticker = stickerKey != null && !stickerKey.isBlank();
+        // Обе проверки ниже выносятся ДО gRPC-вызова за составом чата: отказ не должен
+        // стоить сервера, а побочных эффектов к этому моменту ещё нет ни одного.
+        if (hasSticker && !isOwnStickerKey(stickerKey, senderId)) {
+            log.warn("SEND в чат {}: пользователь {} приложил чужой или некорректный sticker_key {} — отказ",
+                    chatId, senderId, stickerKey);
+            // Подделка ключа — отказ, который клиент может повторять, поэтому он идёт и в
+            // счётчик сессии (beads isf), в отличие от пустого сообщения ниже.
+            denyToSender(sessionId, senderId, canonicalChatId, "STICKER_NOT_OWNED",
+                    "Этот стикер вам не принадлежит — сообщение не отправлено");
+            return;
+        }
+
+        final String text = chatMessageDTO.getText();
+        if ((text == null || text.isBlank()) && !hasSticker) {
+            log.warn("SEND в чат {} от пользователя {} без текста и без стикера — отказ", chatId, senderId);
+            // В счётчик отказов НЕ идёт: это баг клиента, а не попытка что-то получить,
+            // и обходится он серверу в ноль (та же логика, что у MEMBERSHIP_UNAVAILABLE).
+            sendErrorToSender(senderId, canonicalChatId, "EMPTY_MESSAGE",
+                    "Пустое сообщение не отправлено");
+            return;
+        }
+
         chatMembershipService.members(chat).subscribe(
                 members -> {
                     // Вердикт «участник ли отправитель» выносит ChatMembershipService (beads 40i):
@@ -146,17 +203,26 @@ public class ChatBoxStompController {
                     // записи чата ложатся в одну партицию "Messages" и их порядок держит брокер.
                     kafkaProducer.send(canonicalChatId, gson.toJson(chatMessageDTO));
 
-                    ChatContextService contextService = new ChatContextService(redisTemplate, canonicalChatId);
-                    // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
-                    // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
-                    // AI-assist всегда видел пустой контекст).
-                    contextService.addMessage(username, chatMessageDTO.getText())
-                            .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
+                    // Стикер в контекст AI не уезжает (beads a22): текста у него нет, и попади
+                    // он туда — в промпт, который собирается из пар «ник: сообщение», легли бы
+                    // пустые реплики от имени участников.
+                    if (!hasSticker) {
+                        ChatContextService contextService = new ChatContextService(redisTemplate, canonicalChatId);
+                        // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
+                        // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
+                        // AI-assist всегда видел пустой контекст).
+                        contextService.addMessage(username, chatMessageDTO.getText())
+                                .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
+                    }
 
                     com.example.springexample.StompHandlers.ChatListShortObjDTO chatListShortObjDTO =
                             new com.example.springexample.StompHandlers.ChatListShortObjDTO();
                     chatListShortObjDTO.setChat_id(canonicalChatId);
-                    chatListShortObjDTO.setText(chatMessageDTO.getText());
+                    // У стикера текста нет, и пустая строка в списке чатов выглядела бы так,
+                    // будто собеседник ничего не писал (beads a22).
+                    chatListShortObjDTO.setText(hasSticker
+                            ? com.example.springexample.StompHandlers.ChatListShortObjDTO.STICKER_PREVIEW
+                            : chatMessageDTO.getText());
                     chatListShortObjDTO.setUsername(username);
                     chatListShortObjDTO.setTimestamp(chatMessageDTO.getTimestamp());
                     chatListController.ChangeChatPreview(

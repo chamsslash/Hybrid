@@ -1251,6 +1251,160 @@ body {
 .form-result { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; color: var(--muted); }
 
 /* ============================================================
+   STICKERS  (beads a22)
+   ============================================================ */
+/* Секция стоит отдельным блоком в конце и ДО RESPONSIVE намеренно: ветка адаптива
+   правит те же .chat-input и .message, и компактный несмешанный блок переживает мёрж
+   без разбора конфликтов. */
+
+/* Скрепка слева от поля ввода. Базовое .chat-input button красит кнопки в акцент и
+   делает пилюлю — стикерной кнопке нужен нейтральный вид, как у иконки. */
+.chat-input button.attach-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+}
+.chat-input button.attach-btn:hover { background: var(--accent-soft); color: var(--accent-600); }
+.chat-input button.attach-btn svg { width: 18px; height: 18px; }
+.chat-input button.attach-btn[aria-expanded="true"] {
+    background: var(--accent-soft);
+    color: var(--accent-600);
+    border-color: var(--accent);
+}
+
+/* Панель. Позиционируется ровно так же, как .ai-suggestion-panel, и по той же причине:
+   содержащий блок — .chat-input (у него position: relative), «8px над строкой ввода». */
+.sticker-panel {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 14px;
+    right: 14px;
+    max-height: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-2);
+    z-index: 5;
+}
+/* hidden — атрибут, а не класс: display у панели flex, и браузерное правило
+   [hidden]{display:none} проигрывает ему по специфичности без этой строки. */
+.sticker-panel[hidden] { display: none; }
+
+.sticker-panel-head { display: flex; align-items: center; gap: 8px; }
+.sticker-tabs { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.sticker-tab {
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font: 600 12.5px/1 var(--sans);
+    cursor: pointer;
+    transition: background .16s ease, color .16s ease, border-color .16s ease;
+}
+.sticker-tab:hover { border-color: var(--accent); }
+.sticker-tab.is-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.sticker-pane { overflow-y: auto; }
+.sticker-pane[hidden] { display: none; }
+
+.sticker-pick {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 999px;
+    background: var(--accent-grad);
+    color: #fff;
+    font: 600 13.5px/1 var(--sans);
+    cursor: pointer;
+    box-shadow: var(--glow);
+}
+.sticker-pick:hover { filter: brightness(1.06); }
+.sticker-hint { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+
+/* Сетка набора: auto-fill, чтобы число колонок считала сама раскладка — на узком экране
+   их станет меньше без отдельной media-query. */
+.sticker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px;
+}
+.sticker-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    cursor: pointer;
+    transition: border-color .16s ease, transform .12s ease;
+}
+.sticker-cell:hover { border-color: var(--accent); }
+.sticker-cell:active { transform: scale(.96); }
+.sticker-thumb {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+/* Стикер в ленте — без пузыря. Снимаем всё, что делает .message пузырём: фон, рамку,
+   тень и внутренние отступы. Прозрачность PNG при этом остаётся видна, ради чего
+   решение и принято. Селекторы двухсоставные (.message.sticker.user), потому что фон и
+   тень заданы у .message.user/.message.bot — односоставный проиграл бы им по
+   специфичности и пузырь остался бы на месте. */
+.message.sticker,
+.message.sticker.user,
+.message.sticker.bot {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 2px 0;
+    max-width: 62%;
+}
+/* Время у своего стикера стоит не на акцентном фоне, а на фоне ленты: белый с
+   прозрачностью, унаследованный от .message.user, был бы на нём нечитаем. */
+.message.sticker.user .message-header .message-time { color: var(--faint) !important; }
+.message.sticker.user strong { color: var(--accent-600); }
+
+.sticker-body { display: flex; }
+.message.sticker.user .sticker-body { justify-content: flex-end; }
+.sticker-image {
+    max-height: 180px;
+    max-width: 100%;
+    object-fit: contain;
+}
+/* Плейсхолдер, пока байты в пути. .avatar-ph задаёт скруглённый квадрат 52x52 под
+   аватарку — стикеру нужен свой размер, иначе лента дёргается при подстановке картинки.
+   Селекторы двухсоставные: в RESPONSIVE ниже .avatar-ph переопределяется на 46x46, и
+   односоставный проиграл бы по специфичности только на узком экране — то есть ровно там,
+   где это труднее всего заметить. */
+.avatar-ph.sticker-image {
+    width: 140px;
+    height: 140px;
+    border-radius: var(--r-sm);
+}
+.avatar-ph.sticker-thumb {
+    width: 100%;
+    height: 100%;
+    border-radius: var(--r-sm);
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 

@@ -27,4 +27,10 @@ public class r2dbc_message {
 
     @Column("chat_id")
     private Long chatId;
+
+    // Ключ стикера в MinIO (beads a22): sticker/<ownerUserId>/<uuid>.<ext>. null —
+    // обычное текстовое сообщение. Не путать с users.image_url (аватарка отправителя):
+    // это вложение самого сообщения.
+    @Column("sticker_key")
+    private String stickerKey;
 }

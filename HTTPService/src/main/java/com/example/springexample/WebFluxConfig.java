@@ -61,6 +61,7 @@ public class WebFluxConfig {
             RouterFunction<ServerResponse> createchatHandle,
             RouterFunction<ServerResponse> profilePageRouter,
             RouterFunction<ServerResponse> avatarHandle,
+            RouterFunction<ServerResponse> stickerHandle,
             @Qualifier("thymeleafReactiveViewResolver") ViewResolver reactiveViewResolver,
             WebFilter webfluxRequestDataValueProcessorFilter) {
         HandlerStrategies.Builder strategiesBuilder = HandlerStrategies.builder();
@@ -73,6 +74,7 @@ public class WebFluxConfig {
                 .and(profilePageRouter)
                 .and(createchatHandle)
                 .and(avatarHandle)
+                .and(stickerHandle)
                 .and(registerHandle)
                 .and(loginHandle)
                 .and(staticResourceRouter);
@@ -170,6 +172,14 @@ public class WebFluxConfig {
     @Bean
     public RouterFunction<ServerResponse> avatarHandle(WEBFLUX_Service wf_handler) {
         return route(POST("/api/avatar"), req -> wf_handler.handleAvatarUpload(req));
+    }
+    // Загрузка стикера (beads a22). Снаружи POST /reactive/api/sticker — путь добавлен в
+    // ingress http-protected рядом с /reactive/api/avatar. Разведение по путям, а не по
+    // методам, обязательно по той же причине, что у соседей выше: ingress не умеет
+    // разводить auth_request по HTTP-методу.
+    @Bean
+    public RouterFunction<ServerResponse> stickerHandle(WEBFLUX_Service wf_handler) {
+        return route(POST("/api/sticker"), req -> wf_handler.handleStickerUpload(req));
     }
     @Bean
     public RouterFunction<ServerResponse> loginHandle(

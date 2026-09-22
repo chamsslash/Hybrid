@@ -57,6 +57,8 @@ public class ApiController {
     private static final String USER_IMAGE_PREFIX = "userimage";
     /** Префикс ключа для картинки чата: chatimage/&lt;chatId&gt;/&lt;uuid&gt;.&lt;ext&gt;. */
     private static final String CHAT_IMAGE_PREFIX = "chatimage";
+    /** Префикс ключа для стикера: sticker/&lt;ownerUserId&gt;/&lt;uuid&gt;.&lt;ext&gt; (beads a22). */
+    private static final String STICKER_PREFIX = "sticker";
     /** Идентификатор в ключе — только десятичные цифры, как их пишут производители ключей. */
     private static final Pattern TARGET_ID = Pattern.compile("\\d+");
     /** Сколько подсказок отдаём за один запрос. Больше десятка в выпадашке всё равно не читают. */
@@ -85,6 +87,15 @@ public class ApiController {
      *    существования аватарки, а не содержимое переписки.
      *  - chatimage/&lt;chatId&gt;/... — только участникам этого чата. Это и есть содержимое
      *    переписки, ради которого заведён тикет.
+     *  - sticker/&lt;ownerUserId&gt;/... — любому аутентифицированному, как аватарка (beads a22).
+     *    Иначе нельзя: набор стикеров личный и переиспользуется в разных чатах, поэтому в
+     *    ключе стоит id ВЛАДЕЛЬЦА, а не чата, и привязать доступ к участию не к чему —
+     *    ключ, записанный под чат A, стал бы нечитаемым при отправке того же стикера в
+     *    чат B. Цена — залогиненный, УГАДАВШИЙ UUID, скачает чужой стикер; это тот же
+     *    размен, что уже принят для аватарок. Альтернатива (на каждый запрос картинки
+     *    ходить в БД за списком чатов, куда стикер отправлялся) отвергнута для MVP.
+     *    Единственная проверка на пути — при ОТПРАВКЕ: ChatBoxStompController не даёт
+     *    приложить к сообщению чужой ключ.
      *  - всё остальное — отказ. Fail-closed: неизвестный префикс, кривой ключ, попытка
      *    выйти вверх через ".." или лишний уровень вложенности не разбираются «как-нибудь»,
      *    а отвергаются до обращения к MinIO.
@@ -177,7 +188,7 @@ public class ApiController {
             return Mono.just(false);
         }
 
-        if (USER_IMAGE_PREFIX.equals(prefix)) {
+        if (USER_IMAGE_PREFIX.equals(prefix) || STICKER_PREFIX.equals(prefix)) {
             return Mono.just(true);
         }
         if (CHAT_IMAGE_PREFIX.equals(prefix)) {
@@ -369,6 +380,38 @@ public class ApiController {
      * http-protected, а внутри приложения — .anyRequest().authenticated() в
      * MvcSecurityConfig.mvcFilterChain.
      */
+    /**
+     * Личный набор стикеров текущего пользователя (beads a22).
+     *
+     * Владелец берётся из {@link Authentication} и параметром не принимается никогда:
+     * иначе любой залогиненный читал бы чужой набор, а вместе с ним получал бы ключи
+     * чужих картинок — префикс sticker/ отдаётся любому аутентифицированному (см. javadoc
+     * {@link #image}), так что знание ключа здесь равно доступу к содержимому.
+     *
+     * Нечисловой принципал — сломанный токен, а не запрос: ходить с ним в MessegerParody
+     * незачем, отвечаем пустым набором сразу (та же ветка, что в /usersearch, beads cdn).
+     *
+     * Сбой gRPC тоже даёт пустой набор, а не ошибку: вкладка «Мои стикеры» вспомогательная,
+     * и 500 отсюда уронил бы открытие всей панели вместе со вкладкой «Загрузить», которая
+     * от набора не зависит вовсе.
+     */
+    @GetMapping("/stickers")
+    public Callable<List<String>> stickers(Authentication auth) {
+        long ownerId;
+        try {
+            ownerId = Long.parseLong(auth.getName());
+        } catch (NumberFormatException notAUserId) {
+            log.warn("GET /api/stickers: нечисловой принципал {}", auth.getName());
+            return List::of;
+        }
+        return () -> reactiveGrpcClient.reactiveGetMyStickers(ownerId)
+                .onErrorResume(e -> {
+                    log.warn("GET /api/stickers для пользователя {} не удался: {}", ownerId, e.getMessage());
+                    return Mono.just(List.of());
+                })
+                .block();
+    }
+
     @GetMapping("/usersearch")
     public Callable<List<Map<String, Object>>> userSearch(Authentication auth,
                                                           @RequestParam("prefix") String prefix) {

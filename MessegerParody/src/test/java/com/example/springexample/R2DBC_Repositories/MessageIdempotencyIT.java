@@ -109,8 +109,30 @@ class MessageIdempotencyIT {
         assertThat(countMessages()).isEqualTo(2);
     }
 
+    /**
+     * Стикер (beads a22) едет в тот же INSERT, что и текст, поэтому защита от дублей
+     * обязана работать и для него. Проверяется отдельно, а не «и так очевидно»: стикер —
+     * это сообщение с ПУСТЫМ текстом, и сломай кто-нибудь дедупликацию так, что она
+     * начнёт зависеть от содержимого, именно здесь пустые тексты слиплись бы или
+     * размножились незаметно.
+     */
+    @Test
+    void replayedStickerWithSameIdLeavesSingleRow() {
+        String messageId = "44444444-4444-4444-4444-444444444444";
+
+        insertSticker(messageId);
+        insertSticker(messageId);
+
+        assertThat(countMessages()).isEqualTo(1);
+    }
+
     private void insert(String text, String messageId) {
-        repository.insertMessage(1L, 1L, text, Instant.parse("2026-08-21T10:00:00Z"), messageId).block();
+        repository.insertMessage(1L, 1L, text, Instant.parse("2026-08-21T10:00:00Z"), messageId, null).block();
+    }
+
+    private void insertSticker(String messageId) {
+        repository.insertMessage(1L, 1L, "", Instant.parse("2026-08-21T10:00:00Z"), messageId,
+                "sticker/1/cat.png").block();
     }
 
     private long countMessages() {
