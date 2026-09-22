@@ -1257,6 +1257,16 @@ body {
    правит те же .chat-input и .message, и компактный несмешанный блок переживает мёрж
    без разбора конфликтов. */
 
+/* Правила кнопок ВНУТРИ панели начинаются с .sticker-panel не ради порядка, а ради
+   специфичности. Панель лежит внутри .chat-input (иначе её нечем позиционировать, см.
+   комментарий у .sticker-panel ниже), а там объявлено `.chat-input button` — это (0,1,1),
+   и оно бьёт любое односоставное правило панели. Замерено вживую: вкладки, ячейки набора
+   и крестик получали `background: var(--accent)` и `padding: 11px 16px` вместо своих.
+   Видно это было не как «съехало», а как «так и задумано»: активная вкладка неотличима от
+   неактивной (у .is-active фон тот же акцент, и он-то как раз выигрывал), а ячейка набора
+   становилась акцентной пилюлей, в которой оранжевый стикер сливался с фоном. Ячейка при
+   этом ужимала картинку до 46px вместо 70px — чужими боковыми паддингами 16px. */
+
 /* Скрепка слева от поля ввода. Базовое .chat-input button красит кнопки в акцент и
    делает пилюлю — стикерной кнопке нужен нейтральный вид, как у иконки. */
 .chat-input button.attach-btn {
@@ -1301,8 +1311,17 @@ body {
 .sticker-panel[hidden] { display: none; }
 
 .sticker-panel-head { display: flex; align-items: center; gap: 8px; }
+/* Крестик закрытия: .modal-close односоставное и проигрывает .chat-input button,
+   из-за чего крестик становился акцентной пилюлей вместо нейтральной иконки. */
+.sticker-panel .modal-close {
+    flex-shrink: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--muted);
+}
+.sticker-panel .modal-close:hover { background: var(--surface-2); color: var(--ink); }
 .sticker-tabs { display: flex; gap: 6px; flex: 1; min-width: 0; }
-.sticker-tab {
+.sticker-panel .sticker-tab {
     padding: 6px 12px;
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -1312,8 +1331,8 @@ body {
     cursor: pointer;
     transition: background .16s ease, color .16s ease, border-color .16s ease;
 }
-.sticker-tab:hover { border-color: var(--accent); }
-.sticker-tab.is-active {
+.sticker-panel .sticker-tab:hover { border-color: var(--accent); }
+.sticker-panel .sticker-tab.is-active {
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
@@ -1322,7 +1341,7 @@ body {
 .sticker-pane { overflow-y: auto; }
 .sticker-pane[hidden] { display: none; }
 
-.sticker-pick {
+.sticker-panel .sticker-pick {
     padding: 10px 16px;
     border: none;
     border-radius: 999px;
@@ -1332,7 +1351,7 @@ body {
     cursor: pointer;
     box-shadow: var(--glow);
 }
-.sticker-pick:hover { filter: brightness(1.06); }
+.sticker-panel .sticker-pick:hover { filter: brightness(1.06); }
 .sticker-hint { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
 
 /* Сетка набора: auto-fill, чтобы число колонок считала сама раскладка — на узком экране
@@ -1342,7 +1361,7 @@ body {
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
     gap: 8px;
 }
-.sticker-cell {
+.sticker-panel .sticker-cell {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1354,8 +1373,8 @@ body {
     cursor: pointer;
     transition: border-color .16s ease, transform .12s ease;
 }
-.sticker-cell:hover { border-color: var(--accent); }
-.sticker-cell:active { transform: scale(.96); }
+.sticker-panel .sticker-cell:hover { border-color: var(--accent); }
+.sticker-panel .sticker-cell:active { transform: scale(.96); }
 .sticker-thumb {
     max-width: 100%;
     max-height: 100%;
