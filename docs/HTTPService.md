@@ -8,7 +8,7 @@
 
 - **SPA-шеллы + JSON API**: Thymeleaf-страницы, публичные для загрузки, но данные тянут через `/api/**` с `Authorization: Bearer` (`ApiController`, `WEBFLUX_Service`).
 - **Аутентификация SPA**: единственный сервис, который минтит пару access+refresh JWT (`TokensResolver`); для `/api/**` доверяет заголовкам от ingress, но на STOMP CONNECT сам валидирует access-JWT (`AccessTokenVerifier`) — единственное место в этом сервисе, где JWT проверяется вручную, а не через ingress.
-- **Картинки в MinIO**: загрузка аватара/картинки чата (`ImageStorageService`, `WEBFLUX_Service.Upload_image`) и их отдача (`GET /api/images/{*key}`).
+- **Картинки в MinIO**: загрузка аватара/картинки чата (`ImageStorageService`, `WEBFLUX_Service.Upload_image`), загрузка стикеров (`WEBFLUX_Service.handleStickerUpload`) и их отдача (`GET /api/images/{*key}`).
 - **AI-ассист чата** поверх Google Gemini API (`GeminiService`, `POST /AiAssist`).
 - **STOMP/WebSocket**: живые обновления списка чатов, самого чата, статусов и картинок (`StompConfig`, `StompHandlers/*`).
 - **Kafka**: продюсер `Messages`/`Images`, консюмер `Images`/`Events` — см. раздел «Kafka» ниже.
@@ -84,6 +84,16 @@ sequenceDiagram
 4. После успешной записи публикует в Kafka-топик `Images` через `KafkaProducer.sendImage(...)` JSON-контракт `{ "targetType": "...", "targetId": "...", "objectKey": "..." }` — это модель `ImageUploadDTO` (`targetType`, `targetId`, `objectKey`). Тот же контракт (без Base64, только ключ) читает консюмер в `MessegerParody`.
 
 Отдача картинок наружу — `GET /api/images/{*key}` в `ApiController`. Маппинг с `{*key}` намеренно, т.к. ключ объекта содержит слэши (`targetType/targetId/uuid.ext`); контроллер сам стрипает ведущий `/`. Реализация — прокси-стриминг через `ImageStorageService.getObject(key)` (тоже на `boundedElastic`), отдаёт `byte[]` с `Content-Type` из MinIO и приватным `Cache-Control` на 30 дней (`CacheControl.maxAge(30, DAYS).cachePrivate()`); при ошибке — 404, без деталей наружу.
+
+### Стикеры (beads a22)
+
+`POST /reactive/api/sticker` (`WEBFLUX_Service.handleStickerUpload`) — третий префикс ключей, `sticker/<ownerUserId>/<uuid>.<ext>`. Общая часть с `Upload_image` вынесена в `storeImageObject`; расходятся загрузки ровно в одном шаге — **стикер не публикует событие в топик `Images`**. Топик существует, чтобы `ImageUrlPersistenceService` записал ключ в `users.image_url` / `chat.image_url`, а у стикера такой строки нет: он попадёт в БД обычным путём сообщения (`message.sticker_key`), и событие оттуда ушло бы в ветку неизвестного `targetType`, роняя консюмер в ретраи и DLT.
+
+Отсюда и второе отличие от `/api/avatar`: ответ синхронный, `200 {"objectKey": "..."}`. Аватарка отвечает `202` и ключ не отдаёт, потому что он возвращается клиенту событием STOMP; стикеру ключ нужен немедленно — им клиент тут же отправляет STOMP-фрейм в чат. Тип файла проверяется на входе (PNG/JPEG/GIF/WEBP), расширение ключа берётся из Content-Type, а не из имени файла: ключ потом проходит строгую проверку на отправке.
+
+Отдача: префикс `sticker/` доступен **любому аутентифицированному**, как `userimage/`, а не как `chatimage/`. Набор личный и переиспользуется в разных чатах, поэтому в ключе стоит id владельца, а не чата, и привязать доступ к участию не к чему. Единственная проверка на этом направлении стоит при ОТПРАВКЕ: `ChatBoxStompController` принимает только `sticker/<id отправителя>/<uuid>.<ext>`, иначе участник приложил бы к сообщению ключ `chatimage/<чужой чат>/...` — ACL на чтение разбирает принадлежность из ключа.
+
+`GET /api/stickers` (`ApiController.stickers`) отдаёт личный набор по принципалу; внутри — gRPC `GetMyStickers` в MessegerParody.
 
 Конфигурация клиента MinIO — `MinioConfig` (бин `MinioClient`), эндпоинт/креды из `MINIO_ENDPOINT`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`.
 

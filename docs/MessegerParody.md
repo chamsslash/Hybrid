@@ -54,6 +54,12 @@ artifactId — `DatabaseModule` (исторический, не переимен
 - `transferchat` — создание чата или возврат существующего (поиск по
   названию + точному набору участников через `findChatByTitleAndExactUsers`).
 - `GetUsernameById`, `getimageurl`, `getUserImageurl` — точечные lookup'ы.
+- `GetMyStickers` (beads a22) — личный набор стикеров пользователя: различные
+  `message.sticker_key`, которые он когда-либо отправлял, по убыванию последнего
+  использования, не больше 60. Отдельной таблицы под набор нет намеренно — это
+  производная от истории сообщений, и вторая таблица стала бы вторым источником
+  правды, который обязан совпадать с `message`. Владельца задаёт
+  `UserDataRequest.id`, который HTTPService заполняет из принципала.
 
 Общие типы сообщений (`ChatData`, `Message`, `User`, `DriveUrl` и т. д.)
 описаны в `Grpcs/proto/Common/DataTransferService.proto`. Тот же файл содержит
@@ -97,8 +103,14 @@ artifactId — `DatabaseModule` (исторический, не переимен
   ```json
   { "type": "message", "message_id": "<uuid>", "chat_id": "<id>",
     "user_id": "<id>", "username": "<имя>", "timestamp": "<ISO-8601>",
-    "text": "<текст>", "imageurl": "<key|null>" }
+    "text": "<текст>", "imageurl": "<key|null>",
+    "sticker_key": "<key|null>" }
   ```
+  `imageurl` — ключ **аватарки отправителя**, а не вложение; `sticker_key`
+  (beads a22) — ключ картинки-стикера в MinIO, у обычного текстового сообщения
+  он `null`. Ключ стикера сервер принимает только вида
+  `sticker/<id отправителя>/<uuid>.<ext>` и сверяет владельца с принципалом —
+  см. `ChatBoxStompController.isOwnStickerKey`.
   Всё, что влияет на запись в БД, проставляет сервер в
   `ChatBoxStompController.HandleChatMessage`, а не клиент (инвариант beads
   g9x). Обработка — `ReactiveRepository.insertMessage`, синхронно
@@ -158,6 +170,13 @@ Master-changelog: `src/main/resources/db/changelog/db.changelog-master.yaml`,
    есть легаси-строки не конфликтуют друг с другом, просто не защищены от
    дублей. `VARCHAR`, а не `UUID`: в БД это непрозрачный идентификатор,
    происхождение которого знает только HTTPService.
+
+6. `changes/v4/001-message-sticker-key.yaml` (1 changeSet, beads a22) —
+   добавляет `message.sticker_key VARCHAR(512)`, nullable. `text` остаётся
+   nullable тоже: у стикера нет текста, у обычного сообщения нет стикера.
+   Запрет «ни того, ни другого» живёт на отправке
+   (`ChatBoxStompController.HandleChatMessage`), а не в схеме — CHECK-ограничение
+   упало бы на уже существующих легаси-строках, где пусты оба поля.
 
 Ни один из changeSet'ов **не** имеет `preConditions` — это осознанное решение,
 не упущение: `preConditions` дали бы `MARK_RAN` на уже существующей легаси-
