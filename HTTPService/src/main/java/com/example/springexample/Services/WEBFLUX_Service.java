@@ -536,17 +536,39 @@ public class WEBFLUX_Service {
     }
 
     /**
+     * Контекста для ответа нет — в чате ещё не было сообщений.
+     *
+     * Отдельный тип, а не голый IllegalStateException (beads n2f): под него же попадает
+     * requireApiKey() из GeminiService, и общая ветка отдавала бы пользователю текст
+     * «Gemini API key is not set … GEMINI_API_KEY» как готовую подсказку для отправки
+     * в чат. Разделение по типу, а не по тексту сообщения: сверка строк разъехалась бы
+     * при первой же правке формулировки.
+     */
+    private static final class EmptyChatContextException extends RuntimeException {
+        private EmptyChatContextException() {
+            super("В этом чате пока нет сообщений, по которым можно составить ответ.");
+        }
+    }
+
+    /**
      * Сам ассистент: вызывается только после подтверждённого членства (beads dz5).
-     * Все ошибки генерации по-прежнему отдаются как 200 с текстом — это ответ
-     * ассистента «не получилось», а не отказ в доступе, и фронт показывает его
-     * пользователю как подсказку.
+     *
+     * Неудача генерации — это НЕ ответ ассистента (beads n2f). Раньше каждая такая ветка
+     * возвращала 200 с текстом ошибки в теле, фронт не мог отличить её от подсказки и
+     * показывал с кнопкой «Вставить» — то есть предлагал отправить в чат строку
+     * «Извините, сервис временно недоступен…». Именно так она и попала в переписку и в
+     * Redis-контекст на проде (newmessages-3), откуда её потом читал сам ассистент.
+     *
+     * Поэтому статусы разные, и фронт различает их по коду, а не по содержимому:
+     * 422 — сгенерировать нечего (пустой контекст), 503 — генерация сорвалась. Тело
+     * остаётся text/plain и показывается тостом; 403 из-за членства как был, так и есть.
      */
     private Mono<ResponseEntity<String>> generateAssistantAnswer(String targetUsername, String canonicalChatId) {
         return Mono.defer(() -> {
                     ChatContextService contextService = new ChatContextService(rredisTemplate, canonicalChatId);
 
                     return contextService.getFullContext()
-                            .switchIfEmpty(Mono.error(new IllegalStateException("Контекст чата пуст...")))
+                            .switchIfEmpty(Mono.error(new EmptyChatContextException()))
                             // Каждый элемент контекста — самостоятельный JSON-объект
                             // ({"user":...,"message":...}) и разбирается отдельно. Склейка
                             // joining() без разделителей/скобок давала невалидный JSON
@@ -570,15 +592,25 @@ public class WEBFLUX_Service {
                             .flatMap(geminiService::GetAssistantAnswer);
                 })
                 .map(ResponseEntity::ok)
-                .onErrorResume(IllegalStateException.class, ex -> {
-                    log.warn("Не удалось сгенерировать ответ: {}", ex.getMessage());
-                    return Mono.just(ResponseEntity.ok(ex.getMessage()));
+                .onErrorResume(EmptyChatContextException.class, ex -> {
+                    log.warn("AiAssist: {}", ex.getMessage());
+                    return Mono.just(aiAssistFailure(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()));
                 })
                 .onErrorResume(Exception.class, ex -> {
                     log.error("Произошла непредвиденная ошибка при обработке /AiAssist", ex);
-                    return Mono.just(ResponseEntity.ok(
-                            "Извините, сервис временно недоступен. Не удалось сгенерировать ответ."));
+                    // Текст исключения наружу НЕ отдаём: под эту ветку попадают и сбой Gemini,
+                    // и отсутствующий API-ключ, и сообщение второго содержит имя переменной
+                    // окружения. Пользователю от него пользы нет, а в логе выше он есть целиком.
+                    return Mono.just(aiAssistFailure(HttpStatus.SERVICE_UNAVAILABLE,
+                            "Не удалось сгенерировать ответ. Попробуйте ещё раз."));
                 });
+    }
+
+    /** Неудача генерации: статус говорит фронту, что это не подсказка, тело — что показать. */
+    private static ResponseEntity<String> aiAssistFailure(HttpStatus status, String message) {
+        return ResponseEntity.status(status)
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(message);
     }
 
     /**

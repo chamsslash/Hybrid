@@ -141,7 +141,12 @@ class AiAssistMembershipTest {
 
         ResponseEntity<String> response = call(service(redis), SUNNY, "3");
 
-        assertEquals(HttpStatus.OK, response.getStatusCode(), "участник чата должен пройти дальше");
+        // Фикстура даёт ПУСТОЙ контекст, поэтому ожидаемый исход — 422 «генерировать нечего»
+        // (beads n2f), а не 200: 200 означал бы готовую подсказку, которой здесь взяться
+        // неоткуда. Для этого теста важно ровно одно — что исход НЕ 403: посторонний
+        // отбивается на воротах и до Redis не доходит вовсе (см. соседний тест).
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, response.getStatusCode(),
+                "участник чата должен пройти ворота членства и дойти до чтения контекста");
         // Контекст пуст, поэтому до Gemini дело не доходит — важно, что чтение Redis состоялось.
         Mockito.verify(list).range("newmessages-3", 0L, -1L);
         // Политика членства живёт ровно в одном месте (beads cgu): хендлер обязан спросить
@@ -184,7 +189,10 @@ class AiAssistMembershipTest {
         ReactiveRedisTemplate<String, String> redis = Mockito.mock(ReactiveRedisTemplate.class);
         ReactiveListOperations<String, String> list = stubEmptyContext(redis);
 
-        assertEquals(HttpStatus.OK, call(service(redis), SUNNY, "003").getStatusCode());
+        // 422, а не 200: контекст в фикстуре пуст (beads n2f). Проверяется здесь не исход,
+        // а ключ Redis ниже — важно лишь, что запрос дошёл до чтения контекста.
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY,
+                call(service(redis), SUNNY, "003").getStatusCode());
 
         // Канонизация проверяется на самой границе с MessegerParody: в gRPC уходит chatId=3,
         // а не "003" и не отдельный чат.
