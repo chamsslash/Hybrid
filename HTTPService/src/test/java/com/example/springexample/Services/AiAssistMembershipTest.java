@@ -11,7 +11,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.data.redis.core.ReactiveListOperations;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
-import org.springframework.data.redis.core.ReactiveSetOperations;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -109,12 +108,11 @@ class AiAssistMembershipTest {
     @SuppressWarnings("unchecked")
     private ReactiveListOperations<String, String> stubEmptyContext(ReactiveRedisTemplate<String, String> redis) {
         ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
-        ReactiveSetOperations<String, String> set = Mockito.mock(ReactiveSetOperations.class);
         Mockito.when(redis.opsForList()).thenReturn(list);
-        Mockito.when(redis.opsForSet()).thenReturn(set);
+        // Оба ключа контекста (окно и вытесненный хвост) — LIST, набор больше не участвует
+        // нигде (beads j97): SET терял порядок и склеивал одинаковые реплики.
         Mockito.when(list.range(Mockito.anyString(), Mockito.anyLong(), Mockito.anyLong()))
                 .thenReturn(Flux.empty());
-        Mockito.when(set.members(Mockito.anyString())).thenReturn(Flux.empty());
         return list;
     }
 
@@ -126,7 +124,6 @@ class AiAssistMembershipTest {
 
     private void assertRedisUntouched(ReactiveRedisTemplate<String, String> redis) {
         Mockito.verify(redis, Mockito.never()).opsForList();
-        Mockito.verify(redis, Mockito.never()).opsForSet();
     }
 
     /** Проверка членства не должна была случиться вовсе — ни на каком уровне. */

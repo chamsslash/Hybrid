@@ -547,31 +547,26 @@ public class WEBFLUX_Service {
 
                     return contextService.getFullContext()
                             .switchIfEmpty(Mono.error(new IllegalStateException("Контекст чата пуст...")))
-                            // Каждый элемент — валидный JSON-объект ({"user":...,"message":...}),
-                            // но joining() без разделителей/скобок склеивал их в невалидный JSON
+                            // Каждый элемент контекста — самостоятельный JSON-объект
+                            // ({"user":...,"message":...}) и разбирается отдельно. Склейка
+                            // joining() без разделителей/скобок давала невалидный JSON
                             // (несколько top-level объектов подряд) -> JsonSyntaxException при
-                            // ЛЮБОМ непустом контексте (baг вскрылся только после фикса
+                            // ЛЮБОМ непустом контексте (баг вскрылся только после фикса
                             // ChatContextService.addMessage — раньше контекст был всегда пуст).
-                            .collect(Collectors.joining(",", "[", "]"))
+                            // publishOn стоит до разбора, как и раньше: парсинг и сборка
+                            // промпта уходят с потока, на котором отвечает Redis.
                             .publishOn(Schedulers.boundedElastic())
-                            .map(jsonString -> {
-                                JsonArray jsonArray = JsonParser.parseString(jsonString).getAsJsonArray();
-                                Map<String, List<String>> nameMessagesMap = new HashMap<>();
-
-                                for (JsonElement element : jsonArray) {
-                                    JsonObject obj = element.getAsJsonObject();
-                                    String user = obj.get("user").getAsString();
-                                    String message = obj.get("message").getAsString();
-                                    nameMessagesMap.computeIfAbsent(user, k -> new ArrayList<>()).add(message);
-                                }
-
-                                return nameMessagesMap;
+                            .map(line -> {
+                                JsonObject obj = JsonParser.parseString(line).getAsJsonObject();
+                                return new ChatContextMessage(obj.get("user").getAsString(),
+                                        obj.get("message").getAsString());
                             })
-                            .map(nameMessagesMap -> {
-                                String promptTemplate = "Ты — AI-ассистент в чате. Помоги составить дружелюбный ответ пользователю с ником %s на его сообщение в контексте последних сообщений других участников. Обязательно упоминай %s, не отвечай самому себе, поддерживай беседу, тон вежливый и корректный, не придумывай новых участников, соблюдай неформальный стиль.";
-                                String promptWithNick = String.format(promptTemplate, targetUsername, "@" + targetUsername);
-                                return geminiService.BuildJsonPrompt(promptWithNick, nameMessagesMap);
-                            })
+                            // collectList, а не группировка по авторам (beads j97): порядок
+                            // разговора — единственное, из чего видно, кто кому отвечал,
+                            // и он обязан дойти до промпта неизменным.
+                            .collectList()
+                            .map(dialog -> geminiService.BuildJsonPrompt(
+                                    assistantSystemInstruction(targetUsername, dialog), dialog))
                             .flatMap(geminiService::GetAssistantAnswer);
                 })
                 .map(ResponseEntity::ok)
@@ -586,7 +581,38 @@ public class WEBFLUX_Service {
                 });
     }
 
-
+    /**
+     * System-инструкция ассистента. Кроме тона и запретов она несёт ЯКОРЬ (beads j97) —
+     * текст последнего по времени сообщения целевого пользователя. Без якоря инструкция
+     * просила «составить ответ пользователю X на его сообщение», но какое именно — не
+     * говорила, и модель выбирала любую реплику из контекста: с вывернутым порядком это
+     * было первое сообщение чата, поэтому ассистент отвечал приветствием на приветствие.
+     *
+     * Якорь идёт именно в system-инструкцию, а не выделением внутри `contents`: у Gemini
+     * это отдельное top-level поле запроса, инструкция там не конкурирует с репликами
+     * диалога за внимание модели и её нельзя перебить текстом сообщения.
+     */
+    private static String assistantSystemInstruction(String targetUsername, List<ChatContextMessage> dialog) {
+        String anchor = null;
+        for (ChatContextMessage line : dialog) {
+            if (targetUsername.equals(line.user())) {
+                anchor = line.message();
+            }
+        }
+        String task = anchor == null
+                // Целевой участник в контексте не писал ничего (например, окно целиком
+                // занято репликами других) — якорить не на что, отвечаем по переписке.
+                ? "Помоги составить дружелюбный ответ пользователю с ником " + targetUsername
+                        + " на последнее сообщение переписки. "
+                : "Помоги составить дружелюбный ответ пользователю с ником " + targetUsername
+                        + " на его последнее сообщение: «" + anchor + "». "
+                        + "Отвечай именно на это сообщение, остальная переписка — только контекст. ";
+        return "Ты — AI-ассистент в чате. Дальше идёт переписка в хронологическом порядке, "
+                + "от самого старого сообщения к самому новому, каждая реплика в формате «ник: текст». "
+                + task
+                + "Обязательно упоминай @" + targetUsername + ", не отвечай самому себе, поддерживай беседу, "
+                + "тон вежливый и корректный, не придумывай новых участников, соблюдай неформальный стиль.";
+    }
 
     /**
      * Смена аватарки пользователя (beads ehe).
