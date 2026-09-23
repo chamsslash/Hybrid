@@ -818,11 +818,17 @@ class ChatBoxStompControllerTest {
         dto.setText("привет");
         Principal principal = new UsernamePasswordAuthenticationToken("9", null, List.of());
 
-        controller().HandleChatMessage("5", principal, null, "sess-1", dto);
+        // Время кадра задаём явно: оно обязано доехать до контекста (beads u8m). Раньше
+        // тест передавал null, хендлер подставлял Instant.now(), и предсказать записанный
+        // JSON было нельзя — а значит и проверить, что метка вообще сохраняется.
+        controller().HandleChatMessage("5", principal, "2026-09-23T10:00:01Z", "sess-1", dto);
 
         // Именно rightPush и именно в ключ окна (beads j97): реплика дописывается в ХВОСТ,
         // иначе контекст читается наизнанку и ассистент отвечает на первое сообщение чата.
-        Mockito.verify(list).rightPush("newmessages-5", "{\"user\":\"Дима\",\"message\":\"привет\"}");
+        // Время фрейма — третье поле записи (beads u8m): по нему getFullContext() и
+        // восстанавливает порядок, потому что порядок самих записей задаёт гонка.
+        Mockito.verify(list).rightPush("newmessages-5",
+                "{\"user\":\"Дима\",\"message\":\"привет\",\"timestamp\":\"2026-09-23T10:00:01Z\"}");
     }
 
     /**

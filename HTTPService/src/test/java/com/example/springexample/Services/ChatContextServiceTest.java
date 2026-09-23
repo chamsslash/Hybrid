@@ -1,5 +1,6 @@
 package com.example.springexample.Services;
 
+import com.example.springexample.ChatContextMessage;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.data.redis.core.ReactiveListOperations;
@@ -35,7 +36,19 @@ class ChatContextServiceTest {
     @SuppressWarnings("unchecked")
     private final ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
 
-    private static String json(String user, String message) {
+    /** Время, которым запись легла бы в Redis. ISO-8601, как его пишет интерцептор. */
+    private static final String T1 = "2026-09-23T10:00:01Z";
+    private static final String T2 = "2026-09-23T10:00:02Z";
+    private static final String T3 = "2026-09-23T10:00:03Z";
+    private static final String T4 = "2026-09-23T10:00:04Z";
+
+    private static String json(String user, String message, String timestamp) {
+        return "{\"user\":\"" + user + "\",\"message\":\"" + message
+                + "\",\"timestamp\":\"" + timestamp + "\"}";
+    }
+
+    /** Запись прежнего формата — без поля времени (такие ещё лежат в Redis после раскатки). */
+    private static String legacyJson(String user, String message) {
         return "{\"user\":\"" + user + "\",\"message\":\"" + message + "\"}";
     }
 
@@ -56,11 +69,11 @@ class ChatContextServiceTest {
         ChatContextService context = contextOfChat3();
         writeSucceedsWithWindowSize(3L);
 
-        StepVerifier.create(context.addMessage("gyattalert", "привет")).verifyComplete();
+        StepVerifier.create(context.addMessage("gyattalert", "привет", T1)).verifyComplete();
 
         // Хвост списка = самое новое сообщение. `leftPush` здесь означал бы, что index 0 —
         // новейшая реплика, и `range(0,-1)` отдавал бы диалог наизнанку (собственно j97).
-        Mockito.verify(list).rightPush(NEW, json("gyattalert", "привет"));
+        Mockito.verify(list).rightPush(NEW, json("gyattalert", "привет", T1));
         Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
     }
 
@@ -68,14 +81,14 @@ class ChatContextServiceTest {
     void overflowMovesTheOldestHeadIntoTheTailList() {
         ChatContextService context = contextOfChat3();
         writeSucceedsWithWindowSize(11L);
-        Mockito.when(list.leftPop(NEW)).thenReturn(Mono.just(json("yamam", "самое старое")));
+        Mockito.when(list.leftPop(NEW)).thenReturn(Mono.just(json("yamam", "самое старое", T1)));
 
-        StepVerifier.create(context.addMessage("gyattalert", "одиннадцатое")).verifyComplete();
+        StepVerifier.create(context.addMessage("gyattalert", "одиннадцатое", T1)).verifyComplete();
 
         // Вытесняется ГОЛОВА (самое старое), а не хвост, и уезжает в КОНЕЦ oldmessages —
         // так оба списка остаются в одной хронологии и склеиваются простой конкатенацией.
         Mockito.verify(list).leftPop(NEW);
-        Mockito.verify(list).rightPush(OLD, json("yamam", "самое старое"));
+        Mockito.verify(list).rightPush(OLD, json("yamam", "самое старое", T1));
         // Заодно сторож старой ловушки Reactor: вложенная цепочка вытеснения обязана быть
         // возвращена наружу. Пока её результат отбрасывали без return, она не подписывалась
         // никогда и хвост в Redis не появлялся вовсе.
@@ -86,7 +99,7 @@ class ChatContextServiceTest {
         ChatContextService context = contextOfChat3();
         writeSucceedsWithWindowSize(10L);
 
-        StepVerifier.create(context.addMessage("gyattalert", "десятое")).verifyComplete();
+        StepVerifier.create(context.addMessage("gyattalert", "десятое", T1)).verifyComplete();
 
         Mockito.verify(list, Mockito.never()).leftPop(Mockito.anyString());
         Mockito.verify(list, Mockito.never()).rightPush(Mockito.eq(OLD), Mockito.anyString());
@@ -96,15 +109,15 @@ class ChatContextServiceTest {
     void tailKeepsRepeatedMessagesInsteadOfCollapsingThem() {
         ChatContextService context = contextOfChat3();
         writeSucceedsWithWindowSize(11L);
-        Mockito.when(list.leftPop(NEW)).thenReturn(Mono.just(json("yamam", "ок")));
+        Mockito.when(list.leftPop(NEW)).thenReturn(Mono.just(json("yamam", "ок", T1)));
 
-        StepVerifier.create(context.addMessage("gyattalert", "раз")).verifyComplete();
-        StepVerifier.create(context.addMessage("gyattalert", "два")).verifyComplete();
+        StepVerifier.create(context.addMessage("gyattalert", "раз", T1)).verifyComplete();
+        StepVerifier.create(context.addMessage("gyattalert", "два", T2)).verifyComplete();
 
         // Два одинаковых «ок» обязаны доехать до хвоста обоими. Прежний Redis-SET на этом
         // месте оставлял один: `SADD` тихо проглатывает дубликат, и из контекста исчезала
         // реплика, которая в чате была.
-        Mockito.verify(list, Mockito.times(2)).rightPush(OLD, json("yamam", "ок"));
+        Mockito.verify(list, Mockito.times(2)).rightPush(OLD, json("yamam", "ок", T1));
         // Структурный сторож того же решения: набор больше не участвует нигде. Поведением
         // его не поймать — дедупликация видна только на совпадающих строках.
         Mockito.verify(redis, Mockito.never()).opsForSet();
@@ -115,7 +128,7 @@ class ChatContextServiceTest {
         ChatContextService context = contextOfChat3();
         writeSucceedsWithWindowSize(3L);
 
-        StepVerifier.create(context.addMessage("gyattalert", "привет")).verifyComplete();
+        StepVerifier.create(context.addMessage("gyattalert", "привет", T1)).verifyComplete();
 
         // TTL стоит на ОБОИХ ключах: окно без него жило в Redis вечно (утечка памяти),
         // и вместе с ним вечно жили данные в старом, вывернутом формате.
@@ -127,19 +140,80 @@ class ChatContextServiceTest {
     void getFullContextReturnsTailThenWindowFromOldestToNewest() {
         ChatContextService context = contextOfChat3();
         Mockito.when(list.range(OLD, 0, -1))
-                .thenReturn(Flux.just(json("gyattalert", "привет"), json("yamam", "🙂")));
+                .thenReturn(Flux.just(json("gyattalert", "привет", T1), json("yamam", "🙂", T2)));
         Mockito.when(list.range(NEW, 0, -1))
-                .thenReturn(Flux.just(json("gyattalert", "рад видеть"), json("yamam", "как настроение?")));
+                .thenReturn(Flux.just(json("gyattalert", "рад видеть", T3),
+                        json("yamam", "как настроение?", T4)));
 
         StepVerifier.create(context.getFullContext())
-                .expectNext(json("gyattalert", "привет"))
-                .expectNext(json("yamam", "🙂"))
-                .expectNext(json("gyattalert", "рад видеть"))
-                .expectNext(json("yamam", "как настроение?"))
+                .expectNext(new ChatContextMessage("gyattalert", "привет"))
+                .expectNext(new ChatContextMessage("yamam", "🙂"))
+                .expectNext(new ChatContextMessage("gyattalert", "рад видеть"))
+                .expectNext(new ChatContextMessage("yamam", "как настроение?"))
                 .verifyComplete();
         // Вытесненный хвост идёт ПЕРЕД окном: он старше по определению. Прежний порядок
         // (сначала окно, потом хвост, да ещё и внутри окна наизнанку) давал модели диалог,
         // из которого невозможно понять, кто кому отвечал последним.
+    }
+
+    @Test
+    void outOfOrderWritesAreSortedBackByServerTimestamp() {
+        // Ровно то, что поймала живая проверка (beads u8m): четыре сообщения, отправленные
+        // подряд без пауз, легли в Redis как 3,4,1,2 — записи асинхронные и гоняются между
+        // собой. Читаться они обязаны в порядке отправки.
+        ChatContextService context = contextOfChat3();
+        Mockito.when(list.range(OLD, 0, -1)).thenReturn(Flux.empty());
+        Mockito.when(list.range(NEW, 0, -1)).thenReturn(Flux.just(
+                json("nickname", "тоже хорошо, спасибо", T3),
+                json("nickname", "во сколько завтра встреча", T4),
+                json("nickname", "привет, как дела", T1),
+                json("nickname", "нормально, а у тебя", T2)));
+
+        StepVerifier.create(context.getFullContext())
+                .expectNext(new ChatContextMessage("nickname", "привет, как дела"))
+                .expectNext(new ChatContextMessage("nickname", "нормально, а у тебя"))
+                .expectNext(new ChatContextMessage("nickname", "тоже хорошо, спасибо"))
+                .expectNext(new ChatContextMessage("nickname", "во сколько завтра встреча"))
+                .verifyComplete();
+        // Зачем сортировка, а не доверие порядку списка: порядок записи задаёт гонка, а
+        // порядок разговора — серверное время фрейма, снятое до раздачи в пул (beads 525).
+    }
+
+    @Test
+    void recordsWithoutTimestampKeepTheirRelativeOrderAndComeFirst() {
+        // Записи прежнего формата (без поля времени) живут в Redis до истечения TTL после
+        // раскатки. Они старше любой новой, и терять их порядок нельзя.
+        ChatContextService context = contextOfChat3();
+        Mockito.when(list.range(OLD, 0, -1)).thenReturn(Flux.empty());
+        Mockito.when(list.range(NEW, 0, -1)).thenReturn(Flux.just(
+                legacyJson("nickname", "старое первое"),
+                legacyJson("nickname", "старое второе"),
+                json("nickname", "новое", T1)));
+
+        StepVerifier.create(context.getFullContext())
+                .expectNext(new ChatContextMessage("nickname", "старое первое"))
+                .expectNext(new ChatContextMessage("nickname", "старое второе"))
+                .expectNext(new ChatContextMessage("nickname", "новое"))
+                .verifyComplete();
+        // Им ставится EPOCH, поэтому они идут первыми, а между собой сохраняют порядок
+        // списка — сортировка стабильная, и запасной порядок остаётся значимым.
+    }
+
+    @Test
+    void brokenRecordDoesNotKillTheWholeContext() {
+        ChatContextService context = contextOfChat3();
+        Mockito.when(list.range(OLD, 0, -1)).thenReturn(Flux.empty());
+        Mockito.when(list.range(NEW, 0, -1)).thenReturn(Flux.just(
+                "не json вовсе",
+                json("nickname", "нормальная реплика", T2)));
+
+        StepVerifier.create(context.getFullContext())
+                .expectNext(new ChatContextMessage("", ""))
+                .expectNext(new ChatContextMessage("nickname", "нормальная реплика"))
+                .verifyComplete();
+        // Один испорченный ключ не должен лишать ассистента всей остальной переписки:
+        // раньше JsonSyntaxException на разборе ронял чтение контекста целиком, и
+        // /AiAssist отвечал «не удалось сгенерировать».
     }
 
     @Test

@@ -569,20 +569,12 @@ public class WEBFLUX_Service {
 
                     return contextService.getFullContext()
                             .switchIfEmpty(Mono.error(new EmptyChatContextException()))
-                            // Каждый элемент контекста — самостоятельный JSON-объект
-                            // ({"user":...,"message":...}) и разбирается отдельно. Склейка
-                            // joining() без разделителей/скобок давала невалидный JSON
-                            // (несколько top-level объектов подряд) -> JsonSyntaxException при
-                            // ЛЮБОМ непустом контексте (баг вскрылся только после фикса
-                            // ChatContextService.addMessage — раньше контекст был всегда пуст).
-                            // publishOn стоит до разбора, как и раньше: парсинг и сборка
-                            // промпта уходят с потока, на котором отвечает Redis.
+                            // Разбор формата хранения уехал в ChatContextService (beads u8m):
+                            // getFullContext() отдаёт уже готовые реплики, отсортированные по
+                            // серверному времени. Здесь остаётся только собрать их в список.
+                            // publishOn сохранён: сборка промпта уходит с потока, на котором
+                            // отвечает Redis.
                             .publishOn(Schedulers.boundedElastic())
-                            .map(line -> {
-                                JsonObject obj = JsonParser.parseString(line).getAsJsonObject();
-                                return new ChatContextMessage(obj.get("user").getAsString(),
-                                        obj.get("message").getAsString());
-                            })
                             // collectList, а не группировка по авторам (beads j97): порядок
                             // разговора — единственное, из чего видно, кто кому отвечал,
                             // и он обязан дойти до промпта неизменным.
