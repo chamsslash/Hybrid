@@ -70,6 +70,13 @@ class AiAssistMembershipTest {
 
     private final GeminiService geminiService = Mockito.mock(GeminiService.class);
 
+    private final ReactiveGrpcClient grpcClient = Mockito.mock(ReactiveGrpcClient.class);
+
+    {
+        Mockito.when(grpcClient.reactiveGetUsernameById(Mockito.anyString()))
+                .thenReturn(Mono.just("sunny"));
+    }
+
     private static final Principal SUNNY = new UsernamePasswordAuthenticationToken("4", null, List.of());
 
     private static DataTransferService.UserListResponse membersResponse(long... ids) {
@@ -96,6 +103,10 @@ class AiAssistMembershipTest {
         ReflectionTestUtils.setField(service, "rredisTemplate", redis);
         ReflectionTestUtils.setField(service, "chatMembershipService", membership);
         ReflectionTestUtils.setField(service, "geminiService", geminiService);
+        // Ник просящего нужен промпту (beads j97): подсказка пишется от его лица.
+        // Для этого класса содержимое ника неважно — он проверяет ворота членства, —
+        // важно лишь, чтобы вызов не падал NPE.
+        ReflectionTestUtils.setField(service, "reactiveGrpcClient", grpcClient);
         return service;
     }
 

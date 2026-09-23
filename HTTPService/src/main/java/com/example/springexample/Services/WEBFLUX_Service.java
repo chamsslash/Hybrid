@@ -525,7 +525,25 @@ public class WEBFLUX_Service {
                                 canonicalChatId, userId);
                         return Mono.just(aiAssistForbidden());
                     }
-                    return generateAssistantAnswer(targetUsername, canonicalChatId);
+                    // Ник ПРОСЯЩЕГО нужен промпту: подсказка пишется от его лица, и без
+                    // этого модель отвечает от себя — «я же нейросеть, у меня нет полки»
+                    // (beads j97, п.1-2; воспроизведено на стенде 2 прогона из 2).
+                    //
+                    // Отдельным вызовом, а не из members(): вердикт членства выносит
+                    // isMemberReactive, и в нём же живёт политика fail-closed (beads cgu).
+                    // Переложить её в хендлер ради экономии одного gRPC значило бы завести
+                    // вторую копию правила — тот самый шов, который уже обошёлся дорого.
+                    // Цена вызова незначима: дальше по цепочке секунды ждём Gemini.
+                    //
+                    // onErrorReturn("") — как на пути /api/chat: имя для промпта приятно
+                    // иметь, но отказывать в подсказке из-за него незачем. Пустой ник
+                    // обрабатывает сама инструкция.
+                    return reactiveGrpcClient.reactiveGetUsernameById(userId)
+                            .onErrorReturn("")
+                            .defaultIfEmpty("")
+                            .flatMap(requesterUsername ->
+                                    generateAssistantAnswer(requesterUsername, targetUsername,
+                                            canonicalChatId));
                 });
     }
 
@@ -563,7 +581,9 @@ public class WEBFLUX_Service {
      * 422 — сгенерировать нечего (пустой контекст), 503 — генерация сорвалась. Тело
      * остаётся text/plain и показывается тостом; 403 из-за членства как был, так и есть.
      */
-    private Mono<ResponseEntity<String>> generateAssistantAnswer(String targetUsername, String canonicalChatId) {
+    private Mono<ResponseEntity<String>> generateAssistantAnswer(String requesterUsername,
+                                                                 String targetUsername,
+                                                                 String canonicalChatId) {
         return Mono.defer(() -> {
                     ChatContextService contextService = new ChatContextService(rredisTemplate, canonicalChatId);
 
@@ -580,7 +600,8 @@ public class WEBFLUX_Service {
                             // и он обязан дойти до промпта неизменным.
                             .collectList()
                             .map(dialog -> geminiService.BuildJsonPrompt(
-                                    assistantSystemInstruction(targetUsername, dialog), dialog))
+                                    assistantSystemInstruction(requesterUsername, targetUsername, dialog),
+                                    dialog))
                             .flatMap(geminiService::GetAssistantAnswer);
                 })
                 .map(ResponseEntity::ok)
@@ -606,36 +627,97 @@ public class WEBFLUX_Service {
     }
 
     /**
-     * System-инструкция ассистента. Кроме тона и запретов она несёт ЯКОРЬ (beads j97) —
-     * текст последнего по времени сообщения целевого пользователя. Без якоря инструкция
-     * просила «составить ответ пользователю X на его сообщение», но какое именно — не
-     * говорила, и модель выбирала любую реплику из контекста: с вывернутым порядком это
-     * было первое сообщение чата, поэтому ассистент отвечал приветствием на приветствие.
+     * System-инструкция ассистента: за кого пишем, кому отвечаем и на что именно.
      *
-     * Якорь идёт именно в system-инструкцию, а не выделением внутри `contents`: у Gemini
-     * это отдельное top-level поле запроса, инструкция там не конкурирует с репликами
-     * диалога за внимание модели и её нельзя перебить текстом сообщения.
+     * <p><b>Голос.</b> Текст уйдёт в чат как собственная реплика просящего, поэтому
+     * инструкция обязана это сказать прямо (beads j97, п.1-2). Прежняя формулировка
+     * «помоги составить ответ пользователю X» читалась как «напиши сообщение,
+     * адресованное X, от своего имени», а ник просящего в промпт не попадал вовсе —
+     * и модель отвечала от себя: «я же нейросеть, у меня нет физической полки»
+     * (воспроизведено на стенде 2 прогона из 2). Запрет на подпись и на префикс
+     * «ник:» закрывает заодно beads yxn: реплики контекста идут в формате
+     * «ник: текст», и модель дописывала такой же префикс своему ответу.
+     *
+     * <p><b>Якорь — весь неотвеченный блок, а не последняя реплика.</b> Раньше
+     * якорем бралось последнее сообщение адресата, и инструкция требовала отвечать
+     * именно на него. На живом сценарии это теряло суть: вопрос «дашь почитать
+     * книгу?» задан, дальше шли уточнения («на полке видел», «а вторую читал?»), и
+     * подсказка отвечала на уточнение, про книгу не упоминая вовсе.
+     *
+     * <p>Блок вычисляется точно, без попыток угадать, где вопрос: это всё, что
+     * адресат написал ПОСЛЕ последней реплики просящего, то есть ровно «то, на что
+     * просящий ещё не ответил». Поиск вопросительного знака сюда не годится —
+     * «скинь адрес» вопрос без знака, а риторическое «ну и что это было?» со знаком.
      */
-    private static String assistantSystemInstruction(String targetUsername, List<ChatContextMessage> dialog) {
-        String anchor = null;
-        for (ChatContextMessage line : dialog) {
-            if (targetUsername.equals(line.user())) {
-                anchor = line.message();
+    private static String assistantSystemInstruction(String requesterUsername,
+                                                     String targetUsername,
+                                                     List<ChatContextMessage> dialog) {
+        List<String> pending = pendingMessagesOf(requesterUsername, targetUsername, dialog);
+
+        StringBuilder task = new StringBuilder();
+        if (pending.isEmpty()) {
+            // Адресат после реплики просящего ничего не написал (или не писал вовсе):
+            // указывать не на что, отвечаем по переписке целиком.
+            task.append("Ответь по смыслу переписки. ");
+        } else if (pending.size() == 1) {
+            task.append("Ответь на его сообщение: «").append(pending.get(0)).append("». ");
+        } else {
+            task.append("Он написал подряд, и ответа на это ещё не было:\n");
+            for (String line : pending) {
+                task.append("  «").append(line).append("»\n");
+            }
+            task.append("Ответь на то, что здесь требует ответа. Главное может быть в первой ")
+                .append("реплике, а следующие лишь уточняют её — учти уточнения, но не ")
+                .append("подменяй ими сам вопрос. Если требуют ответа несколько вещей, ")
+                .append("ответь на все. ");
+        }
+
+        String me = requesterUsername == null || requesterUsername.isBlank()
+                ? "участник чата"
+                : requesterUsername;
+
+        return "Ты помогаешь участнику чата по имени " + me + " ответить собеседнику "
+                + targetUsername + ". Твой текст будет отправлен в чат КАК СОБСТВЕННАЯ "
+                + "РЕПЛИКА " + me + ", от первого лица. Не пиши от своего имени и не "
+                + "упоминай, что ты ассистент или нейросеть. Не подписывайся и не ставь "
+                + "в начале «ник:» — пиши сразу текст сообщения. Не обращайся к " + me
+                + ", он и есть автор реплики.\n"
+                + "Дальше идёт переписка в хронологическом порядке, от самого старого "
+                + "сообщения к самому новому, каждая реплика в формате «ник: текст».\n"
+                + task
+                + "Обязательно упоминай @" + targetUsername + ", поддерживай беседу, тон "
+                + "вежливый и корректный, не придумывай новых участников, соблюдай "
+                + "неформальный стиль.";
+    }
+
+    /**
+     * Реплики адресата, на которые просящий ещё не ответил, — всё, что адресат написал
+     * после последнего сообщения просящего (beads j97).
+     *
+     * <p>Пустой ник просящего (gRPC не отдал имя) означает, что «своих» реплик в
+     * диалоге не опознать; тогда границей служит начало контекста, и в блок попадают
+     * все реплики адресата. Это хуже точного блока, но лучше отказа: подсказка всё
+     * равно строится по переписке.
+     */
+    private static List<String> pendingMessagesOf(String requesterUsername,
+                                                  String targetUsername,
+                                                  List<ChatContextMessage> dialog) {
+        int lastOwn = -1;
+        if (requesterUsername != null && !requesterUsername.isBlank()) {
+            for (int i = 0; i < dialog.size(); i++) {
+                if (requesterUsername.equals(dialog.get(i).user())) {
+                    lastOwn = i;
+                }
             }
         }
-        String task = anchor == null
-                // Целевой участник в контексте не писал ничего (например, окно целиком
-                // занято репликами других) — якорить не на что, отвечаем по переписке.
-                ? "Помоги составить дружелюбный ответ пользователю с ником " + targetUsername
-                        + " на последнее сообщение переписки. "
-                : "Помоги составить дружелюбный ответ пользователю с ником " + targetUsername
-                        + " на его последнее сообщение: «" + anchor + "». "
-                        + "Отвечай именно на это сообщение, остальная переписка — только контекст. ";
-        return "Ты — AI-ассистент в чате. Дальше идёт переписка в хронологическом порядке, "
-                + "от самого старого сообщения к самому новому, каждая реплика в формате «ник: текст». "
-                + task
-                + "Обязательно упоминай @" + targetUsername + ", не отвечай самому себе, поддерживай беседу, "
-                + "тон вежливый и корректный, не придумывай новых участников, соблюдай неформальный стиль.";
+        List<String> pending = new ArrayList<>();
+        for (int i = lastOwn + 1; i < dialog.size(); i++) {
+            ChatContextMessage line = dialog.get(i);
+            if (targetUsername.equals(line.user())) {
+                pending.add(line.message());
+            }
+        }
+        return pending;
     }
 
     /**

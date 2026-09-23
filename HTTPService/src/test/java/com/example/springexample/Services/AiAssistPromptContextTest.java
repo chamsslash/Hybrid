@@ -63,6 +63,8 @@ class AiAssistPromptContextTest {
     @SuppressWarnings("unchecked")
     private final ReactiveListOperations<String, String> list = Mockito.mock(ReactiveListOperations.class);
 
+    private final ReactiveGrpcClient grpcClient = Mockito.mock(ReactiveGrpcClient.class);
+
     private static final Principal SUNNY = new UsernamePasswordAuthenticationToken("4", null, List.of());
 
     private static String json(String user, String message) {
@@ -86,10 +88,16 @@ class AiAssistPromptContextTest {
                         .build()));
         Mockito.doReturn(Mono.just("готовый ответ")).when(gemini).GetAssistantAnswer(Mockito.any());
 
+        // Принципал в тестах — id 4, то есть gyattalert из списка участников выше.
+        // Промпт пишется от его лица (beads j97), поэтому ник обязан доехать до
+        // инструкции — и по нему же вычисляется блок неотвеченных реплик.
+        Mockito.when(grpcClient.reactiveGetUsernameById("4")).thenReturn(Mono.just("gyattalert"));
+
         WEBFLUX_Service service = new WEBFLUX_Service();
         ReflectionTestUtils.setField(service, "rredisTemplate", redis);
         ReflectionTestUtils.setField(service, "chatMembershipService", membership);
         ReflectionTestUtils.setField(service, "geminiService", gemini);
+        ReflectionTestUtils.setField(service, "reactiveGrpcClient", grpcClient);
         return service;
     }
 
@@ -132,22 +140,69 @@ class AiAssistPromptContextTest {
     }
 
     @Test
-    void systemInstructionAnchorsOnTheLastMessageOfTheTargetUser() {
+    void anchorCoversEverythingTheTargetWroteSinceTheRequesterLastSpoke() {
+        // Живой сценарий из j97: вопрос задан РАНО, дальше только уточнения. Прежний якорь
+        // брал последнюю реплику адресата, и подсказка отвечала на уточнение, про сам
+        // вопрос не упоминая вовсе.
         contextOfChat3(
-                List.of(json("yamam", "первое сообщение yamam")),
-                List.of(json("gyattalert", "ответ"), json("yamam", "последнее сообщение yamam")));
+                List.of(),
+                List.of(json("yamam", "дашь почитать ту книгу про архитектуру?"),
+                        json("gyattalert", "угу"),
+                        json("yamam", "я её у тебя на полке видел, синяя такая"),
+                        json("yamam", "а ты сам вторую часть читал?")));
 
         String instruction = promptFor("yamam").systemInstruction();
 
-        assertTrue(instruction.contains("последнее сообщение yamam"),
-                "в инструкции обязан быть якорь — текст последнего сообщения целевого пользователя, было: "
-                        + instruction);
-        assertFalse(instruction.contains("первое сообщение yamam"),
-                "якорем должно быть именно ПОСЛЕДНЕЕ сообщение, а не любое из его реплик");
+        // В блок входит всё, что yamam написал ПОСЛЕ реплики «угу» — и только оно.
+        assertTrue(instruction.contains("я её у тебя на полке видел, синяя такая"),
+                "первая реплика неотвеченного блока обязана быть в инструкции, было: " + instruction);
+        assertTrue(instruction.contains("а ты сам вторую часть читал?"),
+                "последняя реплика блока тоже обязана быть в инструкции");
+        // Граница блока — последняя реплика просящего: то, на что он уже ответил, в
+        // задание не попадает, иначе подсказка переотвечала бы закрытые вопросы.
+        assertFalse(instruction.contains("дашь почитать ту книгу про архитектуру?"),
+                "реплика ДО ответа просящего в блок не входит — на неё он уже ответил");
+        assertTrue(instruction.contains("Главное может быть в первой"),
+                "модели должно быть сказано, что вопрос мог прозвучать раньше уточнений");
         assertTrue(instruction.contains("@yamam"),
-                "требование упоминать собеседника из старого промпта сохраняется");
-        // Зачем: раньше инструкция просила «составить ответ пользователю X на его сообщение»,
-        // не говоря, какое именно — а оно лежало в перемешанном и вывернутом контексте.
+                "требование упоминать собеседника сохраняется");
+    }
+
+    @Test
+    void instructionSaysTheReplyIsWrittenAsTheRequester() {
+        // beads j97, п.1-2: раньше ник просящего в промпт не попадал вовсе, и модель
+        // отвечала от своего лица — «я же нейросеть, у меня нет физической полки»
+        // (воспроизведено на стенде 2 прогона из 2).
+        contextOfChat3(List.of(), List.of(json("yamam", "ты читал вторую часть?")));
+
+        String instruction = promptFor("yamam").systemInstruction();
+
+        assertTrue(instruction.contains("gyattalert"),
+                "ник ПРОСЯЩЕГО обязан быть в инструкции — от его лица пишется текст, было: "
+                        + instruction);
+        assertTrue(instruction.contains("СОБСТВЕННАЯ РЕПЛИКА"),
+                "инструкция обязана сказать, что текст уйдёт как собственная реплика просящего");
+        assertTrue(instruction.contains("ассистент") && instruction.contains("нейросеть"),
+                "запрет представляться ассистентом/нейросетью — прямая причина дефекта");
+        // Запрет на префикс «ник:» закрывает заодно beads yxn: реплики контекста едут в
+        // формате «ник: текст», и модель дописывала такой же префикс своему ответу.
+        assertTrue(instruction.contains("«ник:»"),
+                "запрет ставить «ник:» в начале ответа обязан быть в инструкции");
+    }
+
+    @Test
+    void repliesAlreadyAnsweredDoNotGetIntoTheTask() {
+        // Просящий ответил последним — неотвеченного блока нет. Указывать не на что,
+        // но и отказывать незачем: подсказка строится по переписке целиком.
+        contextOfChat3(List.of(),
+                List.of(json("yamam", "привет"), json("gyattalert", "привет, как сам?")));
+
+        String instruction = promptFor("yamam").systemInstruction();
+
+        assertTrue(instruction.contains("Ответь по смыслу переписки"),
+                "без неотвеченных реплик задание сводится к переписке целиком, было: " + instruction);
+        assertFalse(instruction.contains("«привет»"),
+                "реплика, на которую просящий уже ответил, заданием быть не должна");
     }
 
     @Test
