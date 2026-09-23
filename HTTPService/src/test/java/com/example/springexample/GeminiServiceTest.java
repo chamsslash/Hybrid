@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -19,7 +18,7 @@ class GeminiServiceTest {
     @Test
     void buildCompletionRequestBody_usesModelFromConfig_andWiresSystemInstructionSeparately() {
         ReflectionTestUtils.setField(service, "model", "gemini-2.5-flash-lite");
-        GeminiPrompt prompt = service.BuildJsonPrompt("system task", Map.of("alice", List.of("hi")));
+        GeminiPrompt prompt = service.BuildJsonPrompt("system task", List.of(new ChatContextMessage("alice", "hi")));
 
         JsonObject body = service.buildCompletionRequestBody(prompt, null);
 
@@ -34,7 +33,7 @@ class GeminiServiceTest {
 
     @Test
     void buildCompletionRequestBody_withResponseSchema_addsStructuredOutputConfig() {
-        GeminiPrompt prompt = service.BuildJsonPrompt("sys", Map.of("bob", List.of("hey")));
+        GeminiPrompt prompt = service.BuildJsonPrompt("sys", List.of(new ChatContextMessage("bob", "hey")));
         JsonObject schema = new JsonObject();
         schema.addProperty("type", "OBJECT");
 
@@ -47,7 +46,7 @@ class GeminiServiceTest {
 
     @Test
     void buildJsonPrompt_buildsOneContentTurnPerMessage_withUserRole() {
-        GeminiPrompt prompt = service.BuildJsonPrompt("system task", Map.of("alice", List.of("hi")));
+        GeminiPrompt prompt = service.BuildJsonPrompt("system task", List.of(new ChatContextMessage("alice", "hi")));
 
         assertEquals(1, prompt.contents().size());
         JsonObject turn = prompt.contents().get(0).getAsJsonObject();
@@ -59,7 +58,10 @@ class GeminiServiceTest {
     void buildJsonPrompt_multipleMessagesFromSameUser_areNotCollapsedIntoLastOne() {
         // Регрессия: старый Yandex-код мутировал один и тот же JsonObject по ссылке —
         // все сообщения одного юзера схлопывались в последнее при сериализации.
-        GeminiPrompt prompt = service.BuildJsonPrompt("sys", Map.of("alice", List.of("first", "second", "third")));
+        GeminiPrompt prompt = service.BuildJsonPrompt("sys", List.of(
+                new ChatContextMessage("alice", "first"),
+                new ChatContextMessage("alice", "second"),
+                new ChatContextMessage("alice", "third")));
 
         assertEquals(3, prompt.contents().size());
         assertEquals("alice: first",
@@ -71,16 +73,39 @@ class GeminiServiceTest {
     }
 
     @Test
+    void buildJsonPrompt_keepsRepliesInConversationOrderWithTheirAuthors() {
+        // beads j97: раньше метод принимал Map<ник, список реплик> и разворачивал её
+        // по авторам — в промпт уходили «все реплики A, потом все реплики B», да ещё и
+        // в произвольном порядке ключей HashMap. Кто кому отвечал, из такого промпта
+        // не восстановить: ассистент отвечал на что угодно, чаще всего здоровался.
+        GeminiPrompt prompt = service.BuildJsonPrompt("sys", List.of(
+                new ChatContextMessage("alice", "привет"),
+                new ChatContextMessage("bob", "о, привет"),
+                new ChatContextMessage("alice", "как дела?"),
+                new ChatContextMessage("bob", "нормально")));
+
+        assertEquals(List.of("alice: привет", "bob: о, привет", "alice: как дела?", "bob: нормально"),
+                turnTexts(prompt), "реплики обязаны идти в порядке разговора, каждая со своим автором");
+    }
+
+    private static List<String> turnTexts(GeminiPrompt prompt) {
+        return prompt.contents().asList().stream()
+                .map(turn -> turn.getAsJsonObject().getAsJsonArray("parts")
+                        .get(0).getAsJsonObject().get("text").getAsString())
+                .toList();
+    }
+
+    @Test
     void buildJsonPrompt_throwsOnEmptyInput() {
         RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> service.BuildJsonPrompt("system task", Map.of()));
+                () -> service.BuildJsonPrompt("system task", List.of()));
         assertEquals("Empty prompt", ex.getMessage());
     }
 
     @Test
     void requireApiKey_blankKey_throwsClearErrorViaGetAssistantAnswer() {
         ReflectionTestUtils.setField(service, "apiKey", "   ");
-        GeminiPrompt prompt = service.BuildJsonPrompt("sys", Map.of("alice", List.of("hi")));
+        GeminiPrompt prompt = service.BuildJsonPrompt("sys", List.of(new ChatContextMessage("alice", "hi")));
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> service.GetAssistantAnswer(prompt).block());
@@ -91,7 +116,7 @@ class GeminiServiceTest {
     @Test
     void requireApiKey_nullKey_throwsClearErrorViaGetAssistantAnswer() {
         ReflectionTestUtils.setField(service, "apiKey", null);
-        GeminiPrompt prompt = service.BuildJsonPrompt("sys", Map.of("alice", List.of("hi")));
+        GeminiPrompt prompt = service.BuildJsonPrompt("sys", List.of(new ChatContextMessage("alice", "hi")));
 
         assertThrows(IllegalStateException.class, () -> service.GetAssistantAnswer(prompt).block());
     }

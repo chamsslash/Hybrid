@@ -8,7 +8,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveListOperations;
-import org.springframework.data.redis.core.ReactiveSetOperations;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -39,10 +38,8 @@ class ChatBoxStompControllerTest {
     @SuppressWarnings("unchecked")
     private ChatBoxStompController controller() {
         ReactiveRedisTemplate<String, String> redis = Mockito.mock(ReactiveRedisTemplate.class);
-        ReactiveSetOperations<String, String> set = Mockito.mock(ReactiveSetOperations.class);
         Mockito.when(redis.opsForList()).thenReturn(list);
-        Mockito.when(redis.opsForSet()).thenReturn(set);
-        Mockito.when(list.leftPush(Mockito.anyString(), Mockito.anyString())).thenReturn(Mono.just(1L));
+        Mockito.when(list.rightPush(Mockito.anyString(), Mockito.anyString())).thenReturn(Mono.just(1L));
         Mockito.when(list.size(Mockito.anyString())).thenReturn(Mono.just(1L));
         Mockito.when(redis.expire(Mockito.anyString(), Mockito.any())).thenReturn(Mono.just(true));
 
@@ -118,7 +115,7 @@ class ChatBoxStompControllerTest {
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
     }
 
     @Test
@@ -165,7 +162,7 @@ class ChatBoxStompControllerTest {
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
     }
 
     /** Тот же контракт членства, что и для сообщений чата, но для статуса набора текста (beads g9x). */
@@ -183,7 +180,7 @@ class ChatBoxStompControllerTest {
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
     }
 
     /**
@@ -203,7 +200,7 @@ class ChatBoxStompControllerTest {
         Mockito.verify(template, Mockito.never()).convertAndSend(Mockito.anyString(), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
     }
 
     /**
@@ -727,7 +724,7 @@ class ChatBoxStompControllerTest {
                 .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(chatListController, Mockito.never()).ChangeChatPreview(Mockito.any(), Mockito.any());
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
         // Отбивка отправителю + счётчик: подделка ключа — ровно тот отказ, который клиент
         // может повторять, и стоить он ему должен (beads isf).
         Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
@@ -779,7 +776,7 @@ class ChatBoxStompControllerTest {
         Mockito.verify(template, Mockito.never())
                 .convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
         Mockito.verify(kafkaProducer, Mockito.never()).send(Mockito.anyString(), Mockito.anyString());
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
         Mockito.verify(errorNotifier).sendToUser(Mockito.eq("9"), Mockito.eq("5"),
                 Mockito.eq("EMPTY_MESSAGE"), Mockito.notNull(), Mockito.isNull());
         // В счётчик отказов НЕ идёт: отказ выносится до единого gRPC-вызова и серверу
@@ -808,7 +805,7 @@ class ChatBoxStompControllerTest {
         // Рассылка при этом состоялась — проверяем именно отсутствие записи в контекст,
         // а не отказ целиком.
         Mockito.verify(template).convertAndSend(Mockito.eq("/mutual/chat/5"), Mockito.any(Object.class));
-        Mockito.verify(list, Mockito.never()).leftPush(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(list, Mockito.never()).rightPush(Mockito.anyString(), Mockito.anyString());
     }
 
     /** Обратная сторона: обычное текстовое сообщение в контекст AI по-прежнему попадает. */
@@ -823,7 +820,9 @@ class ChatBoxStompControllerTest {
 
         controller().HandleChatMessage("5", principal, null, "sess-1", dto);
 
-        Mockito.verify(list).leftPush(Mockito.anyString(), Mockito.anyString());
+        // Именно rightPush и именно в ключ окна (beads j97): реплика дописывается в ХВОСТ,
+        // иначе контекст читается наизнанку и ассистент отвечает на первое сообщение чата.
+        Mockito.verify(list).rightPush("newmessages-5", "{\"user\":\"Дима\",\"message\":\"привет\"}");
     }
 
     /**

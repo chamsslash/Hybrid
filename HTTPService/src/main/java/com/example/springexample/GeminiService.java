@@ -18,7 +18,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Map;
 
 @Service
 @Slf4j
@@ -144,18 +143,20 @@ public class GeminiService {
         return schema;
     }
 
-    public GeminiPrompt BuildJsonPrompt(String SystemTask, Map<String, List<String>> Username_Mesage) {
-        if (Username_Mesage.keySet().isEmpty()) {
+    /**
+     * Диалог приходит списком в порядке разговора, а не мапой «ник -> его реплики»
+     * (beads j97): мапа разворачивалась по авторам («все реплики A, потом все реплики B»,
+     * порядок ключей `HashMap` произволен), и восстановить из промпта, кто кому отвечал,
+     * было нельзя — ассистент отвечал на случайную реплику, чаще всего здоровался.
+     * Каждая реплика — отдельный turn `role: user` с текстом «ник: сообщение».
+     */
+    public GeminiPrompt BuildJsonPrompt(String SystemTask, List<ChatContextMessage> Dialog) {
+        if (Dialog.isEmpty()) {
             throw new RuntimeException("Empty prompt");
         }
         JsonArray contents = new JsonArray();
-        for (Map.Entry<String, List<String>> entry : Username_Mesage.entrySet()) {
-            for (String mess : entry.getValue()) {
-                contents.add(userTurn(entry.getKey() + ": " + mess));
-            }
-        }
-        if (contents.size() == 0) {
-            throw new RuntimeException("Empty prompt");
+        for (ChatContextMessage line : Dialog) {
+            contents.add(userTurn(line.user() + ": " + line.message()));
         }
         return new GeminiPrompt(SystemTask, contents);
     }
