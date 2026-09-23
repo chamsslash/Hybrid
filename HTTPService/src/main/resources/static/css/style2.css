@@ -476,14 +476,29 @@ body {
     list-style: none;
     overflow-y: auto;
 }
+/* Строка состава — кнопка (клик открывает мини-профиль участника), поэтому к геометрии
+   добавлен сброс вида кнопки: это область клика, а не элемент управления со своей рамкой
+   и фоном, тот же приём, что у .chat-info-button. width: 100% обязателен — кнопка по
+   умолчанию ужимается до содержимого, и строки получились бы разной ширины, а зона клика
+   — по длине ника. */
 .member-row {
     display: flex;
     align-items: center;
     gap: 12px;
+    width: 100%;
     padding: 8px 10px;
+    border: none;
     border-radius: 12px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
 }
 .member-row:hover { background: var(--surface-2); }
+/* outline-offset отрицательный: у списка стоит overflow-y: auto, и рамка, нарисованная
+   снаружи строки, обрезалась бы этим скроллом. */
+.member-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .member-avatar {
     width: 40px;
     height: 40px;
@@ -1467,6 +1482,74 @@ body {
 }
 
 /* ============================================================
+   МИНИ-ПРОФИЛЬ УЧАСТНИКА
+   ============================================================ */
+/* Карточка «кто это»: крупная аватарка, ник, ID — ровно то, что несёт ChatMemberView.
+   Переиспользует .modal-overlay/.modal-card состава: жесты закрытия, затемнение и
+   поведение [hidden] у них одни и те же, и второй вариант модалки на экране выглядел бы
+   чужим.
+
+   Свой z-index, а не порядок в разметке: карточку открывают в том числе ИЗ модалки
+   состава, то есть она обязана лежать над ней. Оба оверлея с z-index: 100 разложил бы по
+   стопке порядок в DOM — невидимая связь, которую ломает любая перестановка блоков в
+   CHAT_HTML. */
+.mini-profile-overlay { z-index: 110; }
+
+/* Уже, чем 380px состава: там список строк во всю ширину, здесь — одна аватарка с двумя
+   подписями по центру, и широкая карточка вокруг неё выглядит пустой. */
+.mini-profile-card { max-width: 300px; }
+
+/* Скролл на теле, а не на карточке: у .modal-card стоит overflow: hidden при
+   max-height: 70vh, и без прокрутки на теле переполнение просто обрезалось бы — в
+   ландшафте телефона первым уехал бы ID под нижним краем. Сама аватарка при такой высоте
+   к тому же уменьшается, см. media-query по высоте в RESPONSIVE. */
+.mini-profile-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 18px 24px;
+    overflow-y: auto;
+}
+
+/* Размер задан через контейнер (.mini-profile-avatar), как у .profile-avatar и
+   .chat-side-head: селектор из двух классов, и media-query `.avatar-ph { width: 46px }`
+   из RESPONSIVE его не перебивает — в отличие от односоставных .member-avatar и
+   .chip-avatar, которым на узком экране это как раз прилетает. */
+.mini-profile-avatar .chat-avatar,
+.mini-profile-avatar .avatar-ph {
+    width: 180px;
+    height: 180px;
+    border-radius: 44px;
+}
+
+.mini-profile-name {
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--ink);
+    text-align: center;
+    /* Ник приходит с сервера и длину не обещает: без переноса длинный распирал бы
+       карточку и вылезал за её край. */
+    word-break: break-word;
+}
+
+.mini-profile-id { font-size: 13px; color: var(--faint); }
+
+/* Аватарка чата в правой колонке — кнопка в личном диалоге (см. #side-avatar-btn в
+   разметке). Вид кнопки снимаем до содержимого; в групповом чате она disabled, и курсор
+   не должен обещать клик. */
+.side-avatar-button {
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 24px;
+    cursor: pointer;
+}
+.side-avatar-button:disabled { cursor: default; }
+.side-avatar-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 
@@ -1579,6 +1662,15 @@ body {
     /* Карточные экраны (список, профиль, создание чата) при такой высоте
        начинались с 30px пустоты сверху. */
     .screen { padding-top: 16px; padding-bottom: 20px; }
+
+    /* Мини-профиль: 70vh от 390px высоты — это 273px на всю карточку, из которых шапка
+       с крестиком забирает 62px. Аватарка 180px с ником и ID туда не помещается, и
+       карточка начинала прокручиваться ради ID. Ужимаем аватарку и отступы тела: 100px +
+       14/18 дают 201px содержимого против 210px доступных — без прокрутки. */
+    .mini-profile-avatar .chat-avatar,
+    .mini-profile-avatar .avatar-ph { width: 100px; height: 100px; border-radius: 26px; }
+
+    .mini-profile-body { padding: 14px 18px 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
