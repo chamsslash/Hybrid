@@ -1,6 +1,9 @@
 // Клиентский роутер SPA на History API.
 // mount(params) рисует экран в #app; unmount() гасит предыдущий (disconnect STOMP + очистка).
 import { getAccessToken } from "/inmemory.js";
+// Кольца здесь нет: auth.js тянет только inmemory.js и meta_catcher.js, обратно на
+// роутер не смотрит.
+import { ensureAccessToken } from "/auth.js";
 // Импорт кольцевой: shell.js в свою очередь импортирует navigate отсюда. Это
 // безопасно ровно потому, что обе стороны используют друг друга только внутри
 // функций — `export function` поднимается, и к моменту первого вызова привязка
@@ -90,7 +93,66 @@ window.addEventListener("popstate", () => {
     renderRoute(path);
 });
 
-export function start() {
+// Экран входа — единственная точка, с которой холодная вкладка обязана сама сходить
+// за сессией.
+//
+// Access-токен живёт только в памяти вкладки (inmemory.js), поэтому после её закрытия
+// его нет НИКОГДА, а refresh-кука в браузере ещё лежит: AuthCookies.REFRESH_TTL — 7
+// дней, HttpOnly, SameSite=Strict, то есть закрытие вкладки её не трогает. Защищённые
+// вью это учитывают и зовут ensureAccessToken() сами (shell.js, chatlist.view.js), а
+// welcome.view.js рисовал форму логина безусловно — и человек, закрывший вкладку с
+// живой сессией, при возврате на голый хост ("/" -> redirect на /welcome) видел вход,
+// хотя сервер был готов выдать токен. Проверено на проде: /exchangeTokens из такой
+// вкладки отвечает 200 с новым access-токеном.
+//
+// Пробуем ТОЛЬКО на /welcome. /registerpage намеренно не трогаем: с живой сессией
+// можно осознанно пойти регистрировать второй аккаунт, и уводить оттуда — сюрприз.
+// /authcallback у Google-входа свой обмен, ему посредник не нужен.
+const ENTRY_ROUTE = "/welcome";
+const RESTORED_ROUTE = "/reactive/chatlist";
+
+// Потолок ожидания обмена. Не меньше четырёх секунд: /exchangeTokens на стороне
+// сервера сам ждёт вердикт Gemini по отпечатку до AI_VERDICT_TIMEOUT (MVC_Service),
+// и более тесный лимит рубил бы законное восстановление. Потолок при этом нужен: без
+// него зависшая сеть оставила бы на экране входа вечный спиннер вместо формы, то есть
+// починка одного случая сломала бы более частый.
+const RESTORE_TIMEOUT_MS = 8000;
+
+/**
+ * Молчаливая попытка поднять сессию по refresh-куке.
+ *
+ * Отказ — штатный исход, а не ошибка: у анонима куки просто нет, и сервер отвечает 401.
+ * Поэтому ничего не логируем как error и не показываем тост — дальше рисуется экран
+ * входа, ровно как до этой правки.
+ */
+async function restoreSession() {
+    const spinner = document.getElementById("global-spinner");
+    if (spinner) spinner.style.display = "flex";
+    try {
+        await Promise.race([
+            ensureAccessToken(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("restore timeout")),
+                                                 RESTORE_TIMEOUT_MS)),
+        ]);
+        // replaceState, а не pushState: /welcome не должен оставаться в истории, иначе
+        // «Назад» с восстановленной сессии возвращает на форму входа.
+        currentPath = RESTORED_ROUTE;
+        history.replaceState({}, "", RESTORED_ROUTE);
+    } catch {
+        // сессии нет либо обмен не успел — показываем вход
+    } finally {
+        if (spinner) spinner.style.display = "none";
+    }
+}
+
+export async function start() {
     currentPath = location.pathname + location.search;
+    const url = new URL(currentPath, location.origin);
+    // ?error=... ставит редирект после неудачного входа через Google. Сообщение об этой
+    // неудаче — весь смысл такого перехода, и подменять его переходом в список чатов
+    // нельзя: человек не узнает, почему его вернуло.
+    if (url.pathname === ENTRY_ROUTE && !url.searchParams.has("error")) {
+        await restoreSession();
+    }
     return renderRoute(currentPath);
 }
