@@ -301,7 +301,6 @@ body {
 /* ============================================================
    AVATARS (shared: list + chat)
    ============================================================ */
-.message-avatar,
 .chat-avatar-container {
     display: flex;
     align-items: center;
@@ -731,7 +730,53 @@ body {
     animation: bubble-in .22s ease both;
 }
 .message strong { font-size: 12.5px; font-weight: 700; letter-spacing: -.01em; }
-.message .message-avatar { display: none; } /* avatar not needed inside the bubble */
+
+/* Строка ленты: аватарка СНАРУЖИ пузыря, сбоку от него. Разметка рисовала аватарку и
+   раньше, но внутри .message-header — в одной flex-строке с ником и временем, — и
+   редизайн (Iris & Ember) погасил её `display: none` вместо того, чтобы вынести из
+   пузыря. Просто снять скрытие было нельзя: .message — это сам пузырь (flex-колонка,
+   max-width: 78%), и аватарка встала бы ВНУТРЬ него первым элементом строки с ником.
+   Поэтому появился ряд-обёртка, и сторону задаёт он, а не align-self у пузыря: у своих
+   ряд разворачивается row-reverse — аватарка уходит вправо, пузырь прижимается к правому
+   краю тем же main-start; у входящих обычный порядок, всё слева.
+   align-items: flex-end — аватарка у нижнего края пузыря: у сообщения в несколько строк
+   выровненная по верху аватарка читается как оторванная от него. */
+.message-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+}
+.message-row.user { flex-direction: row-reverse; }
+
+/* Аватарка — кнопка: клик открывает мини-профиль отправителя. Вид кнопки сбрасываем до
+   содержимого по тому же принципу, что у .chat-info-button: это область клика, а не
+   элемент управления со своей рамкой и фоном. */
+.message-avatar-btn {
+    display: flex;
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 11px;
+    cursor: pointer;
+}
+.message-avatar-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 34px, а не 52px от .chat-avatar: та величина — размер строки списка чатов, в ленте она
+   на 360px отнимает у пузыря половину той ширины, что он теряет на аватарку. Размер
+   задаётся своим классом на самой картинке — тем же приёмом, что у .member-avatar и
+   .chip-avatar. Второй селектор двухсоставный по той же причине, что .avatar-ph.sticker-image:
+   в RESPONSIVE ниже .avatar-ph переопределяется на 46x46, и односоставное правило проиграло
+   бы ему только на узком экране — то есть ровно там, где места меньше всего. */
+.message-avatar {
+    width: 34px;
+    height: 34px;
+    object-fit: cover;
+    border-radius: 11px;
+    background-color: var(--surface-2);
+    flex-shrink: 0;
+}
+.avatar-ph.message-avatar { width: 34px; height: 34px; border-radius: 11px; }
 
 /* Шапка пузыря: имя, ID и время в одну строку с гарантированным зазором (beads 9kn).
    Раньше время висело на float: right внутри сжатого по контенту пузыря и склеивалось
@@ -765,7 +810,6 @@ body {
 .message.user .message-header .message-time { color: rgba(255,255,255,.75) !important; }
 
 .message.bot {
-    align-self: flex-start;
     background: var(--surface-2);
     color: var(--ink);
     border-bottom-left-radius: 5px;   /* left tail */
@@ -774,7 +818,6 @@ body {
 .message.bot strong { color: var(--accent-600); }
 
 .message.user {
-    align-self: flex-end;
     background: var(--accent-grad);
     color: #fff;
     border-bottom-right-radius: 5px;  /* right tail */

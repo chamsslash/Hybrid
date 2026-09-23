@@ -194,9 +194,20 @@ function avatarHtml(key) {
 
 function appendChatMessage({ user_id: senderId, username, timestamp, text, imageurl, image_url, sticker_key }) {
     const container = document.getElementById('chatMessages');
+    const mine = String(senderId) === String(user_id);
+
+    // Ряд = аватарка + пузырь, аватарка СНАРУЖИ пузыря (см. .message-row в style2.css).
+    // Аватарку показываем у каждого сообщения, а не только у первого в серии одного
+    // автора: серию пришлось бы вычислять по предыдущему узлу ленты, а порядок прихода
+    // сообщений по STOMP не совпадает с порядком истории — при догрузке и при отбивках
+    // группировка разъезжалась бы, и «лишняя» аватарка стоила бы дешевле пропавшей.
+    const row = document.createElement('div');
+    row.classList.add('message-row');
+    row.classList.add(mine ? 'user' : 'bot');
+
     const msg = document.createElement('div');
     msg.classList.add('message');
-    msg.classList.add(String(senderId) === String(user_id) ? 'user' : 'bot');
+    msg.classList.add(mine ? 'user' : 'bot');
 
     // Стикер рисуется без пузыря (beads a22): фон, рамку и тень снимает класс .sticker,
     // а сама картинка едет тем же путём, что аватарки, — плейсхолдер + hydrateImages,
@@ -208,6 +219,23 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
     if (isSticker) msg.classList.add('sticker');
 
     const img = imageurl ?? image_url;
+
+    // Аватарка отправителя — кнопка: клик открывает его мини-профиль. Ник и ключ картинки
+    // едут в dataset, а не интерполяцией в разметку: ник приходит с сервера, и
+    // пользовательский текст в HTML здесь не попадает вовсе — по той же причине, что
+    // расписана ниже для текста сообщения.
+    const avatarBtn = document.createElement('button');
+    avatarBtn.type = 'button';
+    avatarBtn.className = 'message-avatar-btn';
+    avatarBtn.setAttribute('aria-haspopup', 'dialog');
+    avatarBtn.setAttribute('aria-label', 'Показать профиль отправителя');
+    avatarBtn.dataset.userId = senderId ?? '';
+    avatarBtn.dataset.username = username ?? '';
+    // Имя атрибута НЕ data-image-key: этой меткой image_loader помечает узлы под подстановку
+    // байтов, и кнопка попала бы в выборку hydrateImages как ещё одна картинка.
+    avatarBtn.dataset.avatarKey = img ?? '';
+    avatarBtn.innerHTML = policy.createHTML(imageTag(img, 'message-avatar', 'аватарка отправителя'));
+
     // Шапка — flex-строка, а не float (beads 9kn): пузырь сообщения сжимается по контенту
     // (.message max-width: 78%), поэтому float: right у времени не находил свободного места
     // и приклеивался вплотную к ID — «ID: 122 авг., 13:05». Время отжимается вправо через
@@ -222,7 +250,6 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
     // без форматирования, а превью в списке чатов уже проставляется через textContent.
     msg.innerHTML = policy.createHTML(`
         <div class="message-header">
-            <div class="message-avatar">${avatarHtml(img)}</div>
             <strong class="message-username"></strong>
             <strong class="message-senderid"></strong>
             <span class="message-time">${formatMessageTimestamp(timestamp)}</span>
@@ -237,8 +264,9 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
         msg.querySelector('.message-text').textContent = text ?? '';
     }
 
-    container.appendChild(msg);
-    hydrateImages(msg);
+    row.append(avatarBtn, msg);
+    container.appendChild(row);
+    hydrateImages(row);
     container.scrollTop = container.scrollHeight;
 }
 
