@@ -165,4 +165,51 @@ class AiAssistPromptContextTest {
         assertFalse(prompt.systemInstruction().contains("«»"),
                 "пустой якорь в кавычках в инструкцию попасть не должен");
     }
+
+    // --- неудача генерации не должна выглядеть как подсказка (beads n2f) ---
+
+    @Test
+    void emptyContextIsRefusedWithUnprocessableAndNotAsASuggestion() {
+        // В чате ещё нет сообщений: собирать промпт не из чего.
+        contextOfChat3(List.of(), List.of());
+
+        ResponseEntity<String> response = service().aiAssistHandler(SUNNY, "yamam", "3").block();
+
+        assertNotNull(response, "хендлер обязан вернуть ответ, а не пустой Mono");
+        // Именно НЕ 200: фронт отличает подсказку от неудачи по статусу, и на 2xx он
+        // показывает панель с кнопкой «Вставить». Прежний 200 с текстом в теле означал,
+        // что пользователю предлагают отправить сообщение об ошибке в чат.
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, response.getStatusCode(),
+                "пустой контекст — это «генерировать нечего», а не ответ ассистента");
+        Mockito.verify(gemini, Mockito.never()).GetAssistantAnswer(Mockito.any());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("нет сообщений"),
+                "тело объясняет человеку, почему не вышло, было: " + response.getBody());
+    }
+
+    @Test
+    void generationFailureIsRefusedWithServiceUnavailableAndLeaksNoInternals() {
+        contextOfChat3(List.of(), List.of(json("gyattalert", "привет")));
+        // service() сам стабит GetAssistantAnswer на успешный ответ, поэтому отказ ставим
+        // ПОСЛЕ его вызова — иначе он затрёт этот стаб и тест проверит сытый путь.
+        WEBFLUX_Service service = service();
+        // Сообщение настоящего отказа: ровно так падает requireApiKey() в GeminiService,
+        // и до этой правки его текст уезжал пользователю как готовая подсказка.
+        Mockito.doReturn(Mono.error(new IllegalStateException(
+                        "Gemini API key is not set (empty or missing) in environment variable: GEMINI_API_KEY")))
+                .when(gemini).GetAssistantAnswer(Mockito.any());
+
+        ResponseEntity<String> response = service.aiAssistHandler(SUNNY, "yamam", "3").block();
+
+        assertNotNull(response);
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode(),
+                "сорвавшаяся генерация — это отказ, а не ответ ассистента");
+        assertNotNull(response.getBody());
+        // Текст исключения наружу не отдаётся: имя переменной окружения пользователю
+        // бесполезно, а в чат такую строку раньше можно было вставить одной кнопкой.
+        assertFalse(response.getBody().contains("GEMINI_API_KEY"),
+                "внутренности наружу не уезжают, было: " + response.getBody());
+        assertFalse(response.getBody().contains("Извините, сервис временно недоступен"),
+                "прежняя формулировка приехала бы с кодом 200 — её быть не должно");
+    }
 }
