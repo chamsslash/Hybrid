@@ -211,7 +211,11 @@ public class ChatBoxStompController {
                         // Mono не выполнится без подписки (fire-and-forget — не блокируем STOMP-поток
                         // ожиданием Redis; addMessage() раньше вообще не подписывался нигде, поэтому
                         // AI-assist всегда видел пустой контекст).
-                        contextService.addMessage(username, chatMessageDTO.getText())
+                        // Время фрейма едет в контекст вместе с репликой (beads u8m): запись
+                        // асинхронная и гоняется с соседними, поэтому порядок в контексте
+                        // задаётся этой меткой, а не очерёдностью, в которой доедут записи.
+                        // Метка — та же, что уходит в ленту и в Kafka (serverTimestamp выше).
+                        contextService.addMessage(username, chatMessageDTO.getText(), serverTimestamp)
                                 .subscribe(v -> {}, err -> log.error("Не удалось сохранить сообщение в Redis-контекст чата", err));
                     }
 
