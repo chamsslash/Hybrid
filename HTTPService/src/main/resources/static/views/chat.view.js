@@ -50,12 +50,14 @@ const CHAT_HTML = `
             </div>
         </div>
 
-        <!-- Мини-профиль участника. Открывается из состава чата, из аватарки в ленте и
-             из аватарки в шапке личного диалога. Содержимое — ровно то, что уже приехало
-             в /api/chat полем members: аватарка, ник, ID (ChatMemberView). Отдельного
-             запроса нет и новых полей вроде «был в сети» тоже: их нет ни в ChatMemberView,
-             ни в proto за ним, и добавление потребовало бы правки gRPC-контракта в двух
-             сервисах — это отдельная задача, а не попутная правка экрана.
+        <!-- Карточка крупным планом: либо участник, либо сам чат (см. openProfileCard).
+             Профиль участника открывается из состава чата и из аватарки в ленте, карточка
+             чата — из картинки в шапке и в правой колонке.
+             Содержимое профиля — ровно то, что уже приехало в /api/chat полем members:
+             аватарка, ник, ID (ChatMemberView). Отдельного запроса нет и новых полей вроде
+             «был в сети» тоже: их нет ни в ChatMemberView, ни в proto за ним, и добавление
+             потребовало бы правки gRPC-контракта в двух сервисах — это отдельная задача,
+             а не попутная правка экрана.
              Стоит ПОСЛЕ модалки состава: карточку открывают в том числе из неё, и лежать
              она обязана сверху. На порядок в разметке при этом не полагаемся — у оверлея
              свой z-index, см. .mini-profile-overlay. -->
@@ -63,14 +65,17 @@ const CHAT_HTML = `
             <div class="modal-card mini-profile-card" role="dialog" aria-modal="true"
                  aria-labelledby="mini-profile-name">
                 <div class="modal-head">
-                    <h3>Профиль</h3>
+                    <h3 id="mini-profile-kind">Профиль</h3>
                     <button type="button" id="mini-profile-close" class="modal-close"
                             aria-label="Закрыть">✕</button>
                 </div>
                 <div class="mini-profile-body">
                     <div class="chat-avatar-container mini-profile-avatar" id="mini-profile-avatar"></div>
                     <span class="mini-profile-name" id="mini-profile-name"></span>
-                    <span class="mini-profile-id" id="mini-profile-id"></span>
+                    <!-- Подпись под именем: у человека это его ID, у чата — число участников.
+                         Поэтому элемент называется meta, а не id: одна и та же карточка
+                         показывает и участника, и сам чат (см. openProfileCard). -->
+                    <span class="mini-profile-meta" id="mini-profile-meta"></span>
                 </div>
             </div>
         </div>
@@ -139,14 +144,15 @@ const CHAT_HTML = `
          Прячется media-query ниже 1100px. -->
     <aside class="chat-side">
         <div class="chat-side-head">
-            <!-- Кнопка вокруг аватарки ведёт в профиль собеседника, но только в личном
-                 диалоге: в шапке стоит картинка ЧАТА, и в диалоге она по смыслу совпадает
-                 с собеседником, а в групповом чате вела бы в профиль чата, которого в
-                 системе нет. В групповом кнопка выключается из renderMembers — выключенная
-                 кнопка остаётся картинкой и не обещает клика, тогда как ведущая в никуда
-                 обещала бы. -->
+            <!-- Кнопка вокруг аватарки показывает картинку ЧАТА крупно — ту самую, на
+                 которую нажали. Раньше она вела в профиль собеседника: считалось, что в
+                 личном диалоге картинка чата и есть собеседник. Это неверно, как только у
+                 диалога есть своя загруженная картинка, — вместо неё открывалась чужая
+                 аватарка; а в групповом чате кнопка по той же логике выключалась и
+                 картинка не открывалась вовсе. Профиль человека открывается там, где на
+                 человека и нажимают: состав чата и аватарки в ленте. -->
             <button type="button" id="side-avatar-btn" class="side-avatar-button"
-                    aria-haspopup="dialog" aria-label="Показать профиль собеседника">
+                    aria-haspopup="dialog" aria-label="Показать картинку чата">
                 <div class="chat-avatar-container" id="side-avatar"></div>
             </button>
             <span class="chat-side-title" id="side-title"></span>
@@ -163,6 +169,15 @@ let chat_title = '';
 let user_id = null;
 let user_name = null;
 let user_image = null;
+
+// Картинка и показанное название ЧАТА — для карточки чата (клик по картинке в шапке или
+// в правой колонке). Держим в состоянии модуля, а не читаем из разметки: ключ объекта в
+// DOM не лежит вовсе — hydrateImages подменяет плейсхолдер на <img> с blob-URL, и ключ из
+// него уже не достать. Название тоже отсюда, чтобы у него не появилось двух источников.
+// chat_title рядом не годится: это параметр маршрута, он бывает пустым (переход по прямой
+// ссылке), настоящее название приезжает в /api/chat.
+let chat_image = null;
+let chat_display_title = '';
 
 let typingUsers = [];
 let stompClient = null;
@@ -317,6 +332,12 @@ function appendChatMessage({ user_id: senderId, username, timestamp, text, image
 
 function renderHeader(data) {
     const title = data.title || chat_title;
+    chat_display_title = title;
+    // 'pending' сюда класть нельзя: это маркер «картинка ещё едет в MinIO», и карточка
+    // чата показала бы по нему пустую заглушку вместо честного отсутствия картинки.
+    // Настоящий ключ придёт событием на /mutual/chat_image/{chatId}, см.
+    // updateChatHeaderAvatar — он же обновит и это поле.
+    chat_image = data.chatImageUrl === 'pending' ? '' : (data.chatImageUrl || '');
     // Название и аватарка стоят в двух местах: шапка чата и правая колонка. Оба
     // заполняются одинаково — какая из них видна, решает media-query.
     for (const id of ['chat-title', 'side-title']) {
@@ -344,17 +365,6 @@ function renderMembers(members) {
     chatMembers = list;
     renderAiRecipients(list);
     renderMembersList(list);
-    const sideBtn = document.getElementById('side-avatar-btn');
-    if (sideBtn) sideBtn.disabled = !dialogPeer();
-}
-
-// Собеседник личного диалога — или null, если чат групповой. «Личный» здесь ровно
-// «участников не больше двух»: другого признака в /api/chat нет, тип чата сервер не
-// отдаёт. Чат с самим собой (один участник) тоже считаем диалогом — собеседником в нём
-// оказывается сам пользователь, и карточка показывает его же, что честно.
-function dialogPeer() {
-    if (chatMembers.length > 2) return null;
-    return chatMembers.find(m => String(m.userId) !== String(user_id)) || chatMembers[0] || null;
 }
 
 function renderAiRecipients(members) {
@@ -450,30 +460,60 @@ function closeMembers() {
     document.getElementById('chat-info-btn')?.focus();
 }
 
-// --- мини-профиль участника ---
+// --- карточка: участник или сам чат ---
 
-// person — ChatMemberView или собранный из полей сообщения объект той же формы:
-// { userId, username, imageUrl }. opener передаётся явно, а не берётся из
-// document.activeElement: Safari не переводит фокус на кнопку по клику, и там
-// activeElement оказался бы <body> — фокус после закрытия уезжал бы в начало страницы.
-function openMiniProfile(person, opener) {
+// Одна карточка на два случая, потому что показывает она одно и то же: картинку крупно,
+// название и одну строку подписи. Разделять их в две модалки значило бы держать две копии
+// разметки, стилей и работы с фокусом ради разного текста в двух узлах.
+//
+// kind — заголовок карточки («Профиль» / «Чат»), meta — строка под названием.
+// opener передаётся явно, а не берётся из document.activeElement: Safari не переводит
+// фокус на кнопку по клику, и там activeElement оказался бы <body> — фокус после закрытия
+// уезжал бы в начало страницы.
+function openProfileCard({ kind, imageUrl, title, meta }, opener) {
     const overlay = document.getElementById('profile-overlay');
-    if (!overlay || !person) return;
+    if (!overlay) return;
 
     const box = document.getElementById('mini-profile-avatar');
-    box.innerHTML = policy.createHTML(avatarHtml(person.imageUrl));
+    box.innerHTML = policy.createHTML(avatarHtml(imageUrl));
     hydrateImages(box);
 
-    // Ник — textContent: он приходит с сервера, и интерполяция в разметку уже приводила
-    // к тому, что пользовательский текст рендерился как HTML (см. appendChatMessage).
-    document.getElementById('mini-profile-name').textContent = person.username || 'anon';
-    document.getElementById('mini-profile-id').textContent = `ID: ${person.userId ?? 'anon'}`;
+    // Название — textContent: и ник, и название чата приходят с сервера, а интерполяция
+    // такого текста в разметку уже приводила к тому, что пользовательский текст
+    // рендерился как HTML (см. appendChatMessage).
+    document.getElementById('mini-profile-kind').textContent = kind;
+    document.getElementById('mini-profile-name').textContent = title;
+    document.getElementById('mini-profile-meta').textContent = meta;
 
     profileOpener = opener || null;
     overlay.hidden = false;
     // Фокус на «закрыть» — по той же причине, что и у модалки состава: иначе он остался
     // бы на элементе под затемнением.
     document.getElementById('mini-profile-close')?.focus();
+}
+
+// person — ChatMemberView или собранный из полей сообщения объект той же формы:
+// { userId, username, imageUrl }.
+function openMemberCard(person, opener) {
+    if (!person) return;
+    openProfileCard({
+        kind: 'Профиль',
+        imageUrl: person.imageUrl,
+        title: person.username || 'anon',
+        meta: `ID: ${person.userId ?? 'anon'}`,
+    }, opener);
+}
+
+// Карточка самого чата: та картинка, на которую нажали, крупно. Открывается и в групповом
+// чате, и в личном диалоге — картинка у чата своя в обоих случаях, и подменять её
+// собеседником нельзя (из-за такой подмены и заводился этот фикс).
+function openChatCard(opener) {
+    openProfileCard({
+        kind: 'Чат',
+        imageUrl: chat_image,
+        title: chat_display_title || 'Без названия',
+        meta: `Участников: ${chatMembers.length}`,
+    }, opener);
 }
 
 // Возвращает true, если было что закрывать: по этому признаку обработчик Escape решает,
@@ -743,6 +783,9 @@ function updateChatHeaderAvatar(msg) {
     const message = JSON.parse(msg.body);
     // STOMP-событие картинки несёт objectKey (см. контракт Images-топика).
     if (!message.objectKey || message.objectKey === 'pending') return;
+    // Карточка чата берёт ключ отсюда же: без этой строки она после загрузки картинки
+    // показывала бы заглушку, хотя в шапке картинка уже стоит.
+    chat_image = message.objectKey;
     // Аватарка чата стоит в двух местах — шапка и правая колонка; обновлять надо обе,
     // иначе после загрузки картинки одна из них осталась бы с буквенной заглушкой.
     for (const id of ['chat-header-avatar', 'side-avatar']) {
@@ -962,6 +1005,8 @@ export async function mount(params) {
     user_id = null;
     user_name = null;
     user_image = null;
+    chat_image = null;
+    chat_display_title = '';
     typingUsers = [];
     stompClient = null;
     typingTimeout = null;
@@ -996,17 +1041,15 @@ export async function mount(params) {
 
     // Состав чата: открыть по шапке, закрыть крестиком, кликом по затемнению или Escape.
     document.getElementById('chat-info-btn').addEventListener('click', (e) => {
-        // Клик по картинке в шапке — это «покажи, с кем я говорю». В личном диалоге
-        // ответ однозначен: картинка чата и есть собеседник. В групповом та же картинка
-        // — это картинка ЧАТА, а профиля чата в системе нет (в /api/chat описаны только
-        // люди), поэтому там шапка сохраняет прежнее поведение и открывает состав —
-        // ровно то, что в групповом чате и отвечает на вопрос «кто здесь».
+        // Шапка отвечает на два разных вопроса, и разводим их по месту нажатия: картинка
+        // — «покажи картинку чата крупно», название — «кто здесь».
+        //
+        // Раньше картинка в личном диалоге вела в профиль собеседника: считалось, что в
+        // диалоге картинка чата и есть собеседник. Это неверно — у диалога бывает своя
+        // загруженная картинка, и вместо неё открывалась чужая аватарка.
         if (e.target.closest('#chat-header-avatar')) {
-            const peer = dialogPeer();
-            if (peer) {
-                openMiniProfile(peer, e.currentTarget);
-                return;
-            }
+            openChatCard(e.currentTarget);
+            return;
         }
         openMembers();
     }, { signal: ac.signal });
@@ -1037,7 +1080,7 @@ export async function mount(params) {
             const row = e.target.closest('.member-row');
             if (!row) return;
             const member = chatMembers.find(m => String(m.userId) === row.dataset.userId);
-            if (member) openMiniProfile(member, row);
+            if (member) openMemberCard(member, row);
         }, { signal: ac.signal });
     }
 
@@ -1050,16 +1093,19 @@ export async function mount(params) {
         // Данные берём из самого сообщения, а не ищем отправителя в chatMembers: в
         // карточке показано то же, на что человек нажал, и сообщение автора, которого
         // уже убрали из чата, продолжает открываться.
-        openMiniProfile({
+        openMemberCard({
             userId: btn.dataset.userId,
             username: btn.dataset.username,
             imageUrl: btn.dataset.avatarKey,
         }, btn);
     }, { signal: ac.signal });
 
+    // Картинка в правой колонке — та же картинка чата, что и в шапке, и открывает то же
+    // самое. Кнопка больше никогда не выключается: картинка есть у любого чата, и
+    // выключать её в групповом (как было раньше) означало показывать кликабельную с виду
+    // картинку, которая не открывается.
     document.getElementById('side-avatar-btn').addEventListener('click', (e) => {
-        const peer = dialogPeer();
-        if (peer) openMiniProfile(peer, e.currentTarget);
+        openChatCard(e.currentTarget);
     }, { signal: ac.signal });
 
     // Стикеры (beads a22). Все слушатели вешаются с ac.signal, как и остальные на экране,
@@ -1178,11 +1224,13 @@ export function unmount() {
     // без сброса следующий mount() того же чата в той же вкладке унаследовал бы объект
     // подписки из прошлого (уже разорванного) соединения и/или исчерпанный лимит попыток.
     resetChannelState();
-    // Состав и ссылка на элемент, из которого открыли карточку, — такие же модульные
-    // переменные, как клиенты STOMP: без обнуления следующий заход в ДРУГОЙ чат до
-    // ответа /api/chat считал бы участниками людей из предыдущего (и, например, решил
-    // бы, что групповой чат — это диалог), а ссылка держала бы узел снятой вью.
+    // Состав, картинка с названием чата и ссылка на элемент, из которого открыли
+    // карточку, — такие же модульные переменные, как клиенты STOMP: без обнуления
+    // следующий заход в ДРУГОЙ чат до ответа /api/chat показал бы в карточке картинку,
+    // название и число участников предыдущего чата, а ссылка держала бы узел снятой вью.
     chatMembers = [];
+    chat_image = null;
+    chat_display_title = '';
     profileOpener = null;
     if (ac) ac.abort();
     stomp = null;
