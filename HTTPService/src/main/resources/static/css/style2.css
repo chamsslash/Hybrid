@@ -1534,7 +1534,7 @@ body {
     word-break: break-word;
 }
 
-.mini-profile-id { font-size: 13px; color: var(--faint); }
+.mini-profile-meta { font-size: 13px; color: var(--faint); }
 
 /* Аватарка чата в правой колонке — кнопка в личном диалоге (см. #side-avatar-btn в
    разметке). Вид кнопки снимаем до содержимого; в групповом чате она disabled, и курсор
