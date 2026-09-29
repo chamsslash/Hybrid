@@ -1,4 +1,32 @@
 {{- if .Values.infra.postgres }}
+{{- /*
+  Каталог данных базы. Том монтируется в $mountPath, а сам кластер Postgres живёт
+  в подкаталоге $pgData — см. PGDATA у контейнера ниже, там разобрано зачем.
+*/}}
+{{- $mountPath := "/var/lib/postgresql/data" }}
+{{- $pgData := printf "%s/pgdata" $mountPath }}
+{{- if .Values.postgres.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  labels:
+    app: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.postgres.persistence.storageClassName }}
+  # Рендерится только для непустого значения. Пустая строка в storageClassName —
+  # НЕ «возьми дефолтный класс», а явное «никакого класса»: такой PVC отключает
+  # динамическое провижининг и висит Pending навсегда. Отсутствие поля — вот что
+  # означает «дефолтный SC кластера» (в kind это `standard`/rancher.io/local-path).
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgres.persistence.size | default "5Gi" | quote }}
+---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -22,6 +50,42 @@ metadata:
     app: postgres
 spec:
   replicas: 1
+  strategy:
+    # Инвариант: второй под postgres не должен существовать одновременно с первым.
+    # Том ReadWriteOnce, поэтому иначе либо rollout залипает на неподключаемом томе,
+    # либо (оба пода на одной ноде kind) два процесса Postgres открывают один каталог
+    # данных — второй падает на postmaster.pid, а при неудачном стечении портится
+    # сам каталог.
+    #
+    # Каноничная запись этого инварианта — `type: Recreate`, как у kafka и minio в
+    # этом чарте. Здесь она неприменима, и причина внешняя по отношению к чарту:
+    # деплоймент postgres на живых стендах создан задолго до тома, со strategy по
+    # умолчанию, и API-сервер записал в объект defaulted-блок
+    # spec.strategy.rollingUpdate (maxSurge/maxUnavailable 25%). Этим полем не владеет
+    # ни один field manager, поэтому server-side apply его не вытесняет, а Recreate
+    # вместе с ним невалиден:
+    #   spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy
+    #   `type` is 'Recreate'
+    # `helm upgrade` падает на этом ещё до раскатки — проверено на локальном стенде
+    # (beads ocl). Recreate потребовал бы руками снести поле или весь деплоймент на
+    # каждом живом кластере перед раскаткой, то есть ручного шага на проде ровно там,
+    # где санкционированный путь — прогнать deploy-kind.sh целиком.
+    #
+    # maxSurge: 0 даёт тот же инвариант: суммарное число подов не может превысить
+    # replicas, поэтому контроллер сначала гасит старый под и только потом создаёт
+    # новый. maxUnavailable: 1 разрешает опустить единственный под — без него
+    # rollout не начался бы вовсе.
+    #
+    # Замерено на стенде (beads ocl): объекты подов всё же перекрываются на 1-2
+    # секунды, но старый в этот момент уже в фазе Succeeded с deletionTimestamp —
+    # контейнер остановлен. Двух РАБОТАЮЩИХ процессов Postgres на одном каталоге не
+    # возникает, а если бы возник, второй упал бы на postmaster.pid, а не побил
+    # данные. Именно этим здешнее поведение отличается от Recreate лишь тем, что
+    # Recreate ждёт ещё и удаления самого объекта пода.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: postgres
@@ -45,10 +109,25 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.global.appSecretName | default (printf "%s-app-secrets" .Release.Name) }}
                   key: DB_PASSWORD
+            # Кластер лежит в ПОДкаталоге тома, а не в его корне. initdb отказывается
+            # инициализировать непустой каталог ("directory exists but is not empty"),
+            # а корень примонтированного PV не гарантированно пуст: на ext4-бэкенде
+            # там оказывается lost+found, некоторые провижинеры оставляют свои файлы.
+            # На local-path в kind корень пуст и без подкаталога прошло бы — то есть
+            # прошло бы случайно, и сломалось бы при первой же смене StorageClass.
+            - name: PGDATA
+              value: {{ $pgData | quote }}
           volumeMounts:
             - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+              mountPath: {{ $mountPath | quote }}
       volumes:
         - name: postgres-data
+        {{- if .Values.postgres.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: postgres-data
+        {{- else }}
+          # Режим эфемерного стенда (postgres.persistence.enabled=false): данные
+          # живут ровно до пересоздания пода. См. комментарий в values.yaml.
           emptyDir: {}
+        {{- end }}
 {{- end }}
