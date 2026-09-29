@@ -234,6 +234,23 @@ postgres:
   database: hybrid_db
   username: postgres
   # password comes from the app Secret (secrets.dbPassword -> DB_PASSWORD)
+  # Постоянный том базы (beads ocl). До него том был emptyDir, и любое
+  # пересоздание пода стирало все аккаунты и переписку безвозвратно — а спека пода
+  # меняется на каждой раскатке образа, то есть терять данные было нормой, а не
+  # аварией. Остальной чарт к этому моменту уже был на PVC (kafka, minio,
+  # prometheus, tempo) — база оставалась единственным исключением.
+  persistence:
+    # false — эфемерный стенд «на выброс»: том снова emptyDir со всеми
+    # последствиями выше. Осознанный режим, не дефолт.
+    enabled: true
+    # Каталог данных кластера Postgres. 5Gi с запасом: расширение потребует
+    # пересоздания PVC — local-path в kind не умеет ALLOWVOLUMEEXPANSION.
+    size: 5Gi
+    # Пусто — «дефолтный StorageClass кластера» (в kind это `standard`,
+    # rancher.io/local-path). Шаблон в этом случае НЕ рендерит поле вовсе:
+    # storageClassName: "" в манифесте означает противоположное — «класса нет»,
+    # динамический провижининг отключён, PVC навсегда Pending.
+    storageClassName: ""
 
 redis:
   image: redis:7

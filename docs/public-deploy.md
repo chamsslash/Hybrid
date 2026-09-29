@@ -194,6 +194,45 @@ AuthService, а браузер шлёт `Origin` и на **same-origin POST** �
 kubectl -n hybrid-platform logs deploy/httpservice | grep "STOMP handshake"
 ```
 
+## Данные базы и раскатка
+
+`postgres` держит данные на PVC `postgres-data` (`postgres.persistence` в
+`Helm/values.yaml`, beads ocl), поэтому раскатка их не трогает: пересоздание пода —
+штатное событие (спека меняется на каждом новом образе), и до PVC оно стирало все
+аккаунты и переписку.
+
+Что PVC НЕ спасает — том живёт по правилам своего StorageClass, а у `standard` в kind
+`reclaimPolicy: Delete`:
+
+- `kind delete cluster` уносит том вместе с нодой. Это шаг ПЕРВИЧНОЙ раскатки (см.
+  «Раскатка» выше) и на живом стенде выполнять его нельзя;
+- `helm uninstall` удаляет PVC, а с ним и том. Штатная раскатка делает
+  `helm upgrade --install`, то есть этого не происходит.
+
+### Первый прогон на чистом томе требует ВТОРОГО прогона
+
+Когда том создаётся с нуля (включили `persistence`, пересоздали кластер, удалили PVC),
+одной раскатки не хватает, и это следствие порядка хуков, а не ошибка:
+
+1. Liquibase висит на `helm.sh/hook: post-install,pre-upgrade`
+   (`Helm/charts/messegerparody/templates/liquibase-job.yaml`), то есть отрабатывает ДО
+   того, как helm применит новые манифесты;
+2. под postgres подменяется уже на шаге применения — и встаёт на пустом томе;
+3. схемы в новой базе нет. Сервисы при этом не падают: их init-контейнер
+   `wait-for-schema` ждёт появления таблицы `users`, поэтому поды просто висят в
+   `Init:0/1`, а `kubectl rollout status` в скрипте отваливается по таймауту
+   (`deploy-kind.sh` выходит с 1).
+
+Второй прогон `./deploy-kind.sh` попадает хуком уже в новую базу, Liquibase создаёт
+схему, поды доходят до `Running`. Проверено на локальном стенде 2026-09-29.
+
+Перед любым из этих двух шагов данные надо снять дампом:
+
+```
+kubectl -n hybrid-platform exec deploy/postgres -- \
+  pg_dump -U postgres hybrid_db > ~/backups/hybrid_db-$(date +%Y%m%d-%H%M%S).sql
+```
+
 ## Известное ограничение раскатки
 
 `deploy-kind.sh` заново минтит ключи подписи при каждом запуске, и два ключа ведут себя
